@@ -1,0 +1,73 @@
+# =============================================================================
+# Flight Data Dashboard — Git Ignore Rules
+# =============================================================================
+
+# --- MATLAB 자동 생성 파일 ---
+*.asv               # autosave
+*.m~                # backup
+*.mex*              # 컴파일된 MEX
+*.mat               # 큰 데이터 파일 (의도 시 화이트리스트)
+*.fig               # 그림 (선택 — 의도된 fig는 git add -f)
+*.mlapp.bak         # App Designer 백업
+slprj/              # Simulink build cache
+codegen/            # MATLAB Coder 출력
+*.slxc              # Simulink 캐시
+*.autosave          # 일반 autosave
+octave-workspace    # Octave (혹시)
+
+# --- MATLAB Compiler / Deployment ---
+mcr_cache/
+*.ctf
+*.exe
+*.dll
+*.lib
+*.exp
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Git / 도구 ---
+.merge_file_*
+*.orig
+*.rej
+
+# --- 본 프로젝트 특화: 백업 / 임시 폴더 ---
+all/                        # 평면 백업본 (root/ 만 추적)
+gemini/                     # 외부 LLM 작업 백업
+grok/                       # 외부 LLM 작업 백업
+*/files.zip                 # LLM 백업 zip
+merged_output_*.m           # 임시 머지 파일
+function_catalog*.csv       # 자동 생성 카탈로그
+function_catalog_slides.md  # 자동 생성 슬라이드
+
+# --- HTML/이미지 (선택적 추적) ---
+# - 루트의 임시 HTML 제외, docs/ 하위는 허용
+# - 다이어그램 PNG는 docs/ 또는 .images/ 에 두고 force-add 권장
+/*.html
+/*.png
+!docs/**/*.html
+!docs/**/*.png
+
+# --- 영상/대용량 데이터 (GitHub LFS 권장) ---
+*.avi
+*.mp4
+*.mov
+*.mkv
+*.wmv
+*.dat                       # option_flight_area.dat 등 (테스트 fixture는 별도 화이트리스트)
+
+# --- 개발 환경별 ---
+.env
+.env.local
+config.local.*
+
+# --- 화이트리스트 (예외) ---
+!.gitignore
+!.gitattributes
