@@ -16,6 +16,60 @@ classdef AppConstants
         MOCK_STEP_COUNT       = 200     % 모의 데이터 스텝 수
         REQ_KEYS              = {'Time', 'Roll', 'Pitch', 'Heading', 'Alt', 'Lat', 'Lon'}
 
+        % --- Responsive layout profiles ---
+        LAYOUT_PROFILE_WIDE    = 'wide'
+        LAYOUT_PROFILE_MEDIUM  = 'medium'
+        LAYOUT_PROFILE_COMPACT = 'compact'
+        LAYOUT_PROFILE_NARROW  = 'narrow'
+
+        % Figure width breakpoints in effective pixels.
+        LAYOUT_WIDE_MIN_W      = 1700
+        LAYOUT_MEDIUM_MIN_W    = 1450
+        LAYOUT_COMPACT_MIN_W   = 1120
+        LAYOUT_USABLE_MIN_H    = 640
+
+        % DPI scale caps by profile. Small MATLAB Online viewports should
+        % not inflate fixed panel widths just because browser/OS scaling is high.
+        LAYOUT_SCALE_MAX_WIDE    = 1.25
+        LAYOUT_SCALE_MAX_MEDIUM  = 1.10
+        LAYOUT_SCALE_MAX_COMPACT = 1.00
+        LAYOUT_SCALE_MAX_NARROW  = 0.90
+
+        % Design widths for the responsive allocator used by later stages.
+        LAYOUT_ATT_WIDE      = 200
+        LAYOUT_ATT_MEDIUM    = 170
+        LAYOUT_ATT_RAIL      = 56
+        LAYOUT_MAP_WIDE      = 500
+        LAYOUT_MAP_MEDIUM    = 380
+        LAYOUT_MAP_COMPACT   = 320
+        LAYOUT_MAP_RAIL      = 220
+        LAYOUT_INFO_WIDE     = 250
+        LAYOUT_INFO_MEDIUM   = 210
+        LAYOUT_INFO_RAIL     = 64
+        LAYOUT_VIDEO_WIDE    = 500
+        LAYOUT_VIDEO_WIDE_MAX = 900
+        LAYOUT_VIDEO_MEDIUM  = 380
+        LAYOUT_VIDEO_COMPACT = 320
+        LAYOUT_VIDEO_RAIL    = 72
+        LAYOUT_SPLITTER_W    = 8
+        LAYOUT_H_MIN_WIDE    = 320
+        LAYOUT_H_MIN_MEDIUM  = 300
+        LAYOUT_H_MIN_COMPACT = 260
+        LAYOUT_H_MIN_NARROW  = 220
+        LAYOUT_SHORT_VIEW_H  = 760
+        LAYOUT_CHANNEL_MIN_H_WIDE    = 380
+        LAYOUT_CHANNEL_MIN_H_MEDIUM  = 350
+        LAYOUT_CHANNEL_MIN_H_COMPACT = 320
+        LAYOUT_CHANNEL_MIN_H_NARROW  = 300
+
+        % Initial and fit-to-screen figure sizing.
+        FIGURE_INITIAL_W = 1320
+        FIGURE_INITIAL_H = 820
+        FIGURE_MIN_W     = 980
+        FIGURE_MIN_H     = 620
+        FIGURE_MARGIN_X  = 48
+        FIGURE_MARGIN_Y  = 88
+
         % --- Throttle (초) ---
         VIDEO_THROTTLE_S         = 0.05    % 비디오 프레임 갱신 (~20fps)
         SLIDER_THROTTLE_S        = 0.03    % 슬라이더 갱신 (~33fps)

@@ -16,7 +16,16 @@ classdef AttitudePanel
                 'FontSize', 12, 'FontWeight', 'bold', 'BackgroundColor', 'w');
             ui.panelAttitude.Layout.Column = 1;
 
-            gGrid = uigridlayout(ui.panelAttitude, [3 1]);
+            rootGrid = uigridlayout(ui.panelAttitude, [1 1]);
+            rootGrid.Padding = [0 0 0 0];
+            rootGrid.RowSpacing = 0;
+            rootGrid.ColumnSpacing = 0;
+
+            ui.attitudeContent = uipanel(rootGrid, 'BorderType', 'none', 'BackgroundColor', 'w');
+            ui.attitudeContent.Layout.Row = 1;
+            ui.attitudeContent.Layout.Column = 1;
+
+            gGrid = uigridlayout(ui.attitudeContent, [3 1]);
             gGrid.RowHeight = {'1x', '1x', '1x'};
             gGrid.Padding = [2 2 2 2];
             gGrid.RowSpacing = 2;
@@ -30,6 +39,16 @@ classdef AttitudePanel
             ui.hgPitch = gobjects(0);
             ui.hgRoll  = gobjects(0);
             ui.hgHdg   = gobjects(0);
+
+            ui.attitudeRail = uibutton(rootGrid, ...
+                'Text', sprintf('ATT\nP --\nR --\nH --'), ...
+                'FontSize', 10, 'FontWeight', 'bold', ...
+                'BackgroundColor', [0.95 0.97 1.00], ...
+                'FontColor', [0.10 0.18 0.32], ...
+                'Tooltip', 'Flight attitude summary', ...
+                'Visible', 'off');
+            ui.attitudeRail.Layout.Row = 1;
+            ui.attitudeRail.Layout.Column = 1;
         end
 
         function [ax, lbl] = createGauge(parentPnl, titleStr)

@@ -18,11 +18,15 @@ classdef FileController < handle
             obj.Listeners{end+1} = EB('FlightFileRequested', @(~,d) obj.onFlightFile(d));
             obj.Listeners{end+1} = EB('AviFileRequested',    @(~,d) obj.onAviFile(d));
             obj.Listeners{end+1} = EB('CoastFileRequested',  @(~,~) obj.onCoastFile());
+            obj.Listeners{end+1} = EB('ConfigExportRequested', @(~,~) obj.onConfigExport());
+            obj.Listeners{end+1} = EB('ConfigImportRequested', @(~,~) obj.onConfigImport());
         end
         
         function onFlightFile(obj, d), obj.App.handleFlightFile(d.ChannelIdx); end
         function onAviFile(obj, d),    obj.App.loadAviFile(d.ChannelIdx); end
         function onCoastFile(obj),     obj.App.handleCoastFile(); end
+        function onConfigExport(obj),  obj.App.exportConfigInteractive(); end
+        function onConfigImport(obj),  obj.App.importConfigInteractive(); end
         
         % 호환 wrapper (기존 직접 호출 호환)
         function loadAvi(obj, fIdx),    obj.App.loadAviFile(fIdx); end

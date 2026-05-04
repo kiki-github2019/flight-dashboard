@@ -18,7 +18,7 @@
 
 ---
 
-## [0.12.0] — EventBus + High-DPI
+## [0.12.0] — 2026-05-03 EventBus + High-DPI
 
 ### Added
 - **EventBus 아키텍처** — `flightdash.util.EventBus` 싱글톤 + `AppEventData` 페이로드 래퍼로 View↔Controller 결합 제거

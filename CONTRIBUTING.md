@@ -16,7 +16,7 @@ Flight Data Dashboard 프로젝트에 기여해 주셔서 감사합니다.
 ### 첫 셋업
 
 ```bash
-git clone https://github.com/<owner>/flight-dashboard.git
+git clone https://github.com/kiki-github2019/flight-dashboard.git/
 cd flight-dashboard
 ```
 

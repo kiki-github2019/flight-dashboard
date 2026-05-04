@@ -18,6 +18,8 @@ classdef PanelToggleController < handle
             obj.Listeners{end+1} = EB('PanelToggled',      @(~,d) obj.onPanelToggled(d));
             obj.Listeners{end+1} = EB('DebugModeToggled',  @(~,d) obj.onDebugToggled(d));
             obj.Listeners{end+1} = EB('SyncToggled',       @(~,~) obj.onSyncToggled());
+            obj.Listeners{end+1} = EB('LayoutFitRequested', @(~,~) obj.onLayoutFitRequested());
+            obj.Listeners{end+1} = EB('ChannelViewChanged', @(~,d) obj.onChannelViewChanged(d));
         end
         
         function onPanelToggled(obj, d)
@@ -28,6 +30,12 @@ classdef PanelToggleController < handle
         end
         function onSyncToggled(obj)
             obj.App.toggleSync();
+        end
+        function onLayoutFitRequested(obj)
+            obj.App.toggleWindowMaximized();
+        end
+        function onChannelViewChanged(obj, d)
+            obj.App.setChannelViewMode(d.Payload);
         end
         
         % 호환 wrapper

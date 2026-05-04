@@ -1,0 +1,8 @@
+canonical,source_column,unit,scale,offset
+Time,time_s,s,1.0,0
+Roll,Roll,rad,57.2957795130823,0
+Pitch,Pitch,rad,57.2957795130823,0
+Heading,Yaw,rad,57.2957795130823,0
+Alt,Altitude,m,3.28084,0
+Lat,Latitude,deg,1.0,0
+Lon,Longitude,deg,1.0,0

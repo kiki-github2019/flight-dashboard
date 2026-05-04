@@ -8,9 +8,18 @@ classdef MapAltPanel
             % [REFACTOR] app 의존 제거 (사용처 없음)
             ui = struct();
             ui.panelMapAlt = uipanel(dataGrid, 'BorderType', 'none', 'BackgroundColor', panelColor);
-            ui.panelMapAlt.Layout.Column = 2;
+            ui.panelMapAlt.Layout.Column = 3;
+
+            rootGrid = uigridlayout(ui.panelMapAlt, [1 1]);
+            rootGrid.Padding = [0 0 0 0];
+            rootGrid.RowSpacing = 0;
+            rootGrid.ColumnSpacing = 0;
+
+            ui.mapAltContent = uipanel(rootGrid, 'BorderType', 'none', 'BackgroundColor', panelColor);
+            ui.mapAltContent.Layout.Row = 1;
+            ui.mapAltContent.Layout.Column = 1;
             
-            pGrid = uigridlayout(ui.panelMapAlt, [2 1]);
+            pGrid = uigridlayout(ui.mapAltContent, [2 1]);
             pGrid.RowHeight = {'1.5x', '1x'};
             pGrid.Padding = [0 0 0 0];
             
@@ -53,6 +62,16 @@ classdef MapAltPanel
             ui.hAltMarker      = gobjects(0);
             ui.timeLine        = gobjects(0);
             ui.altXLimListener = [];
+
+            ui.mapAltRail = uibutton(rootGrid, ...
+                'Text', sprintf('MAP\nLat --\nLon --\nAlt --'), ...
+                'FontSize', 10, 'FontWeight', 'bold', ...
+                'BackgroundColor', [0.94 0.99 0.97], ...
+                'FontColor', [0.08 0.26 0.18], ...
+                'Tooltip', 'Map and altitude summary', ...
+                'Visible', 'off');
+            ui.mapAltRail.Layout.Row = 1;
+            ui.mapAltRail.Layout.Column = 1;
         end
     end
 end

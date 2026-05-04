@@ -6,15 +6,22 @@ classdef InfoPanel
     methods (Static)
         function ui = build(dataGrid, fIdx)
             % [REFACTOR] app 의존 제거 - ancestor()로 figure 핸들 자동 탐색
-            import flightdash.util.EventBus
-            import flightdash.util.AppEventData
             ui = struct();
             infoPanel = uipanel(dataGrid, 'Title', '현재 비행 정보', ...
                 'FontSize', 13, 'FontWeight', 'bold', ...
                 'BackgroundColor', 'w', 'Scrollable', 'on');
-            infoPanel.Layout.Column = 3;
+            infoPanel.Layout.Column = 5;
+
+            rootGrid = uigridlayout(infoPanel, [1 1]);
+            rootGrid.Padding = [0 0 0 0];
+            rootGrid.RowSpacing = 0;
+            rootGrid.ColumnSpacing = 0;
+
+            ui.infoContent = uipanel(rootGrid, 'BorderType', 'none', 'BackgroundColor', 'w');
+            ui.infoContent.Layout.Row = 1;
+            ui.infoContent.Layout.Column = 1;
             
-            glInfo = uigridlayout(infoPanel, [1 1], 'Padding', [0 0 0 0]);
+            glInfo = uigridlayout(ui.infoContent, [1 1], 'Padding', [0 0 0 0]);
             if fIdx == 1
                 tblBgColor = [0.23 0.51 0.96];
             else
@@ -30,9 +37,35 @@ classdef InfoPanel
             hFigure = ancestor(dataGrid, 'figure');
             cm = uicontextmenu(hFigure);
             uimenu(cm, 'Text', 'H 영역에 Plot 추가 (현재 탭)', ...
-                'MenuSelectedFcn', @(~,~) EventBus.publish('PlotSelected', AppEventData(fIdx)));
+                'MenuSelectedFcn', @(~,~) flightdash.util.EventBus.publish('PlotSelected', flightdash.util.AppEventData(fIdx)));
+            uimenu(cm, 'Text', 'Move Up', 'Separator', 'on', ...
+                'MenuSelectedFcn', @(~,~) flightdash.util.EventBus.publish('InfoOrderMoveRequested', ...
+                    flightdash.util.AppEventData(fIdx, 'up')));
+            uimenu(cm, 'Text', 'Move Down', ...
+                'MenuSelectedFcn', @(~,~) flightdash.util.EventBus.publish('InfoOrderMoveRequested', ...
+                    flightdash.util.AppEventData(fIdx, 'down')));
+            fmtMenu = uimenu(cm, 'Text', 'Value Format', 'Separator', 'on');
+            uimenu(fmtMenu, 'Text', 'Float', ...
+                'MenuSelectedFcn', @(~,~) flightdash.util.EventBus.publish('InfoFormatRequested', ...
+                    flightdash.util.AppEventData(fIdx, 'float')));
+            uimenu(fmtMenu, 'Text', 'Hex', ...
+                'MenuSelectedFcn', @(~,~) flightdash.util.EventBus.publish('InfoFormatRequested', ...
+                    flightdash.util.AppEventData(fIdx, 'hex')));
+            uimenu(fmtMenu, 'Text', 'Bit Map', ...
+                'MenuSelectedFcn', @(~,~) flightdash.util.EventBus.publish('InfoFormatRequested', ...
+                    flightdash.util.AppEventData(fIdx, 'bitmap')));
             ui.dataTable.ContextMenu = cm;
-            ui.dataTable.CellSelectionCallback = @(~, event) EventBus.publish('TableRowSelected', AppEventData(fIdx, event));
+            ui.dataTable.CellSelectionCallback = @(~, event) flightdash.util.EventBus.publish('TableRowSelected', flightdash.util.AppEventData(fIdx, event));
+
+            ui.infoRail = uibutton(rootGrid, ...
+                'Text', sprintf('INFO\nNo data'), ...
+                'FontSize', 10, 'FontWeight', 'bold', ...
+                'BackgroundColor', [0.96 0.96 1.00], ...
+                'FontColor', [0.14 0.16 0.32], ...
+                'Tooltip', 'Current flight information summary', ...
+                'Visible', 'off');
+            ui.infoRail.Layout.Row = 1;
+            ui.infoRail.Layout.Column = 1;
         end
     end
 end

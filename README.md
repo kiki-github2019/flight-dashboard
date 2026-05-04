@@ -1,6 +1,6 @@
 # Flight Data Dashboard
 
-MATLAB App Designer 기반의 비행 데이터 + AVI 영상 동기 리뷰 대시보드.
+uicontorl 함수 기반의 비행 데이터 + AVI 영상 동기 리뷰 대시보드.
 듀얼 채널(2개의 비행 경로)을 동시에 비교 분석할 수 있으며, EventBus + MVC 아키텍처와 비동기 프레임 디코딩을 통해 대용량 영상에서도 부드러운 스크럽이 가능합니다.
 
 ## 주요 기능
@@ -73,44 +73,119 @@ FlightDataDashboard
 
 ```
 root/
-├── FlightDataDashboard.m              호환 wrapper (flightdash.FlightDataDashboard 위임)
-├── asyncDecodeFrame.m                 parfeval worker - 단발성 fallback
-├── asyncDecodeFramePersistent.m       parfeval worker - hot path, persistent VR LRU
-├── cleanupAsyncDecodeCache.m          parfeval worker cleanup
+├── FlightDataDashboard.m              호환 wrapper, flightdash.FlightDataDashboard() 위임
+├── asyncDecodeFrame.m                 parfeval worker, 단발성 fallback
+├── asyncDecodeFramePersistent.m       parfeval worker hot path, persistent VideoReader LRU
+├── cleanupAsyncDecodeCache.m          parfeval worker cache cleanup
+├── option1.dat                        Flight 1 option 기본 파일
+├── option2.dat                        Flight 2 option 기본 파일
+├── README.md / CHANGELOG.md / CONTRIBUTING.md / LICENSE
+├── docs/
 └── +flightdash/
-    ├── FlightDataDashboard.m          본체 클래스 (3,100+ 줄, 95+ 메서드)
+    ├── FlightDataDashboard.m          본체 클래스, 약 6,268줄, function 선언 약 246개
+    │                                  레이아웃, 데이터 로드, video sync, drag,
+    │                                  plot/ROI/range/statistics, config 저장/복원,
+    │                                  responsive layout, 보조 figure 관리 포함
     │
-    ├── +util/                         유틸리티
-    │   ├── ErrorLog.m                 catch 로깅 헬퍼
-    │   ├── Throttle.m                 시간 기반 hit 게이트 (싱글톤)
-    │   ├── TimeFormat.m               frame -> HH:MM:SS.mmm 포맷팅
-    │   ├── AppConstants.m             공유 상수 (MAX_TABS, *_THROTTLE_S 등)
-    │   ├── UIScale.m                  High-DPI 픽셀 스케일러
-    │   ├── EventBus.m                 중앙 이벤트 브로커
-    │   └── AppEventData.m             EventBus 페이로드 래퍼
+    ├── +util/
+    │   ├── ErrorLog.m                 catch 로깅 ring buffer/helper
+    │   ├── Throttle.m                 시간 기반 hit gate singleton
+    │   ├── TimeFormat.m               frame/time 표시 포맷팅
+    │   ├── AppConstants.m             공유 상수, throttle/layout/cache 제한값
+    │   ├── UIScale.m                  High-DPI 및 responsive 픽셀 스케일러
+    │   ├── EventBus.m                 중앙 이벤트 브로커, view-controller 연결
+    │   └── AppEventData.m             EventBus payload wrapper
     │
-    ├── +model/                        데이터/상태 모델
-    │   ├── FrameCacheModel.m          가중 LRU + 메모리 예산
-    │   ├── VideoModel.m               VideoReader 라이프사이클 + 메타
-    │   └── SyncModel.m                Frame <-> Time 변환 (sub-frame 정밀도)
+    ├── +model/
+    │   ├── FrameCacheModel.m          가중 LRU frame cache, byte budget 관리
+    │   ├── VideoModel.m               VideoReader lifecycle, total frame/meta 계산
+    │   └── SyncModel.m                frame-time 변환, sub-frame offset 지원
     │
-    ├── +view/                         UI 빌더 (정적 build)
-    │   ├── HeaderBar.m                상단 헤더 (파일 버튼 + Debug + 동기 입력)
-    │   ├── ChannelLayout.m            채널 패널 + 6컬럼 dataGrid 골격
-    │   ├── AttitudePanel.m            Col 1: Pitch/Roll/Heading 게이지
-    │   ├── MapAltPanel.m              Col 2: Map + Altitude
-    │   ├── InfoPanel.m                Col 3: 현재 비행 정보 테이블
-    │   ├── PlotPanel.m                Col 4: H 데이터 뷰 (탭 + 플롯)
-    │   ├── HISplitter.m               Col 5: H/I 경계 splitter
-    │   └── VideoPanel.m               Col 6: AVI Video Player
+    ├── +view/
+    │   ├── HeaderBar.m                파일/Coast, Max, Debug, Sync,
+    │   │                              Export/Import CFG, flight view selector
+    │   ├── ChannelLayout.m            채널 패널, control header, 6-column dataGrid
+    │   ├── AttitudePanel.m            Pitch/Roll/Heading gauge UI
+    │   ├── MapAltPanel.m              Map + Altitude axes UI
+    │   ├── InfoPanel.m                현재 비행 정보 table,
+    │   │                              plot 추가/순서/표시형식 context menu
+    │   ├── PlotPanel.m                H data view, tabs, plots, manager/details,
+    │   │                              ROI, Analyze, compact Range bar
+    │   ├── HISplitter.m               H/I video splitter
+    │   └── VideoPanel.m               AVI video player, frame navigator, sync controls
     │
-    └── +controller/                   이벤트 구독자
-        ├── FileController.m           파일 로드
-        ├── VideoSyncController.m      동기/Hz/Cache 예산
-        ├── PlaybackController.m       슬라이더/네비/탭/플롯
-        ├── PanelToggleController.m    패널 토글/디버그
-        └── DragController.m           스플리터 드래그
-```
+    └── +controller/
+        ├── FileController.m           flight/video/coast/config import/export 이벤트 처리
+        ├── VideoSyncController.m      video sync, Hz 입력, cache budget 이벤트 처리
+        ├── PlaybackController.m       slider/nav/spinner/table/plot/tab,
+        │                              info format/order, ROI, panner, analysis 이벤트 처리
+        ├── PanelToggleController.m    panel toggle, debug, sync, maximize,
+        │                              channel view mode 이벤트 처리
+        └── DragController.m           H/I splitter drag 이벤트 처리
+
+root/
+├── FlightDataDashboard.m                  7 lines
+│   └─ 호환 wrapper, flightdash.FlightDataDashboard() 호출
+│
+├── asyncDecodeFrame.m                     20 lines
+├── asyncDecodeFramePersistent.m           87 lines
+├── cleanupAsyncDecodeCache.m              13 lines
+│
+├── option1.dat
+├── option2.dat
+│
+├── README.md
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── .gitignore
+│
+├── docs/
+│   └── architecture.md
+│
+└── +flightdash/FlightDataDashboard.m
+    ├── FlightDataDashboard.m              6,267 lines
+    │   └─ 본체 클래스
+    │      - 앱 생성/삭제, 레이아웃, config 저장/복원
+    │      - 파일 로드, option 적용, 데이터 파싱
+    │      - 지도/고도/게이지/현재정보/H plot/video 갱신
+    │      - Plot Manager / Details / ROI / Stats 보조 figure
+    │      - Play/Stop timer
+    │      - splitter, panner, drag, responsive layout
+    │
+    ├── +util/
+    │   ├── AppConstants.m                 80 lines
+    │   ├── AppEventData.m                 20 lines
+    │   ├── ErrorLog.m                     124 lines
+    │   ├── EventBus.m                     121 lines
+    │   ├── Throttle.m                     75 lines
+    │   ├── TimeFormat.m                   46 lines
+    │   └── UIScale.m                      123 lines
+    │
+    ├── +model/
+    │   ├── FrameCacheModel.m              264 lines
+    │   ├── SyncModel.m                    71 lines
+    │   └── VideoModel.m                   132 lines
+    │
+    ├── +view/
+    │   ├── AttitudePanel.m                67 lines
+    │   ├── ChannelLayout.m                123 lines
+    │   │   └─ 9-column responsive layout + panel splitters
+    │   ├── HeaderBar.m                    71 lines
+    │   ├── HISplitter.m                   18 lines
+    │   ├── InfoPanel.m                    68 lines
+    │   ├── MapAltPanel.m                  73 lines
+    │   ├── PlotPanel.m                    226 lines
+    │   │   └─ Manager / Details / ROI / Range / axis controls
+    │   └── VideoPanel.m                   172 lines
+    │
+    └── +controller/
+        ├── DragController.m               35 lines
+        ├── FileController.m               42 lines
+        ├── PanelToggleController.m        51 lines
+        ├── PlaybackController.m           97 lines
+        └── VideoSyncController.m          52 lines
+
 
 ## 핵심 컴포넌트
 

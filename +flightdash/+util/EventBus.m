@@ -13,20 +13,46 @@ classdef EventBus < handle
         FlightFileRequested      % FileController.loadFlight
         AviFileRequested         % FileController.loadAvi
         CoastFileRequested       % handleCoastFile
+        ConfigExportRequested    % export current dashboard session config
+        ConfigImportRequested    % import dashboard session config
         DebugModeToggled         % toggleDebugMode
         SyncToggled              % toggleSync (양 채널 동기 on/off)
         
         % 패널 토글 / Splitter
+        LayoutFitRequested       % fit window to current monitor
+        ChannelViewChanged       % both / flight1 / flight2 row visibility
         PanelToggled             % togglePanel
+        PanelSplitterDragStarted % start non-video panel splitter drag
         SplitterDragStarted      % startHISplitterDrag
         
         % Playback
         SpinnerChanged           % handleSpinnerChange
         TableRowSelected         % handleTableSelection
+        InfoFormatRequested      % set current info value display format
+        InfoOrderMoveRequested   % move selected current info row up/down
+        FlightPlayRequested      % start flight-data playback from current marker
+        FlightStopRequested      % stop flight-data playback
+        FlightPlayIntervalChanged % set flight-data playback interval
         PlotSelected             % plotSelectedVariable
         PlotTabAddRequested      % addPlotTab
         PlotTabClearRequested    % clearCurrentTab
         TabChanged               % updateTabTimeLines
+        PlotVisibilityChanged    % togglePlotVisibility
+        PlotManagerSelected      % selectManagedPlot
+        PlotDetailChanged        % updatePlotDetails
+        PlotAxisChanged          % set selected plot X/Y axis limits and auto modes
+        DetailsToggleRequested   % toggle pooled details/plots popup figure
+        PlotManagerToggled       % show/hide plot manager
+        PlotDetailsToggled       % show/hide plot details
+        PannerToggled            % show/hide compact range bar
+        PannerClicked            % set plot window from overview click
+        PannerRangeChanged       % set plot window from From/To inputs
+        PannerResetRequested     % reset plot window to full time span
+        RoiAddRequested          % add current ROI
+        RoiSelectionChanged      % select ROI table row
+        RoiDeleteSelectedRequested % delete selected ROI row
+        RoiClearRequested        % clear ROI/annotation rows
+        AnalysisComputeRequested % compute simple ROI statistics
         SliderChanging           % onVdubSliderChanging
         SliderChanged            % onVdubSliderChanged
         NavActionRequested       % onVdubNav
