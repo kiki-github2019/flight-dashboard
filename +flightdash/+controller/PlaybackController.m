@@ -27,25 +27,6 @@ classdef PlaybackController < handle
             obj.Listeners{end+1} = EB('FlightPlayRequested',    @(~,d) obj.onFlightPlay(d));
             obj.Listeners{end+1} = EB('FlightStopRequested',    @(~,d) obj.onFlightStop(d));
             obj.Listeners{end+1} = EB('FlightPlayIntervalChanged', @(~,d) obj.onFlightPlayInterval(d));
-            obj.Listeners{end+1} = EB('PlotSelected',           @(~,d) obj.onPlotSelected(d));
-            obj.Listeners{end+1} = EB('PlotTabAddRequested',    @(~,d) obj.onAddTab(d));
-            obj.Listeners{end+1} = EB('PlotTabClearRequested',  @(~,d) obj.onClearTab(d));
-            obj.Listeners{end+1} = EB('TabChanged',             @(~,d) obj.onTabChanged(d));
-            obj.Listeners{end+1} = EB('PlotVisibilityChanged',  @(~,d) obj.onPlotVisibility(d));
-            obj.Listeners{end+1} = EB('PlotManagerSelected',    @(~,d) obj.onPlotManagerSelected(d));
-            obj.Listeners{end+1} = EB('PlotDetailChanged',      @(~,d) obj.onPlotDetailChanged(d));
-            obj.Listeners{end+1} = EB('PlotAxisChanged',        @(~,d) obj.onPlotAxisChanged(d));
-            obj.Listeners{end+1} = EB('PlotManagerToggled',     @(~,d) obj.onPlotManagerToggled(d));
-            obj.Listeners{end+1} = EB('PlotDetailsToggled',     @(~,d) obj.onPlotDetailsToggled(d));
-            obj.Listeners{end+1} = EB('PannerToggled',          @(~,d) obj.onPannerToggled(d));
-            obj.Listeners{end+1} = EB('PannerClicked',          @(~,d) obj.onPannerClicked(d));
-            obj.Listeners{end+1} = EB('PannerRangeChanged',     @(~,d) obj.onPannerRangeChanged(d));
-            obj.Listeners{end+1} = EB('PannerResetRequested',   @(~,d) obj.onPannerReset(d));
-            obj.Listeners{end+1} = EB('RoiAddRequested',        @(~,d) obj.onRoiAdd(d));
-            obj.Listeners{end+1} = EB('RoiSelectionChanged',    @(~,d) obj.onRoiSelectionChanged(d));
-            obj.Listeners{end+1} = EB('RoiDeleteSelectedRequested', @(~,d) obj.onRoiDeleteSelected(d));
-            obj.Listeners{end+1} = EB('RoiClearRequested',      @(~,d) obj.onRoiClear(d));
-            obj.Listeners{end+1} = EB('AnalysisComputeRequested', @(~,d) obj.onAnalysisCompute(d));
         end
         
         function onSliderChanging(obj, d), obj.App.onVdubSliderChanging(d.ChannelIdx, d.Payload); end
@@ -58,25 +39,6 @@ classdef PlaybackController < handle
         function onFlightPlay(obj, d),     obj.startFlightPlayback(d.ChannelIdx); end
         function onFlightStop(obj, d),     obj.stopFlightPlayback(d.ChannelIdx); end
         function onFlightPlayInterval(obj, d), obj.setFlightPlayInterval(d.ChannelIdx, d.Payload); end
-        function onPlotSelected(obj, d),   obj.App.plotSelectedVariable(d.ChannelIdx); end
-        function onAddTab(obj, d),         obj.App.addPlotTab(d.ChannelIdx); end
-        function onClearTab(obj, d),       obj.App.clearCurrentTab(d.ChannelIdx); end
-        function onTabChanged(obj, d),     obj.App.updateTabTimeLines(d.ChannelIdx); end
-        function onPlotVisibility(obj, d), obj.App.onPlotVisibilityChanged(d.ChannelIdx, d.Payload); end
-        function onPlotManagerSelected(obj, d), obj.App.onPlotManagerSelected(d.ChannelIdx, d.Payload); end
-        function onPlotDetailChanged(obj, d), obj.App.onPlotDetailChanged(d.ChannelIdx, d.Payload); end
-        function onPlotAxisChanged(obj, d), obj.App.onPlotAxisChanged(d.ChannelIdx, d.Payload); end
-        function onPlotManagerToggled(obj, d), obj.App.togglePlotManager(d.ChannelIdx); end
-        function onPlotDetailsToggled(obj, d), obj.App.togglePlotDetails(d.ChannelIdx); end
-        function onPannerToggled(obj, d), obj.App.togglePanner(d.ChannelIdx); end
-        function onPannerClicked(obj, d), obj.App.onPannerClicked(d.ChannelIdx); end
-        function onPannerRangeChanged(obj, d), obj.App.onPannerRangeChanged(d.ChannelIdx, d.Payload); end
-        function onPannerReset(obj, d), obj.App.resetPannerRange(d.ChannelIdx); end
-        function onRoiAdd(obj, d), obj.App.addCurrentRoi(d.ChannelIdx); end
-        function onRoiSelectionChanged(obj, d), obj.App.onRoiSelectionChanged(d.ChannelIdx, d.Payload); end
-        function onRoiDeleteSelected(obj, d), obj.App.deleteSelectedRoi(d.ChannelIdx); end
-        function onRoiClear(obj, d), obj.App.clearRois(d.ChannelIdx); end
-        function onAnalysisCompute(obj, d), obj.App.computeRoiAnalysis(d.ChannelIdx); end
         
         % 호환 wrapper
         function sliderChanging(obj, fIdx, value), obj.App.onVdubSliderChanging(fIdx, value); end
@@ -84,10 +46,6 @@ classdef PlaybackController < handle
         function nav(obj, fIdx, action),           obj.App.onVdubNav(fIdx, action); end
         function spinnerChange(obj, fIdx, value),  obj.App.handleSpinnerChange(fIdx, value); end
         function tableSelect(obj, fIdx, event),    obj.App.handleTableSelection(fIdx, event); end
-        function plotSelected(obj, fIdx),          obj.App.plotSelectedVariable(fIdx); end
-        function addTab(obj, fIdx),                obj.App.addPlotTab(fIdx); end
-        function clearTab(obj, fIdx),              obj.App.clearCurrentTab(fIdx); end
-        function tabChanged(obj, fIdx),            obj.App.updateTabTimeLines(fIdx); end
 
         function startFlightPlayback(obj, fIdx)
             try

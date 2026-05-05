@@ -1,41 +1,41 @@
 classdef FlightDataDashboard < matlab.apps.AppBase
     % =========================================================================
-    % 비행 데이터 리뷰 대시보드 - V3.22 (리팩토링: 모듈 분해 + 캐시 자료구조 개선)
-    % 설명:
-    %   [V3.22 변경사항]
-    %   - #1 ErrorLog ring buffer (silent catch도 사후 조사 가능)
-    %        + dumpErrorLog(n, filterTag) 헬퍼 메서드
-    %   - #2 cacheGetFrame을 lastUse 카운터 기반 O(1) lookup으로 전환
-    %        (cell 배열 reference shuffle 제거 → 큰 프레임 lookup 시 GC 압력 감소)
-    %        cacheStoreFrame은 in-place 갱신 + lastUse 동기 관리
-    %        evictByScore에 lastUse 인자 추가 → score = (hits * recency) / bytes
-    %   - #3 loadAviFile을 6개 헬퍼로 분해:
+    % 鍮꾪뻾 ?곗씠??由щ럭 ??쒕낫??- V3.22 (由ы뙥?좊쭅: 紐⑤뱢 遺꾪빐 + 罹먯떆 ?먮즺援ъ“ 媛쒖꽑)
+    % ?ㅻ챸:
+    %   [V3.22 蹂寃쎌궗??
+    %   - #1 ErrorLog ring buffer (silent catch???ы썑 議곗궗 媛??
+    %        + dumpErrorLog(n, filterTag) ?ы띁 硫붿꽌??
+    %   - #2 cacheGetFrame??lastUse 移댁슫??湲곕컲 O(1) lookup?쇰줈 ?꾪솚
+    %        (cell 諛곗뿴 reference shuffle ?쒓굅 ?????꾨젅??lookup ??GC ?뺣젰 媛먯냼)
+    %        cacheStoreFrame? in-place 媛깆떊 + lastUse ?숆린 愿由?
+    %        evictByScore??lastUse ?몄옄 異붽? ??score = (hits * recency) / bytes
+    %   - #3 loadAviFile??6媛??ы띁濡?遺꾪빐:
     %        confirmVideoReplace / invalidateFrameCache / computeStartTimeFromFlightData
     %        cleanupVideoResources / openVideoReader / applyVideoLoadedUI
     %        computeTotalFrames / loadFirstFrame
-    %   - #4 매직 넘버 상수화: ASYNC_WORKER_COUNT, WORKER_VR_CACHE_SLOTS,
+    %   - #4 留ㅼ쭅 ?섎쾭 ?곸닔?? ASYNC_WORKER_COUNT, WORKER_VR_CACHE_SLOTS,
     %        MAX_SEQ_READ_STEP, MAX_PENDING_ITERS
-    %   - #5 UIGroup alias: 평면 UI struct를 attitude/map/video/plots/controls/data
-    %        로 그룹화. 기존 평면 필드는 그대로 유지(100% 호환), 신규 코드는 그룹 사용
+    %   - #5 UIGroup alias: ?됰㈃ UI struct瑜?attitude/map/video/plots/controls/data
+    %        濡?洹몃９?? 湲곗〈 ?됰㈃ ?꾨뱶??洹몃?濡??좎?(100% ?명솚), ?좉퇋 肄붾뱶??洹몃９ ?ъ슜
     %   - #6 Static wrapper: workerDecodeFrame / workerCleanupCache
-    %        → 향후 +flightdash 패키지 마이그레이션 옵션 확보
-    %   - #7 createLayout 분해: buildHeaderBar 추출 + 비행경로 루프 섹션 가이드 추가
+    %        ???ν썑 +flightdash ?⑦궎吏 留덉씠洹몃젅?댁뀡 ?듭뀡 ?뺣낫
+    %   - #7 createLayout 遺꾪빐: buildHeaderBar 異붿텧 + 鍮꾪뻾寃쎈줈 猷⑦봽 ?뱀뀡 媛?대뱶 異붽?
     %
-    %   [V3.21 #1-A] Generation counter (AsyncGen): 매 startAsyncDecode 호출 시
-    %     증가, future에 myGen 캡처 → onAsyncDecodeComplete에서 비교하여 stale
-    %     결과 폐기. 같은 frame이라도 generation mismatch면 무시 → race 차단.
-    %   [V3.21 #3-A] 3계층 분리:
-    %     Layer 1 requestFrame: 진입점 + 캐시 lookup + sync/async 전략 선택
-    %     Layer 2 decodeFrameSync / startAsyncDecode: 디코딩 (전략 패턴)
-    %     Layer 3 displayFrame: 표시 + 캐시 store (write-through 단일 출구)
-    %     기존 updateVideoFrameByFrameNo는 requestFrame로 위임 (호환).
+    %   [V3.21 #1-A] Generation counter (AsyncGen): 留?startAsyncDecode ?몄텧 ??
+    %     利앷?, future??myGen 罹≪쿂 ??onAsyncDecodeComplete?먯꽌 鍮꾧탳?섏뿬 stale
+    %     寃곌낵 ?먭린. 媛숈? frame?대씪??generation mismatch硫?臾댁떆 ??race 李⑤떒.
+    %   [V3.21 #3-A] 3怨꾩링 遺꾨━:
+    %     Layer 1 requestFrame: 吏꾩엯??+ 罹먯떆 lookup + sync/async ?꾨왂 ?좏깮
+    %     Layer 2 decodeFrameSync / startAsyncDecode: ?붿퐫??(?꾨왂 ?⑦꽩)
+    %     Layer 3 displayFrame: ?쒖떆 + 罹먯떆 store (write-through ?⑥씪 異쒓뎄)
+    %     湲곗〈 updateVideoFrameByFrameNo??requestFrame濡??꾩엫 (?명솚).
     %   [V3.21 #2-A] persistent VideoReader in worker:
-    %     asyncDecodeFramePersistent 외부 함수에서 persistent 변수로 VR 재사용
-    %     → 호출당 ~50ms→3ms로 단축. 파일 변경 시에만 VR 재생성.
-    %   [V3.20 유지] 명시적 리소스 정리, 동기화 로그 prefix 표준화.
-    %   [V3.19 유지] 비동기 디코딩, adaptive prefetch, 가중 LRU.
-    %   [V3.18 유지] cache lookup clamp, Pending 완전 소진, hard limit 1.0.
-    %   [V3.17 유지] InGoToFrame coalescing, IsDecoding 가드.
+    %     asyncDecodeFramePersistent ?몃? ?⑥닔?먯꽌 persistent 蹂?섎줈 VR ?ъ궗??
+    %     ???몄텧??~50ms??ms濡??⑥텞. ?뚯씪 蹂寃??쒖뿉留?VR ?ъ깮??
+    %   [V3.20 ?좎?] 紐낆떆??由ъ냼???뺣━, ?숆린??濡쒓렇 prefix ?쒖???
+    %   [V3.19 ?좎?] 鍮꾨룞湲??붿퐫?? adaptive prefetch, 媛以?LRU.
+    %   [V3.18 ?좎?] cache lookup clamp, Pending ?꾩쟾 ?뚯쭊, hard limit 1.0.
+    %   [V3.17 ?좎?] InGoToFrame coalescing, IsDecoding 媛??
     % =========================================================================
 
     % Shared constants live in flightdash.util.AppConstants.
@@ -43,74 +43,80 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     properties (Access = public)
         UIFigure
         UI
-        UIGroup           % [V3.22 #5] UI를 attitude/map/video/plots/controls/data로 그룹화한 alias
+        UIGroup           % [V3.22 #5] UI瑜?attitude/map/video/plots/controls/data濡?洹몃９?뷀븳 alias
         SyncInput
         SyncBtn
 
         Models
         SyncState
         VideoState
-        VideoSyncState    % [V3.12] 비디오-비행데이터 동기화 정보 (배열 [1x2])
+        VideoSyncState    % [V3.12] 鍮꾨뵒??鍮꾪뻾?곗씠???숆린???뺣낫 (諛곗뿴 [1x2])
 
         CoastlineData
         FixedAreaBounds
 
-        DebugMode         = false   % [V3.14 항목 6] true 시 zoom/pan off 등 로그 출력
+        DebugMode         = false   % [V3.14 ??ぉ 6] true ??zoom/pan off ??濡쒓렇 異쒕젰
         State             = 'IDLE'  % [V3.17 (8)] 'IDLE' | 'DRAGGING' | 'UPDATING' | 'DECODING'
-        UseAsyncDecode    = false   % [V3.19 (1)] 비동기 디코딩 활성화 (Parallel Toolbox 필요)
+        UseAsyncDecode    = false   % [V3.19 (1)] 鍮꾨룞湲??붿퐫???쒖꽦??(Parallel Toolbox ?꾩슂)
     end
 
     properties (Access = private)
-        IsUpdating          = [false, false] % 재귀 방지 플래그
-        IsDraggingMarker    = false         % 마커 드래그 상태 플래그
-        DraggedMarker       = []            % 현재 드래그 중인 그래픽 객체 핸들
-        IsProgrammaticXLim  = [false, false] % [V3.11 A] 책장 넘기기 등 프로그래밍 XLim 변경 시 리스너 차단
+        IsUpdating          = [false, false] % ?ш? 諛⑹? ?뚮옒洹?
+        IsDraggingMarker    = false         % 留덉빱 ?쒕옒洹??곹깭 ?뚮옒洹?
+        DraggedMarker       = []            % ?꾩옱 ?쒕옒洹?以묒씤 洹몃옒??媛앹껜 ?몃뱾
+        IsProgrammaticXLim  = [false, false] % [V3.11 A] 梨낆옣 ?섍린湲????꾨줈洹몃옒諛?XLim 蹂寃???由ъ뒪??李⑤떒
         IsDraggingPanner    = false         % compact range bar handle drag state
         PannerDragFIdx      = 0             % compact range bar drag channel
         PannerDragSide      = ''            % 'left' or 'right'
         IsDraggingInfoRow   = false         % best-effort current-info table row drag reorder
         InfoDragFIdx        = 0             % current-info row drag channel
         InfoDragSourceRow   = 0             % current-info row being dragged
-        DraggedFIdx         = 0             % [V3.11 B] 드래그 중인 fIdx
-        DraggedFromVideo    = false         % [V3.12] 비디오 Frame 마커에서 드래그 시작 여부
-        VideoThrottleDyn    = 0.05          % [V3.12] (V3.13에서 미사용, 보존)
-        LastDragTime        = {uint64(0), uint64(0)}  % [PATCH] 채널별 tic 핸들
-        LastDisplayedFrame  = [0, 0]        % [PATCH] 동일 프레임 조기 반환용
-        HISplitterFIdx      = 0             % [PATCH UX-3] H/I 경계 드래그 중인 채널
-        IsDraggingSplitter  = false         % [PATCH UX-3b] splitter 드래그 상태 플래그
-        VideoUserResized    = [false, false] % [FIX] 사용자가 splitter로 조작했는지 (자동 리사이즈 차단)
-        % [REFACTOR Step 1] 캐시는 별도 모델 객체로 위임. 기존 8개 속성 → 1개로 단일화
-        % - flightdash.model.FrameCacheModel 배열 [1x2]
-        % - 기존 cacheGetFrame/cacheStoreFrame 등은 호환을 위해 thin wrapper로 잔류
-        CacheModel          = []              % [REFACTOR] flightdash.model.FrameCacheModel 배열
-        VideoMdl            = []              % [REFACTOR Step 2] flightdash.model.VideoModel 배열 [1x2]
-        SyncMdl             = []              % [REFACTOR Step 2] flightdash.model.SyncModel 배열 [1x2]
-        VideoListeners      = {[], []}        % [REFACTOR Step 2-C] event.listener 핸들 보관 (GC 방지)
-        % [REFACTOR Step 4] 콜백 진입점 컨트롤러
+        DraggedFIdx         = 0             % [V3.11 B] ?쒕옒洹?以묒씤 fIdx
+        DraggedFromVideo    = false         % [V3.12] 鍮꾨뵒??Frame 留덉빱?먯꽌 ?쒕옒洹??쒖옉 ?щ?
+        VideoThrottleDyn    = 0.05          % [V3.12] (V3.13?먯꽌 誘몄궗?? 蹂댁〈)
+        LastDragTime        = {uint64(0), uint64(0)}  % [PATCH] 梨꾨꼸蹂?tic ?몃뱾
+        LastDisplayedFrame  = [0, 0]        % [PATCH] ?숈씪 ?꾨젅??議곌린 諛섑솚??
+        HISplitterFIdx      = 0             % [PATCH UX-3] H/I 寃쎄퀎 ?쒕옒洹?以묒씤 梨꾨꼸
+        IsDraggingSplitter  = false         % [PATCH UX-3b] splitter ?쒕옒洹??곹깭 ?뚮옒洹?
+        VideoUserResized    = [false, false] % [FIX] ?ъ슜?먭? splitter濡?議곗옉?덈뒗吏 (?먮룞 由ъ궗?댁쫰 李⑤떒)
+        % [REFACTOR Step 1] 罹먯떆??蹂꾨룄 紐⑤뜽 媛앹껜濡??꾩엫. 湲곗〈 8媛??띿꽦 ??1媛쒕줈 ?⑥씪??
+        % - flightdash.model.FrameCacheModel 諛곗뿴 [1x2]
+        % - 湲곗〈 cacheGetFrame/cacheStoreFrame ?깆? ?명솚???꾪빐 thin wrapper濡??붾쪟
+        CacheModel          = []              % [REFACTOR] flightdash.model.FrameCacheModel 諛곗뿴
+        VideoMdl            = []              % [REFACTOR Step 2] flightdash.model.VideoModel 諛곗뿴 [1x2]
+        SyncMdl             = []              % [REFACTOR Step 2] flightdash.model.SyncModel 諛곗뿴 [1x2]
+        PlaybackState       = []              % [REFACTOR] per-channel guard/pending state model [1x2]
+        VideoListeners      = {[], []}        % [REFACTOR Step 2-C] event.listener ?몃뱾 蹂닿? (GC 諛⑹?)
+        % [REFACTOR Step 4] 肄쒕갚 吏꾩엯??而⑦듃濡ㅻ윭
         FileCtrl            = []
         VideoSyncCtrl       = []
         PlaybackCtrl        = []
+        PlotCtrl            = []
+        RoiCtrl             = []
+        PannerCtrl          = []
         PanelCtrl           = []
         DragCtrl            = []
         ConfigMgr           = []
         AuxWindowMgr        = []
+        PlotView            = []
+        PannerView          = []
         DataLoader          = []
         LayoutMgr           = []
-        CacheBudgetMB       = 30              % [V3.14 항목 3] 호환 유지: setCacheBudget 진입점이 사용
-        % --- 비-캐시 속성 (그대로 유지) ---
-        InGoToFrame         = [false, false] % [V3.16] goToFrame 재진입 차단 플래그
-        PendingFrame        = [NaN, NaN]     % [V3.17 (1)(9)] 처리 중 들어온 최신 frame 요청
-        PendingMode         = {'', ''}        % [V3.17 (1)(9)] 처리 중 들어온 최신 mode
-        InCascade           = false          % [V3.17 (4)(11)] cascade 재귀 가드 (인스턴스 속성)
-        IsDeleting          = false          % [FIX] delete(app) 중복 호출 방어 플래그
-        IsDecoding          = [false, false] % [V3.17 (7)] 디코딩 진행 중 가드
-        AsyncPool           = []              % [V3.19 (1)] parallel pool 핸들
-        AsyncFutures        = {[], []}        % [V3.19 (1)] 진행 중 parfeval future
-        AsyncTargetFrame    = [NaN, NaN]      % [V3.19 (1)] 비동기 디코딩 중인 frame No
-        AsyncGen            = [0, 0]          % [V3.21 #1-A] generation counter (race 차단)
-        VideoFilePath       = {'', ''}        % [V3.19 (1)] worker가 자체 VideoReader 생성용
-        DragVelocity        = [0, 0]          % [V3.19 (2)] frames/sec (부호: 방향)
-        DragVelocitySamples = {[], []}        % [V3.19 (2)] 최근 샘플 (이동평균용)
+        CacheBudgetMB       = 30              % [V3.14 ??ぉ 3] ?명솚 ?좎?: setCacheBudget 吏꾩엯?먯씠 ?ъ슜
+        % --- 鍮?罹먯떆 ?띿꽦 (洹몃?濡??좎?) ---
+        InGoToFrame         = [false, false] % [V3.16] goToFrame ?ъ쭊??李⑤떒 ?뚮옒洹?
+        PendingFrame        = [NaN, NaN]     % [V3.17 (1)(9)] 泥섎━ 以??ㅼ뼱??理쒖떊 frame ?붿껌
+        PendingMode         = {'', ''}        % [V3.17 (1)(9)] 泥섎━ 以??ㅼ뼱??理쒖떊 mode
+        InCascade           = false          % [V3.17 (4)(11)] cascade ?ш? 媛??(?몄뒪?댁뒪 ?띿꽦)
+        IsDeleting          = false          % [FIX] delete(app) 以묐났 ?몄텧 諛⑹뼱 ?뚮옒洹?
+        IsDecoding          = [false, false] % [V3.17 (7)] ?붿퐫??吏꾪뻾 以?媛??
+        AsyncPool           = []              % [V3.19 (1)] parallel pool ?몃뱾
+        AsyncFutures        = {[], []}        % [V3.19 (1)] 吏꾪뻾 以?parfeval future
+        AsyncTargetFrame    = [NaN, NaN]      % [V3.19 (1)] 鍮꾨룞湲??붿퐫??以묒씤 frame No
+        AsyncGen            = [0, 0]          % [V3.21 #1-A] generation counter (race 李⑤떒)
+        VideoFilePath       = {'', ''}        % [V3.19 (1)] worker媛 ?먯껜 VideoReader ?앹꽦??
+        DragVelocity        = [0, 0]          % [V3.19 (2)] frames/sec (遺?? 諛⑺뼢)
+        DragVelocitySamples = {[], []}        % [V3.19 (2)] 理쒓렐 ?섑뵆 (?대룞?됯퇏??
         LayoutProfile       = 'wide'          % [RESPONSIVE] wide|medium|compact|narrow
         LastLayoutSize      = [NaN, NaN]      % [RESPONSIVE] last measured figure size in px
         InResponsiveLayout  = false           % [RESPONSIVE] resize/layout re-entry guard
@@ -125,36 +131,38 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         FlightFilePath      = {'', ''}        % session config: loaded flight data paths
         InfoFormatModes     = {struct(), struct()} % per-channel value display modes keyed by normalized header
         ChannelViewMode     = 'both'          % both|flight1|flight2
-        % [REFACTOR Step 0] ErrorLog는 flightdash.util.ErrorLog 싱글톤으로 위임
-        % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
+        % [REFACTOR Step 0] ErrorLog??flightdash.util.ErrorLog ?깃??ㅼ쑝濡??꾩엫
+        % - 湲곗〈 ErrorLog/ErrorLogCapacity ?띿꽦? ???댁긽 ?ъ슜?섏? ?딆쑝???명솚???꾪빐 ?좎??섏? ?딄퀬 ?쒓굅
     end
 
     methods (Access = public)
         % ---------------------------------------------------------------------
-        % 생성자 및 초기화
+        % ?앹꽦??諛?珥덇린??
         % ---------------------------------------------------------------------
         function app = FlightDataDashboard()
             app.Models = [app.createEmptyModel(), app.createEmptyModel()];
             app.SyncState = struct('IsSynced', false, 'SyncT1', 0, 'SyncT2', 0);
             app.VideoState = struct('videoReader', {[], []}, 'videoStartTime', {0, 0}, 'vidImageHandle', {[], []});
-            % [V3.12] VideoSyncState 초기화: 두 비행경로별 동기화 정보
+            % [V3.12] VideoSyncState 珥덇린?? ??鍮꾪뻾寃쎈줈蹂??숆린???뺣낫
             app.VideoSyncState = struct( ...
-                'IsSynced',     {false, false}, ...     % 동기 설정 완료 여부
-                'AnchorFrame',  {0, 0}, ...             % 동기 기준 프레임 번호 (정수)
-                'AnchorOffset', {0, 0}, ...             % [V3.23] sub-frame 보정 [-0.5, 0.5]
-                'AnchorTime',   {0, 0}, ...             % 동기 기준 비행시간(초)
-                'VideoFps',     {70, 70}, ...           % 영상 Hz (기본 70)
-                'DataFps',      {50, 50}, ...           % 비행데이터 Hz (기본 50)
-                'TotalFrames',  {0, 0}, ...             % 영상 총 프레임 수
-                'CurrentFrame', {1, 1});                % 현재 프레임 위치
+                'IsSynced',     {false, false}, ...     % ?숆린 ?ㅼ젙 ?꾨즺 ?щ?
+                'AnchorFrame',  {0, 0}, ...             % ?숆린 湲곗? ?꾨젅??踰덊샇 (?뺤닔)
+                'AnchorOffset', {0, 0}, ...             % [V3.23] sub-frame 蹂댁젙 [-0.5, 0.5]
+                'AnchorTime',   {0, 0}, ...             % ?숆린 湲곗? 鍮꾪뻾?쒓컙(珥?
+                'VideoFps',     {70, 70}, ...           % ?곸긽 Hz (湲곕낯 70)
+                'DataFps',      {50, 50}, ...           % 鍮꾪뻾?곗씠??Hz (湲곕낯 50)
+                'TotalFrames',  {0, 0}, ...             % ?곸긽 珥??꾨젅????
+                'CurrentFrame', {1, 1});                % ?꾩옱 ?꾨젅???꾩튂
 
-            % [REFACTOR Step 1] FrameCacheModel 인스턴스 생성 (채널별 1개씩)
+            % [REFACTOR Step 1] FrameCacheModel ?몄뒪?댁뒪 ?앹꽦 (梨꾨꼸蹂?1媛쒖뵫)
             app.CacheModel = [flightdash.model.FrameCacheModel(app.CacheBudgetMB), ...
                               flightdash.model.FrameCacheModel(app.CacheBudgetMB)];
 
-            % [REFACTOR Step 2] VideoModel/SyncModel 인스턴스 생성 (채널별 1개씩)
+            % [REFACTOR Step 2] VideoModel/SyncModel ?몄뒪?댁뒪 ?앹꽦 (梨꾨꼸蹂?1媛쒖뵫)
             app.VideoMdl = [flightdash.model.VideoModel(), flightdash.model.VideoModel()];
             app.SyncMdl  = [flightdash.model.SyncModel(),  flightdash.model.SyncModel()];
+            app.PlaybackState = flightdash.model.PlaybackStateModel();
+            app.PlaybackState(2) = flightdash.model.PlaybackStateModel();
 
             app.CoastlineData = [];
             app.FixedAreaBounds = [];
@@ -174,15 +182,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                                                      'minLon', min(areaData(:,2)), 'maxLon', max(areaData(:,2)));
                     end
                 catch e
-                    disp(['option_flight_area.dat 로드 실패: ', e.message]);
+                    disp(['option_flight_area.dat 濡쒕뱶 ?ㅽ뙣: ', e.message]);
                 end
             end
 
-            close(findobj('Type', 'figure', 'Name', '비행 데이터 리뷰 대시보드 (Dual)'));
-            % [FIX] AutoResizeChildren='on' 시 SizeChangedFcn이 무시되는 경고 차단
-            % - uigridlayout이 자식 리사이즈를 담당하므로 AutoResizeChildren은 불필요
+            close(findobj('Type', 'figure', 'Name', '鍮꾪뻾 ?곗씠??由щ럭 ??쒕낫??(Dual)'));
+            % [FIX] AutoResizeChildren='on' ??SizeChangedFcn??臾댁떆?섎뒗 寃쎄퀬 李⑤떒
+            % - uigridlayout???먯떇 由ъ궗?댁쫰瑜??대떦?섎?濡?AutoResizeChildren? 遺덊븘??
             initialPos = app.initialFigurePosition();
-            app.UIFigure = uifigure('Name', '비행 데이터 리뷰 대시보드 (Dual)', ...
+            app.UIFigure = uifigure('Name', '鍮꾪뻾 ?곗씠??由щ럭 ??쒕낫??(Dual)', ...
                                     'Units', 'pixels', ...
                                     'Position', app.initialFigurePosition(), ...
                                     'Color', [0.94 0.94 0.96]);
@@ -195,21 +203,27 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.UIFigure.CloseRequestFcn = @app.UIFigureCloseRequest;
             app.UIFigure.SizeChangedFcn = @(~,~) app.onUIFigureResized();
 
-            % [REFACTOR Step 4] 컨트롤러 인스턴스 (createLayout 전 필수)
+            % [REFACTOR Step 4] 而⑦듃濡ㅻ윭 ?몄뒪?댁뒪 (createLayout ???꾩닔)
             app.FileCtrl      = flightdash.controller.FileController(app);
             app.VideoSyncCtrl = flightdash.controller.VideoSyncController(app);
             app.PlaybackCtrl  = flightdash.controller.PlaybackController(app);
+            app.PlotCtrl      = flightdash.controller.PlotController(app);
+            app.RoiCtrl       = flightdash.controller.RoiController(app);
+            app.PannerCtrl    = flightdash.controller.PannerController(app);
             app.PanelCtrl     = flightdash.controller.PanelToggleController(app);
             app.DragCtrl      = flightdash.controller.DragController(app);
 
             app.createLayout();
+            app.PlotView = flightdash.view.PlotView(app, 1);
+            app.PlotView(2) = flightdash.view.PlotView(app, 2);
+            app.PannerView = flightdash.view.PannerView(app);
 
             for i = 1:2
                 app.addPlotTab(i);
                 app.VideoState(i).vidImageHandle = app.UI(i).vidImageHandle;
-                % [REFACTOR Step 2-B] VideoModel에도 핸들 set
+                % [REFACTOR Step 2-B] VideoModel?먮룄 ?몃뱾 set
                 app.VideoMdl(i).ImageHandle = app.UI(i).vidImageHandle;
-                % [REFACTOR Step 2-C] 이벤트 구독: VideoLoaded → cache recompute, VideoCleared → invalidate
+                % [REFACTOR Step 2-C] ?대깽??援щ룆: VideoLoaded ??cache recompute, VideoCleared ??invalidate
                 app.VideoListeners{i} = { ...
                     addlistener(app.VideoMdl(i), 'VideoLoaded',  @(src,~) app.onVideoLoaded(i, src)), ...
                     addlistener(app.VideoMdl(i), 'VideoCleared', @(~,~)   app.onVideoCleared(i)) };
@@ -222,7 +236,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function delete(app)
-            % [FIX] 중복 진입 방어 - CloseRequestFcn → delete → 소멸 중 재호출 차단
+            % [FIX] 以묐났 吏꾩엯 諛⑹뼱 - CloseRequestFcn ??delete ???뚮㈇ 以??ы샇異?李⑤떒
             if app.IsDeleting, return; end
             app.IsDeleting = true;
             try
@@ -230,10 +244,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.PlaybackCtrl.stopAllFlightPlayback();
                 end
             catch ME, app.logCaught(ME, 'FlightPlay:delete'); end
-            % [V3.20 (5)] 명시적 리소스 정리: VideoReader, AsyncPool, futures
+            % [V3.20 (5)] 紐낆떆??由ъ냼???뺣━: VideoReader, AsyncPool, futures
             try
                 for fIdx = 1:2
-                    % [FIX] Future cancel을 VR delete보다 먼저 → worker hang 방지
+                    % [FIX] Future cancel??VR delete蹂대떎 癒쇱? ??worker hang 諛⑹?
                     try
                         if ~isempty(app.AsyncFutures{fIdx}) && isvalid(app.AsyncFutures{fIdx})
                             fut = app.AsyncFutures{fIdx};
@@ -243,10 +257,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                             catch ME_wait
                                 app.logCaught(ME_wait, 'Async:cancelWait:delete');
                             end
-                            app.AsyncFutures{fIdx} = [];   % post-cancel 명시 클리어
+                            app.AsyncFutures{fIdx} = [];   % post-cancel 紐낆떆 ?대━??
                         end
                     catch ME, app.logCaught(ME, 'silent'); end
-                    % VideoReader 정리 (worker가 같은 파일 잡고 있을 가능성 차단 후)
+                    % VideoReader ?뺣━ (worker媛 媛숈? ?뚯씪 ?↔퀬 ?덉쓣 媛?μ꽦 李⑤떒 ??
                     try
                         if ~isempty(app.VideoState(fIdx).videoReader) && ...
                            isvalid(app.VideoState(fIdx).videoReader)
@@ -254,7 +268,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         end
                     catch ME, app.logCaught(ME, 'silent'); end
                 end
-                % 캐시 비우기 (메모리 즉시 해제) - CacheModel 위임
+                % 罹먯떆 鍮꾩슦湲?(硫붾え由?利됱떆 ?댁젣) - CacheModel ?꾩엫
                 if ~isempty(app.CacheModel)
                     for fIdx = 1:numel(app.CacheModel)
                         try
@@ -265,8 +279,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     end
                 end
                 app.AsyncGen = [0, 0];   % [V3.21 #1-A] generation reset
-                app.LastDisplayedFrame = [0, 0];   % [PATCH] 조기반환 키 리셋
-                % [REFACTOR Step 2-C] event listener 명시 해제
+                app.LastDisplayedFrame = [0, 0];   % [PATCH] 議곌린諛섑솚 ??由ъ뀑
+                % [REFACTOR Step 2-C] event listener 紐낆떆 ?댁젣
                 for fIdx = 1:numel(app.VideoListeners)
                     try
                         L = app.VideoListeners{fIdx};
@@ -277,28 +291,38 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
                 app.VideoListeners = {[], []};
 
-                % [FIX] 순환 참조 차단 + EventBus listener 명시 해제
-                % - EventBus는 persistent 싱글톤이라 listener가 controller를 영구 보유
-                % - delete(ctrl) 호출 → controller.delete() → Listeners cell 정리
-                % - 단순 [] 대입은 listener leak 발생 → 다음 실행 시 좀비 controller crash
+                % [FIX] ?쒗솚 李몄“ 李⑤떒 + EventBus listener 紐낆떆 ?댁젣
+                % - EventBus??persistent ?깃??ㅼ씠??listener媛 controller瑜??곴뎄 蹂댁쑀
+                % - delete(ctrl) ?몄텧 ??controller.delete() ??Listeners cell ?뺣━
+                % - ?⑥닚 [] ??낆? listener leak 諛쒖깮 ???ㅼ쓬 ?ㅽ뻾 ??醫鍮?controller crash
                 try, delete(app.FileCtrl);      catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.VideoSyncCtrl); catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.PlaybackCtrl);  catch ME, app.logCaught(ME, 'silent'); end
+                try, delete(app.PlotCtrl);      catch ME, app.logCaught(ME, 'silent'); end
+                try, delete(app.RoiCtrl);       catch ME, app.logCaught(ME, 'silent'); end
+                try, delete(app.PannerCtrl);    catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.PanelCtrl);     catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.DragCtrl);      catch ME, app.logCaught(ME, 'silent'); end
+                try, delete(app.PlotView);      catch ME, app.logCaught(ME, 'silent'); end
+                try, delete(app.PannerView);    catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.AuxWindowMgr);  catch ME, app.logCaught(ME, 'silent'); end
                 app.FileCtrl      = [];
                 app.VideoSyncCtrl = [];
                 app.PlaybackCtrl  = [];
+                app.PlotCtrl      = [];
+                app.RoiCtrl       = [];
+                app.PannerCtrl    = [];
                 app.PanelCtrl     = [];
                 app.DragCtrl      = [];
                 app.ConfigMgr     = [];
                 app.AuxWindowMgr  = [];
+                app.PlotView      = [];
+                app.PannerView    = [];
                 app.DataLoader    = [];
                 app.LayoutMgr     = [];
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [PATCH / V3.22 #6 / FIX] 워커 persistent VR 명시 해제 - 2s timeout으로 hang 차단
+            % [PATCH / V3.22 #6 / FIX] ?뚯빱 persistent VR 紐낆떆 ?댁젣 - 2s timeout?쇰줈 hang 李⑤떒
             try
                 if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
                     fCleanup = parfevalOnAll(app.AsyncPool, @cleanupAsyncDecodeCache, 0);
@@ -310,13 +334,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         app.logCaught(ME, 'Async:cleanupWait');
                     end
                     if ~cleanupOk
-                        % [FIX] timeout 시 pending future cancel (worker hang 차단)
+                        % [FIX] timeout ??pending future cancel (worker hang 李⑤떒)
                         try, cancel(fCleanup); catch, end
                     end
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [FIX] pool 명시 삭제 - 다음 실행에서 깨끗한 환경 보장
+            % [FIX] pool 紐낆떆 ??젣 - ?ㅼ쓬 ?ㅽ뻾?먯꽌 源⑤걮???섍꼍 蹂댁옣
             try
                 if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
                     delete(app.AsyncPool);
@@ -344,20 +368,20 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     end
 
     % =========================================================================
-    % 시간 변경 단일 진입점 (동기화/업데이트/재귀방지를 한 곳에서 처리)
+    % ?쒓컙 蹂寃??⑥씪 吏꾩엯??(?숆린???낅뜲?댄듃/?ш?諛⑹?瑜???怨녹뿉??泥섎━)
     % =========================================================================
     methods (Access = public)
         function applyTimeChange(app, fIdx, index)
-            if app.IsUpdating(fIdx), return; end
+            if app.stateIsUpdating(fIdx), return; end
             if isempty(app.Models(fIdx).rawData), return; end
 
             timeCol = app.Models(fIdx).mappedCols.Time;
             currTime = app.Models(fIdx).rawData.(timeCol)(index);
             app.Models(fIdx).currentIndex = index;
 
-            % --- 해당 경로 뷰 갱신 ---
-            % [FIX] IsUpdating 플래그를 onCleanup으로 보장 - 예외/return/error 모두 안전
-            app.IsUpdating(fIdx) = true;
+            % --- ?대떦 寃쎈줈 酉?媛깆떊 ---
+            % [FIX] IsUpdating ?뚮옒洹몃? onCleanup?쇰줈 蹂댁옣 - ?덉쇅/return/error 紐⑤몢 ?덉쟾
+            app.setStateUpdating(fIdx, true);
             cleanup_ = onCleanup(@() resetIsUpdating(app, fIdx)); %#ok<NASGU>
             try
                 app.updateDashboard(fIdx, index);
@@ -365,13 +389,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.UI(fIdx).spinner.Value = currTime;
                 end
             catch e
-                % [FIX] warning 대신 ErrorLog로 사후 추적 가능하게
+                % [FIX] warning ???ErrorLog濡??ы썑 異붿쟻 媛?ν븯寃?
                 app.logCaught(e, 'applyTimeChange');
             end
-            % cleanup_ 가 IsUpdating=false 보장 후 아래 진행
+            % cleanup_ 媛 IsUpdating=false 蹂댁옣 ???꾨옒 吏꾪뻾
             clear cleanup_;
 
-            % --- 동기화: 경로 1 변경 시 경로 2도 연동 ---
+            % --- ?숆린?? 寃쎈줈 1 蹂寃???寃쎈줈 2???곕룞 ---
             if app.SyncState.IsSynced && fIdx == 1 && ~isempty(app.Models(2).rawData)
                 targetT2 = app.SyncState.SyncT2 + (currTime - app.SyncState.SyncT1);
 
@@ -388,43 +412,147 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
     methods (Access = private)
         function resetIsUpdating(app, fIdx)
-            % [FIX] applyTimeChange의 IsUpdating 플래그 리셋 (onCleanup 콜백)
+            % [FIX] applyTimeChange??IsUpdating ?뚮옒洹?由ъ뀑 (onCleanup 肄쒕갚)
             try
-                if isvalid(app), app.IsUpdating(fIdx) = false; end
+                if isvalid(app), app.setStateUpdating(fIdx, false); end
             catch
             end
         end
 
         function resetInCascade(app)
-            % [FIX] updateMarkersOnly의 InCascade 플래그 리셋 (onCleanup 콜백)
+            % [FIX] updateMarkersOnly??InCascade ?뚮옒洹?由ъ뀑 (onCleanup 肄쒕갚)
             try
                 if isvalid(app), app.InCascade = false; end
             catch
             end
         end
+        function tf = hasPlaybackState(app, fIdx)
+            tf = false;
+            try
+                tf = ~isempty(app.PlaybackState) && numel(app.PlaybackState) >= fIdx && isvalid(app.PlaybackState(fIdx));
+            catch
+                tf = false;
+            end
+        end
+
+        function tf = stateIsUpdating(app, fIdx)
+            if app.hasPlaybackState(fIdx)
+                tf = app.PlaybackState(fIdx).IsUpdating;
+            else
+                tf = app.IsUpdating(fIdx);
+            end
+        end
+
+        function setStateUpdating(app, fIdx, value)
+            if app.hasPlaybackState(fIdx)
+                app.PlaybackState(fIdx).setUpdating(value);
+            end
+            app.IsUpdating(fIdx) = logical(value);
+        end
+
+        function tf = stateIsGoToFrame(app, fIdx)
+            if app.hasPlaybackState(fIdx)
+                tf = app.PlaybackState(fIdx).InGoToFrame;
+            else
+                tf = app.InGoToFrame(fIdx);
+            end
+        end
+
+        function setStateGoToFrame(app, fIdx, value)
+            if app.hasPlaybackState(fIdx)
+                app.PlaybackState(fIdx).setGoToFrame(value);
+            end
+            app.InGoToFrame(fIdx) = logical(value);
+        end
+
+        function tf = anyStateGoToFrame(app)
+            tf = false;
+            try
+                if ~isempty(app.PlaybackState)
+                    for sIdx = 1:numel(app.PlaybackState)
+                        if isvalid(app.PlaybackState(sIdx)) && app.PlaybackState(sIdx).InGoToFrame
+                            tf = true;
+                            return;
+                        end
+                    end
+                else
+                    tf = any(app.InGoToFrame);
+                end
+            catch
+                tf = any(app.InGoToFrame);
+            end
+        end
+
+        function tf = stateIsDecoding(app, fIdx)
+            if app.hasPlaybackState(fIdx)
+                tf = app.PlaybackState(fIdx).IsDecoding;
+            else
+                tf = app.IsDecoding(fIdx);
+            end
+        end
+
+        function setStateDecoding(app, fIdx, value)
+            if app.hasPlaybackState(fIdx)
+                app.PlaybackState(fIdx).setDecoding(value);
+            end
+            app.IsDecoding(fIdx) = logical(value);
+        end
+
+        function setStatePendingFrame(app, fIdx, frameNo, mode)
+            if nargin < 4 || isempty(mode)
+                mode = '';
+            end
+            if app.hasPlaybackState(fIdx)
+                app.PlaybackState(fIdx).setPendingRequest(frameNo, mode);
+            end
+            app.PendingFrame(fIdx) = frameNo;
+            app.PendingMode{fIdx} = char(mode);
+        end
+
+        function [hasPending, frameNo, mode] = peekStatePendingFrame(app, fIdx)
+            if app.hasPlaybackState(fIdx)
+                [hasPending, frameNo, mode] = app.PlaybackState(fIdx).peekPendingRequest();
+            else
+                hasPending = ~isnan(app.PendingFrame(fIdx));
+                frameNo = app.PendingFrame(fIdx);
+                mode = app.PendingMode{fIdx};
+            end
+        end
+
+        function [hasPending, frameNo, mode] = consumeStatePendingFrame(app, fIdx)
+            if app.hasPlaybackState(fIdx)
+                [hasPending, frameNo, mode] = app.PlaybackState(fIdx).consumePendingRequest();
+            else
+                hasPending = ~isnan(app.PendingFrame(fIdx));
+                frameNo = app.PendingFrame(fIdx);
+                mode = app.PendingMode{fIdx};
+            end
+            app.PendingFrame(fIdx) = NaN;
+            app.PendingMode{fIdx} = '';
+        end
     end
 
     % =========================================================================
-    % Controller/EventBus 진입점 및 메인 UI 로직
+    % Controller/EventBus 吏꾩엯??諛?硫붿씤 UI 濡쒖쭅
     % =========================================================================
     methods (Access = public)
         function handleFlightFile(app, fIdx)
             [filename, pathname] = uigetfile({'*.dat;*.csv;*.txt', 'Flight data (*.dat, *.csv, *.txt)'}, ...
-                sprintf('비행경로 %d 파일 선택', fIdx));
+                sprintf('鍮꾪뻾寃쎈줈 %d ?뚯씪 ?좏깮', fIdx));
             if isequal(filename, 0), return; end
 
-            % [V3.12] 기존 비디오 동기 설정이 있으면 사용자 확인 후 해제
+            % [V3.12] 湲곗〈 鍮꾨뵒???숆린 ?ㅼ젙???덉쑝硫??ъ슜???뺤씤 ???댁젣
             if app.VideoSyncState(fIdx).IsSynced
                 sel = uiconfirm(app.UIFigure, ...
-                    '새 비행데이터를 로드하면 기존 비디오-비행데이터 동기 설정이 해제됩니다. 계속하시겠습니까?', ...
-                    '동기 해제 확인', ...
-                    'Options', {'계속', '취소'}, 'DefaultOption', 1, 'CancelOption', 2);
-                if strcmp(sel, '취소'), return; end
+                    '??鍮꾪뻾?곗씠?곕? 濡쒕뱶?섎㈃ 湲곗〈 鍮꾨뵒??鍮꾪뻾?곗씠???숆린 ?ㅼ젙???댁젣?⑸땲?? 怨꾩냽?섏떆寃좎뒿?덇퉴?', ...
+                    '?숆린 ?댁젣 ?뺤씤', ...
+                    'Options', {'怨꾩냽', '痍⑥냼'}, 'DefaultOption', 1, 'CancelOption', 2);
+                if strcmp(sel, '痍⑥냼'), return; end
                 app.resetVideoSync(fIdx);
             end
 
-            d = uiprogressdlg(app.UIFigure, 'Title', '데이터 로딩 중', ...
-                'Message', sprintf('비행경로 %d 데이터를 파싱하고 있습니다...', fIdx), ...
+            d = uiprogressdlg(app.UIFigure, 'Title', '?곗씠??濡쒕뵫 以?, ...
+                'Message', sprintf('鍮꾪뻾寃쎈줈 %d ?곗씠?곕? ?뚯떛?섍퀬 ?덉뒿?덈떎...', fIdx), ...
                 'Indeterminate', 'on');
             try
                 fullpath = fullfile(pathname, filename);
@@ -433,7 +561,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
                 timeCol = app.Models(fIdx).mappedCols.Time;
                 if ~issorted(app.Models(fIdx).rawData.(timeCol), 'strictascend')
-                    errordlg('시간 데이터가 순차적으로 증가하지 않거나 중복되었습니다.', '데이터 오류');
+                    errordlg('?쒓컙 ?곗씠?곌? ?쒖감?곸쑝濡?利앷??섏? ?딄굅??以묐났?섏뿀?듬땲??', '?곗씠???ㅻ쪟');
                     close(d);
                     return;
                 end
@@ -442,7 +570,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.VideoState(fIdx).videoStartTime = app.Models(fIdx).rawData.(timeCol)(1);
                 end
 
-                % [V3.12] 비행데이터 Hz 자동 계산 후 입력란 갱신
+                % [V3.12] 鍮꾪뻾?곗씠??Hz ?먮룞 怨꾩궛 ???낅젰? 媛깆떊
                 try
                     times = app.Models(fIdx).rawData.(timeCol);
                     if length(times) > 1
@@ -460,9 +588,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 catch ME_silent, app.logCaught(ME_silent, 'silent'); end
                 app.setupDataUI(fIdx);
 
-                % [수정 2] 비행 데이터 파싱 후, 이미 영상이 열려있다면 Video FPS 강제 재계산
-                % [FIX Case 2] 자동 동기(IsSynced=true) 제거 - "동기" 버튼 클릭 시에만 활성화
-                %              FPS 재계산만 수행하여 라벨/시간 표시는 정상 갱신
+                % [?섏젙 2] 鍮꾪뻾 ?곗씠???뚯떛 ?? ?대? ?곸긽???대젮?덈떎硫?Video FPS 媛뺤젣 ?ш퀎??
+                % [FIX Case 2] ?먮룞 ?숆린(IsSynced=true) ?쒓굅 - "?숆린" 踰꾪듉 ?대┃ ?쒖뿉留??쒖꽦??
+                %              FPS ?ш퀎?곕쭔 ?섑뻾?섏뿬 ?쇰꺼/?쒓컙 ?쒖떆???뺤긽 媛깆떊
                 if app.VideoSyncState(fIdx).TotalFrames > 0
                     times = app.Models(fIdx).rawData.(timeCol);
                     timeSpan = times(end) - times(1);
@@ -484,17 +612,17 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 try
                     if ~isempty(d) && isvalid(d), close(d); end
                 catch ME, app.logCaught(ME, 'silent'); end
-                % [V3.20 (3)] 상세 에러 로그
+                % [V3.20 (3)] ?곸꽭 ?먮윭 濡쒓렇
                 if app.DebugMode
                     fprintf('[Flight] parse failed: %s\n  %s\n  stack: %s\n', ...
                         filename, e.message, e.identifier);
                 end
-                errordlg(['오류 발생: ', e.message], '오류');
+                errordlg(['?ㅻ쪟 諛쒖깮: ', e.message], '?ㅻ쪟');
             end
         end
 
         function handleCoastFile(app)
-            [filename, pathname] = uigetfile('*.csv', '해안선 정보 파일 선택');
+            [filename, pathname] = uigetfile('*.csv', '?댁븞???뺣낫 ?뚯씪 ?좏깮');
             if isequal(filename, 0), return; end
             try
                 fullpath = fullfile(pathname, filename);
@@ -516,13 +644,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     end
                 end
             catch e
-                errordlg(['오류 발생: ', e.message], '오류');
+                errordlg(['?ㅻ쪟 諛쒖깮: ', e.message], '?ㅻ쪟');
             end
         end
 
         function handleSpinnerChange(app, fIdx, newTime)
             if isempty(app.Models(fIdx).rawData), return; end
-            if app.IsUpdating(fIdx), return; end
+            if app.stateIsUpdating(fIdx), return; end
 
             timeCol = app.Models(fIdx).mappedCols.Time;
             idx = app.findClosestIndexByTime(app.Models(fIdx).rawData.(timeCol), newTime);
@@ -657,7 +785,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.UIFigure.WindowButtonMotionFcn = '';
                     app.UIFigure.WindowButtonUpFcn = '';
                 end
-                % [FIX] drag/splitter 상태 명시 클리어 (close 중 stale callback 차단)
+                % [FIX] drag/splitter ?곹깭 紐낆떆 ?대━??(close 以?stale callback 李⑤떒)
                 app.IsDraggingSplitter = false;
                 app.IsDraggingPanelSplitter = false;
                 app.IsDraggingPanner   = false;
@@ -684,7 +812,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function togglePanel(app, fIdx, pnlName)
-            % 패널 표시/숨김 토글. 실제 폭 배분은 responsive layout manager가 담당한다.
+            % ?⑤꼸 ?쒖떆/?④? ?좉?. ?ㅼ젣 ??諛곕텇? responsive layout manager媛 ?대떦?쒕떎.
             state = app.UI(fIdx).PanelVisible.(pnlName);
             newState = ~state;
             app.UI(fIdx).PanelVisible.(pnlName) = newState;
@@ -692,16 +820,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if strcmp(pnlName, 'attitude')
                 app.UI(fIdx).panelAttitude.Visible = newState;
                 if newState
-                    app.UI(fIdx).btnAtt.Text = '자세 ▾';
+                    app.UI(fIdx).btnAtt.Text = '?먯꽭 ??;
                 else
-                    app.UI(fIdx).btnAtt.Text = '자세 ▸';
+                    app.UI(fIdx).btnAtt.Text = '?먯꽭 ??;
                 end
             elseif strcmp(pnlName, 'map')
                 app.UI(fIdx).panelMapAlt.Visible = newState;
                 if newState
-                    app.UI(fIdx).btnMap.Text = '지도/고도 ▾';
+                    app.UI(fIdx).btnMap.Text = '吏??怨좊룄 ??;
                 else
-                    app.UI(fIdx).btnMap.Text = '지도/고도 ▸';
+                    app.UI(fIdx).btnMap.Text = '吏??怨좊룄 ??;
                 end
             elseif strcmp(pnlName, 'video')
                 if newState
@@ -709,9 +837,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
                 app.UI(fIdx).panelVideo.Visible = newState;
                 if newState
-                    app.UI(fIdx).btnVid.Text = '비디오 ▾';
+                    app.UI(fIdx).btnVid.Text = '鍮꾨뵒????;
                 else
-                    app.UI(fIdx).btnVid.Text = '비디오 ▸';
+                    app.UI(fIdx).btnVid.Text = '鍮꾨뵒????;
                 end
             end
             app.applyResponsiveLayout('togglePanel');
@@ -738,12 +866,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         % ---------------------------------------------------------------------
-        % 비디오 및 동기화
+        % 鍮꾨뵒??諛??숆린??
         % ---------------------------------------------------------------------
         function toggleSync(app)
             if app.SyncState.IsSynced
                 app.SyncState.IsSynced = false;
-                app.SyncBtn.Text = '비행시간 동기';
+                app.SyncBtn.Text = '鍮꾪뻾?쒓컙 ?숆린';
                 app.SyncBtn.BackgroundColor = [0.58 0.0 0.83];
                 app.SyncInput.Enable = 'on';
                 if ~isempty(app.Models(2).rawData)
@@ -755,11 +883,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             inputStr = app.SyncInput.Value;
             tokens = regexp(inputStr, '^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$', 'tokens');
             if isempty(tokens)
-                errordlg('입력 형식이 올바르지 않습니다. 예: "23.4, 34.4"', '형식 오류');
+                errordlg('?낅젰 ?뺤떇???щ컮瑜댁? ?딆뒿?덈떎. ?? "23.4, 34.4"', '?뺤떇 ?ㅻ쪟');
                 return;
             end
             if isempty(app.Models(1).rawData) || isempty(app.Models(2).rawData)
-                errordlg('두 경로 데이터가 모두 로드되어야 합니다.', '데이터 부족');
+                errordlg('??寃쎈줈 ?곗씠?곌? 紐⑤몢 濡쒕뱶?섏뼱???⑸땲??', '?곗씠??遺議?);
                 return;
             end
 
@@ -769,7 +897,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.SyncState.SyncT2 = t2;
             app.SyncState.IsSynced = true;
 
-            app.SyncBtn.Text = '비행시간 동기 해제';
+            app.SyncBtn.Text = '鍮꾪뻾?쒓컙 ?숆린 ?댁젣';
             app.SyncBtn.BackgroundColor = [0.8 0.2 0.2];
             app.SyncInput.Enable = 'off';
             app.UI(2).spinner.Enable = 'off';
@@ -778,41 +906,41 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             idx1 = app.findClosestIndexByTime(app.Models(1).rawData.(timeCol1), t1);
             app.applyTimeChange(1, idx1);
 
-            % [V3.20 (2)] 동기화 디버그 로그 (SyncState - 두 비행데이터 시간축 매핑)
+            % [V3.20 (2)] ?숆린???붾쾭洹?濡쒓렇 (SyncState - ??鍮꾪뻾?곗씠???쒓컙異?留ㅽ븨)
             if app.DebugMode
-                fprintf('[FlightSync] enabled: T1=%.3fs ↔ T2=%.3fs (offset=%.3fs)\n', ...
+                fprintf('[FlightSync] enabled: T1=%.3fs ??T2=%.3fs (offset=%.3fs)\n', ...
                     t1, t2, t2 - t1);
             end
         end
 
-        % [V3.22 #3] loadAviFile 분해 - 오케스트레이터 + 6단계 헬퍼
-        % 단계: 1) 사용자 확인 → 2) 캐시 무효화 → 3) 기존 자원 정리
-        %       4) VR 생성 → 5) TotalFrames + UI 동기화 → 6) 첫 프레임 로드
-        % 각 단계는 실패 시 명확한 종료 조건을 가지며 책임이 한정됨
+        % [V3.22 #3] loadAviFile 遺꾪빐 - ?ㅼ??ㅽ듃?덉씠??+ 6?④퀎 ?ы띁
+        % ?④퀎: 1) ?ъ슜???뺤씤 ??2) 罹먯떆 臾댄슚????3) 湲곗〈 ?먯썝 ?뺣━
+        %       4) VR ?앹꽦 ??5) TotalFrames + UI ?숆린????6) 泥??꾨젅??濡쒕뱶
+        % 媛??④퀎???ㅽ뙣 ??紐낇솗??醫낅즺 議곌굔??媛吏硫?梨낆엫???쒖젙??
         %
-        % [기술적 권장사항] 원활한 스크러빙(슬라이더 임의 이동) 성능을 위해
-        % All-Intra 포맷 사용 권장:
-        %   - 권장: AVI (Motion JPEG / Uncompressed), MP4 (All-Intra)
-        %   - 비권장: H.264/H.265 Long-GOP MP4
-        % Long-GOP 영상은 임의 위치로 seek 시 가장 가까운 키프레임(I-Frame)부터
-        % 다시 디코딩해야 하므로, 슬라이더 드래그 시 지연이 심해질 수 있음.
+        % [湲곗닠??沅뚯옣?ы빆] ?먰솢???ㅽ겕?щ튃(?щ씪?대뜑 ?꾩쓽 ?대룞) ?깅뒫???꾪빐
+        % All-Intra ?щ㎎ ?ъ슜 沅뚯옣:
+        %   - 沅뚯옣: AVI (Motion JPEG / Uncompressed), MP4 (All-Intra)
+        %   - 鍮꾧텒?? H.264/H.265 Long-GOP MP4
+        % Long-GOP ?곸긽? ?꾩쓽 ?꾩튂濡?seek ??媛??媛源뚯슫 ?ㅽ봽?덉엫(I-Frame)遺??
+        % ?ㅼ떆 ?붿퐫?⑺빐???섎?濡? ?щ씪?대뜑 ?쒕옒洹???吏?곗씠 ?ы빐吏????덉쓬.
         function loadAviFile(app, fIdx)
-            [fname, pname] = uigetfile({'*.avi;*.mp4;*.mkv', 'Video Files (*.avi, *.mp4)'}, sprintf('비디오 선택 %d', fIdx));
+            [fname, pname] = uigetfile({'*.avi;*.mp4;*.mkv', 'Video Files (*.avi, *.mp4)'}, sprintf('鍮꾨뵒???좏깮 %d', fIdx));
             if isequal(fname, 0), return; end
             fullPath = fullfile(pname, fname);
 
-            % 1) 사용자 확인 (기존 동기 설정 해제)
+            % 1) ?ъ슜???뺤씤 (湲곗〈 ?숆린 ?ㅼ젙 ?댁젣)
             if ~app.confirmVideoReplace(fIdx), return; end
 
-            % 2) 프레임 캐시 무효화
+            % 2) ?꾨젅??罹먯떆 臾댄슚??
             app.invalidateFrameCache(fIdx);
 
-            % 3) 기존 VR/Future 정리 + startTime 산출
+            % 3) 湲곗〈 VR/Future ?뺣━ + startTime ?곗텧
             app.invalidateFrameCache(fIdx);
             startTime = app.computeStartTimeFromFlightData(fIdx);
             app.cleanupVideoResources(fIdx);
 
-            % 4) VideoReader 생성
+            % 4) VideoReader ?앹꽦
             vr = app.openVideoReader(fIdx, fullPath, fname);
             if isempty(vr), return; end
             app.VideoState(fIdx).videoStartTime = startTime;
@@ -825,29 +953,29 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
             app.loadFirstFrame(fIdx);
 
-            % 5) TotalFrames 산정 + UI 위젯 동기화
+            % 5) TotalFrames ?곗젙 + UI ?꾩젽 ?숆린??
             app.applyVideoLoadedUI(fIdx, vr);
 
-            % 6) 첫 프레임 로드 + 표시 + 캐시 저장
+            % 6) 泥??꾨젅??濡쒕뱶 + ?쒖떆 + 罹먯떆 ???
             app.loadFirstFrame(fIdx);
         end
 
-        % --------- loadAviFile 헬퍼들 (V3.22 #3) ---------
+        % --------- loadAviFile ?ы띁??(V3.22 #3) ---------
 
-        % [V3.22 #3-1] 기존 동기 설정이 있을 때 사용자 확인 다이얼로그
+        % [V3.22 #3-1] 湲곗〈 ?숆린 ?ㅼ젙???덉쓣 ???ъ슜???뺤씤 ?ㅼ씠?쇰줈洹?
         function ok = confirmVideoReplace(app, fIdx)
             ok = true;
             if app.VideoSyncState(fIdx).IsSynced
                 sel = uiconfirm(app.UIFigure, ...
-                    '새 영상을 로드하면 기존 비디오-비행데이터 동기 설정이 해제됩니다. 계속하시겠습니까?', ...
-                    '동기 해제 확인', ...
-                    'Options', {'계속', '취소'}, 'DefaultOption', 1, 'CancelOption', 2);
-                if strcmp(sel, '취소'), ok = false; return; end
+                    '???곸긽??濡쒕뱶?섎㈃ 湲곗〈 鍮꾨뵒??鍮꾪뻾?곗씠???숆린 ?ㅼ젙???댁젣?⑸땲?? 怨꾩냽?섏떆寃좎뒿?덇퉴?', ...
+                    '?숆린 ?댁젣 ?뺤씤', ...
+                    'Options', {'怨꾩냽', '痍⑥냼'}, 'DefaultOption', 1, 'CancelOption', 2);
+                if strcmp(sel, '痍⑥냼'), ok = false; return; end
                 app.resetVideoSync(fIdx);
             end
         end
 
-        % [V3.22 #3-2 / REFACTOR Step 1] 프레임 캐시 비우기 - CacheModel로 위임
+        % [V3.22 #3-2 / REFACTOR Step 1] ?꾨젅??罹먯떆 鍮꾩슦湲?- CacheModel濡??꾩엫
         function exportConfigInteractive(app)
             app.ConfigMgr.exportConfigInteractive(app);
         end
@@ -1220,11 +1348,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.SyncMdl(fIdx).clear();
                     try
                         if isfield(app.UI(fIdx), 'vidSyncBtn') && isvalid(app.UI(fIdx).vidSyncBtn)
-                            app.UI(fIdx).vidSyncBtn.Text = '동기';
+                            app.UI(fIdx).vidSyncBtn.Text = '?숆린';
                             app.UI(fIdx).vidSyncBtn.BackgroundColor = [0.58 0.0 0.83];
                         end
                         if isfield(app.UI(fIdx), 'vidSyncStatus') && isvalid(app.UI(fIdx).vidSyncStatus)
-                            app.UI(fIdx).vidSyncStatus.Text = '동기 미설정';
+                            app.UI(fIdx).vidSyncStatus.Text = '?숆린 誘몄꽕??;
                             app.UI(fIdx).vidSyncStatus.FontColor = [0.5 0.5 0.5];
                         end
                     catch ME_ui
@@ -1516,7 +1644,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.LastDisplayedFrame(fIdx) = 0;
         end
 
-        % [V3.22 #3-3] 비행데이터 첫 시간 추출 (시작 오프셋용)
+        % [V3.22 #3-3] 鍮꾪뻾?곗씠??泥??쒓컙 異붿텧 (?쒖옉 ?ㅽ봽?뗭슜)
         function startTime = computeStartTimeFromFlightData(app, fIdx)
             startTime = 0;
             if ~isempty(app.Models(fIdx).rawData) && isfield(app.Models(fIdx).mappedCols, 'Time')
@@ -1527,9 +1655,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.22 #3-4] 기존 VideoReader / 비동기 future 명시적 정리
+        % [V3.22 #3-4] 湲곗〈 VideoReader / 鍮꾨룞湲?future 紐낆떆???뺣━
         function cleanupVideoResources(app, fIdx)
-            % Future를 먼저 무효화/취소한 뒤 reader를 닫아 파일락과 stale callback을 줄인다.
+            % Future瑜?癒쇱? 臾댄슚??痍⑥냼????reader瑜??レ븘 ?뚯씪?쎄낵 stale callback??以꾩씤??
             app.AsyncGen(fIdx) = app.AsyncGen(fIdx) + 1;
             app.AsyncTargetFrame(fIdx) = NaN;
             try
@@ -1544,7 +1672,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.AsyncFutures{fIdx} = [];
                 end
             catch ME, app.logCaught(ME, 'silent'); end
-            % [REFACTOR Step 2-B] VideoModel.cleanup 위임 + VideoState 호환 클리어
+            % [REFACTOR Step 2-B] VideoModel.cleanup ?꾩엫 + VideoState ?명솚 ?대━??
             try, app.VideoMdl(fIdx).cleanup(); catch ME, app.logCaught(ME, 'silent'); end
             try, app.VideoMdl(fIdx).cleanup(); catch ME, app.logCaught(ME, 'Video:cleanupModel'); end
             app.VideoState(fIdx).videoReader   = [];
@@ -1553,14 +1681,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.resetVideoWidthPreferences(fIdx);
         end
 
-        % [V3.22 #3-5] VideoReader 생성 (실패 시 errordlg + [] 반환)
+        % [V3.22 #3-5] VideoReader ?앹꽦 (?ㅽ뙣 ??errordlg + [] 諛섑솚)
         function vr = openVideoReader(app, fIdx, fullPath, fname)
             vr = [];
             try
                 vr = VideoReader(fullPath);
                 app.VideoState(fIdx).videoReader = vr;
                 app.VideoFilePath{fIdx} = fullPath;
-                % [REFACTOR Step 2-C] attachReader → VideoLoaded notify (cache 자동 recompute)
+                % [REFACTOR Step 2-C] attachReader ??VideoLoaded notify (cache ?먮룞 recompute)
                 app.VideoMdl(fIdx).attachReader(vr, fullPath, app.VideoState(fIdx).vidImageHandle);
                 if app.DebugMode
                     fprintf('[Video] loaded: %s (fIdx=%d)\n', fname, fIdx);
@@ -1570,15 +1698,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     fprintf('[Video] load failed: %s\n  %s\n', fullPath, e.message);
                 end
                 app.logCaught(e, 'Video:open');
-                errordlg(['영상 로드 실패: ', e.message], '오류');
+                errordlg(['?곸긽 濡쒕뱶 ?ㅽ뙣: ', e.message], '?ㅻ쪟');
                 app.VideoFilePath{fIdx} = '';
                 vr = [];
             end
         end
 
-        % [V3.22 #3-6] TotalFrames 산정 + 관련 UI 위젯/스피너/슬라이더 동기화
+        % [V3.22 #3-6] TotalFrames ?곗젙 + 愿??UI ?꾩젽/?ㅽ뵾???щ씪?대뜑 ?숆린??
         function applyVideoLoadedUI(app, fIdx, vr)
-            % [FIX] TotalFrames 계산은 항상 먼저, UI 갱신 3종은 독립 try로 도달 보장
+            % [FIX] TotalFrames 怨꾩궛? ??긽 癒쇱?, UI 媛깆떊 3醫낆? ?낅┰ try濡??꾨떖 蹂댁옣
             totalFrames = 0;
             try, totalFrames = app.computeTotalFrames(fIdx, vr); catch ME, app.logCaught(ME, 'applyVideoLoadedUI:total'); end
             if ~isfinite(totalFrames) || totalFrames < 1
@@ -1640,8 +1768,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if isfield(app.UI(fIdx), 'vidVideoFpsInput') && any(isvalid(app.UI(fIdx).vidVideoFpsInput))
                     app.UI(fIdx).vidVideoFpsInput.Value = round(actualFps);
                 end
-                % [FIX Case 2] 자동 동기(IsSynced=true) 제거 - "동기" 버튼 클릭 시에만 활성화
-                %              FPS 재계산은 유지 (Case 4 요구사항), anchor는 사용자 명시 동기 시 설정
+                % [FIX Case 2] ?먮룞 ?숆린(IsSynced=true) ?쒓굅 - "?숆린" 踰꾪듉 ?대┃ ?쒖뿉留??쒖꽦??
+                %              FPS ?ш퀎?곗? ?좎? (Case 4 ?붽뎄?ы빆), anchor???ъ슜??紐낆떆 ?숆린 ???ㅼ젙
             catch ME, app.logCaught(ME, 'applyVideoLoadedUI:fps'); end
 
             app.VideoSyncState(fIdx).CurrentFrame = 1;
@@ -1657,21 +1785,21 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME, app.logCaught(ME, 'applyVideoLoadedUI:syncSpinner'); end
 
-            % [FIX] 핵심: 아래 3개는 어떤 경우에도 도달해야 함 → 각각 독립 try
+            % [FIX] ?듭떖: ?꾨옒 3媛쒕뒗 ?대뼡 寃쎌슦?먮룄 ?꾨떖?댁빞 ????媛곴컖 ?낅┰ try
             try, app.updateVdubSliderRange(fIdx); catch ME, app.logCaught(ME, 'applyVideoLoadedUI:sliderRange'); end
             try, app.updateVdubFrameLabel(fIdx, 1); catch ME, app.logCaught(ME, 'applyVideoLoadedUI:label'); end
             try, app.adjustVideoPanelWidth(fIdx); catch ME, app.logCaught(ME, 'applyVideoLoadedUI:panelWidth'); end
         end
 
-        % [V3.22 #3-7] TotalFrames 계산 (NumFrames 우선, 폴백: Duration*FrameRate)
+        % [V3.22 #3-7] TotalFrames 怨꾩궛 (NumFrames ?곗꽑, ?대갚: Duration*FrameRate)
         function totalFrames = computeTotalFrames(app, fIdx, vr)
-            % [REFACTOR Step 2] VideoModel 위임 - vr는 호환용 override
+            % [REFACTOR Step 2] VideoModel ?꾩엫 - vr???명솚??override
             totalFrames = app.VideoMdl(fIdx).computeTotalFrames(app.DebugMode, vr);
         end
 
-        % [V3.22 #3-8] 첫 프레임을 정확히 디코딩하여 표시 + 캐시 저장
+        % [V3.22 #3-8] 泥??꾨젅?꾩쓣 ?뺥솗???붿퐫?⑺븯???쒖떆 + 罹먯떆 ???
         function loadFirstFrame(app, fIdx)
-            % [REFACTOR Step 2-B] VideoModel 위임 + axes 보정/cache store는 메인 잔류
+            % [REFACTOR Step 2-B] VideoModel ?꾩엫 + axes 蹂댁젙/cache store??硫붿씤 ?붾쪟
             firstFrame = app.VideoMdl(fIdx).loadFirstFrame();
             if isempty(firstFrame), return; end
 
@@ -1685,10 +1813,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.LastDisplayedFrame(fIdx) = 1;
         end
 
-        % [V3.12 2.1] 영상 가로:세로 비율에 따라 비디오 패널 너비 동적 조정
+        % [V3.12 2.1] ?곸긽 媛濡??몃줈 鍮꾩쑉???곕씪 鍮꾨뵒???⑤꼸 ?덈퉬 ?숈쟻 議곗젙
         function adjustVideoPanelWidth(app, fIdx)
             try
-                % [FIX] 사용자가 splitter로 조작한 경우 자동 리사이즈 차단 (충돌 방지)
+                % [FIX] ?ъ슜?먭? splitter濡?議곗옉??寃쎌슦 ?먮룞 由ъ궗?댁쫰 李⑤떒 (異⑸룎 諛⑹?)
                 if app.VideoUserResized(fIdx), return; end
                 if app.IsDraggingSplitter, return; end
                 if isempty(app.VideoState(fIdx).videoReader), return; end
@@ -1696,11 +1824,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if vr.Height <= 0, return; end
                 aspectRatio = vr.Width / vr.Height;
 
-                % 패널 내부 영상 영역 높이 약 280px 가정 (96 DPI 기준 디자인 값)
-                % High-DPI 환경에서도 동일 비율을 유지하도록 UIScale.px 적용
+                % ?⑤꼸 ?대? ?곸긽 ?곸뿭 ?믪씠 ??280px 媛??(96 DPI 湲곗? ?붿옄??媛?
+                % High-DPI ?섍꼍?먯꽌???숈씪 鍮꾩쑉???좎??섎룄濡?UIScale.px ?곸슜
                 UIScale = flightdash.util.UIScale;
                 targetWidth = UIScale.px(round(280 * aspectRatio) + 100);
-                targetWidth = max(UIScale.px(400), min(targetWidth, UIScale.px(900)));  % 안전 범위 제한
+                targetWidth = max(UIScale.px(400), min(targetWidth, UIScale.px(900)));  % ?덉쟾 踰붿쐞 ?쒗븳
 
                 app.PreferredVideoWidth(fIdx) = targetWidth;
                 app.applyResponsiveLayout('videoWidth');
@@ -1716,7 +1844,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.VideoUserResized(fIdx) = false;
         end
 
-        % [V3.14 항목 3 / REFACTOR Step 1] 동적 캐시 크기 계산: CacheModel.recomputeLimit으로 위임
+        % [V3.14 ??ぉ 3 / REFACTOR Step 1] ?숈쟻 罹먯떆 ?ш린 怨꾩궛: CacheModel.recomputeLimit?쇰줈 ?꾩엫
         function adjustCacheSize(app, fIdx)
             try
                 if isempty(app.CacheModel) || fIdx > numel(app.CacheModel), return; end
@@ -1738,12 +1866,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.14 항목 3 / REFACTOR Step 1] 사용자가 GUI에서 캐시 예산 변경 시 호출
+        % [V3.14 ??ぉ 3 / REFACTOR Step 1] ?ъ슜?먭? GUI?먯꽌 罹먯떆 ?덉궛 蹂寃????몄텧
         function setCacheBudget(app, budgetMB)
             try
                 if budgetMB <= 0, return; end
                 app.CacheBudgetMB = budgetMB;
-                % 각 CacheModel에 예산 전파 후 영상 로드된 경로만 한도 재계산
+                % 媛?CacheModel???덉궛 ?꾪뙆 ???곸긽 濡쒕뱶??寃쎈줈留??쒕룄 ?ш퀎??
                 for fIdx = 1:2
                     if ~isempty(app.CacheModel) && fIdx <= numel(app.CacheModel)
                         app.CacheModel(fIdx).setBudgetMB(budgetMB);
@@ -1760,7 +1888,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.15 항목 5-3] DebugMode GUI 체크박스 콜백
+        % [V3.15 ??ぉ 5-3] DebugMode GUI 泥댄겕諛뺤뒪 肄쒕갚
         function toggleDebugMode(app, val)
             try
                 app.DebugMode = logical(val);
@@ -1815,9 +1943,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.14 항목 5] VideoReader 유효성 검사 헬퍼 (일관성 있는 가드)
+        % [V3.14 ??ぉ 5] VideoReader ?좏슚??寃???ы띁 (?쇨????덈뒗 媛??
         function tf = isVideoReady(app, fIdx)
-            % [REFACTOR Step 2-B] VideoModel 위임
+            % [REFACTOR Step 2-B] VideoModel ?꾩엫
             tf = false;
             try
                 if fIdx < 1 || fIdx > 2, return; end
@@ -1829,8 +1957,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [REFACTOR Step 2-C] VideoLoaded 이벤트 핸들러
-        % - cache 한도 재계산 (해상도 기반)
+        % [REFACTOR Step 2-C] VideoLoaded ?대깽???몃뱾??
+        % - cache ?쒕룄 ?ш퀎??(?댁긽??湲곕컲)
         function onVideoLoaded(app, fIdx, ~)
             try
                 if ~isempty(app.CacheModel) && fIdx <= numel(app.CacheModel)
@@ -1842,7 +1970,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME, app.logCaught(ME, 'silent'); end
         end
 
-        % [REFACTOR Step 2-C] VideoCleared 이벤트 핸들러 - cache 무효화
+        % [REFACTOR Step 2-C] VideoCleared ?대깽???몃뱾??- cache 臾댄슚??
         function onVideoCleared(app, fIdx)
             try
                 app.resetVideoWidthPreferences(fIdx);
@@ -1853,7 +1981,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME, app.logCaught(ME, 'silent'); end
         end
 
-        % [V3.14 VirtualDub UI] Frame 슬라이더 범위 갱신 (영상 로드 시)
+        % [V3.14 VirtualDub UI] Frame ?щ씪?대뜑 踰붿쐞 媛깆떊 (?곸긽 濡쒕뱶 ??
         function updateVdubSliderRange(app, fIdx)
             try
                 if isfield(app.UI(fIdx), 'vidVdubSlider') && isvalid(app.UI(fIdx).vidVdubSlider)
@@ -1863,14 +1991,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     sld.Value = 1;
                     ticks = round(linspace(1, maxF, 5));
                     sld.MajorTicks = ticks;
-                    sld.MajorTickLabels = arrayfun(@num2str, ticks, 'UniformOutput', false); % 지수 표기 방지
+                    sld.MajorTickLabels = arrayfun(@num2str, ticks, 'UniformOutput', false); % 吏???쒓린 諛⑹?
                     sld.MinorTicks = [];
                 end
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.14 VirtualDub UI] Frame N / Total (HH:MM:SS.mmm) 라벨 갱신
-        % [V3.15 항목 5-1 / REFACTOR Step 0] 시간 포맷팅을 util.TimeFormat으로 위임
+        % [V3.14 VirtualDub UI] Frame N / Total (HH:MM:SS.mmm) ?쇰꺼 媛깆떊
+        % [V3.15 ??ぉ 5-1 / REFACTOR Step 0] ?쒓컙 ?щ㎎?낆쓣 util.TimeFormat?쇰줈 ?꾩엫
         function updateVdubFrameLabel(app, fIdx, frameNo)
             try
                 if ~isfield(app.UI(fIdx), 'vidVdubLabel') || ~isvalid(app.UI(fIdx).vidVdubLabel)
@@ -1886,75 +2014,66 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.15 항목 2 / V3.16 / V3.17 (1)(9)] goToFrame() - 단일 공식 진입점
-        % - V3.16: InGoToFrame 재진입 가드 + onCleanup
-        % - V3.17 (1)(9): coalescing - 처리 중 새 요청은 PendingFrame에 저장 후
-        %                 현재 처리 완료 시 자동 흡수 (최신 frame 누락 방지)
-        % - V3.17 (8): State = 'UPDATING' 표시
+        % [V3.15 ??ぉ 2 / V3.16 / V3.17 (1)(9)] goToFrame() - ?⑥씪 怨듭떇 吏꾩엯??
+        % - V3.16: InGoToFrame ?ъ쭊??媛??+ onCleanup
+        % - V3.17 (1)(9): coalescing - 泥섎━ 以????붿껌? PendingFrame???????
+        %                 ?꾩옱 泥섎━ ?꾨즺 ???먮룞 ?≪닔 (理쒖떊 frame ?꾨씫 諛⑹?)
+        % - V3.17 (8): State = 'UPDATING' ?쒖떆
         function goToFrame(app, fIdx, frameNo, mode)
             if nargin < 4, mode = 'final'; end
 
-            % [V3.17 (1)(9)] 처리 중이면 최신 요청을 Pending에 저장 후 종료
-            % 현재 처리 완료 직전 coalescing 루프에서 자동 처리됨
-            if app.InGoToFrame(fIdx)
-                app.PendingFrame(fIdx) = frameNo;
-                app.PendingMode{fIdx}  = mode;
+            % [REFACTOR] Coalesce recursive frame moves through PlaybackStateModel.
+            if app.stateIsGoToFrame(fIdx)
+                app.setStatePendingFrame(fIdx, frameNo, mode);
                 return;
             end
 
-            app.InGoToFrame(fIdx) = true;
+            app.setStateGoToFrame(fIdx, true);
             app.State = 'UPDATING';
             cleanupObj = onCleanup(@() app.clearGoToFrameFlag(fIdx)); %#ok<NASGU>
 
-            % 핵심 처리 루프 (coalescing 지원)
             app.processFrameInternal(fIdx, frameNo, mode);
 
-            % [V3.17 (1)(9) / V3.18 (3) / V3.22 #4] Pending 완전 소진 루프
-            % - break 대신 continue로 누적된 모든 Pending 처리
-            % - MAX_PENDING_ITERS 안전망으로 무한 루프 방지
             maxIter = flightdash.util.AppConstants.MAX_PENDING_ITERS;
             iter = 0;
-            while ~isnan(app.PendingFrame(fIdx)) && iter < maxIter
-                if app.IsDecoding(fIdx)
+            [hasPending, pf, pm] = app.peekStatePendingFrame(fIdx);
+            while hasPending && iter < maxIter
+                if app.stateIsDecoding(fIdx)
                     break;
                 end
-                pf = app.PendingFrame(fIdx);
-                pm = app.PendingMode{fIdx};
-                app.PendingFrame(fIdx) = NaN;
-                app.PendingMode{fIdx}  = '';
+                [~, pf, pm] = app.consumeStatePendingFrame(fIdx);
                 iter = iter + 1;
-                % 같은 frame이라도 break 대신 continue → 다음 Pending 누적분 처리
                 if pf == app.VideoSyncState(fIdx).CurrentFrame
+                    [hasPending, pf, pm] = app.peekStatePendingFrame(fIdx);
                     continue;
                 end
                 app.processFrameInternal(fIdx, pf, pm);
+                [hasPending, pf, pm] = app.peekStatePendingFrame(fIdx);
             end
             if iter >= maxIter && app.DebugMode
                 fprintf('[goToFrame] Pending loop hit max iterations (fIdx=%d)\n', fIdx);
             end
 
-            % [V3.17 (5)] goToFrame 종료 시 단일 drawnow (drag/final 모두)
             drawnow limitrate;
         end
-
-        % [V3.17 (1)(9)] goToFrame의 핵심 처리 로직 (재진입 가드 우회 - coalescing 전용)
+        % [V3.17 (1)(9)] goToFrame???듭떖 泥섎━ 濡쒖쭅 (?ъ쭊??媛???고쉶 - coalescing ?꾩슜)
         function processFrameInternal(app, fIdx, frameNo, mode)
             if isempty(mode), mode = 'final'; end
 
-            % 1. 범위 검증 + clamp
+            % 1. 踰붿쐞 寃利?+ clamp
             totalF = app.VideoSyncState(fIdx).TotalFrames;
             if totalF < 1, return; end
             frameNo = round(frameNo);
             frameNo = max(1, min(frameNo, totalF));
 
-            % 2. 변경 없으면 종료
+            % 2. 蹂寃??놁쑝硫?醫낅즺
             if app.VideoSyncState(fIdx).CurrentFrame == frameNo, return; end
             app.VideoSyncState(fIdx).CurrentFrame = frameNo;
 
-            % 3. 모든 표시 요소 일괄 동기화
+            % 3. 紐⑤뱺 ?쒖떆 ?붿냼 ?쇨큵 ?숆린??
             app.syncFrameMarkersAndLabel(fIdx, frameNo);
 
-            % 4. 영상 갱신 (mode에 따라 source 선택)
+            % 4. ?곸긽 媛깆떊 (mode???곕씪 source ?좏깮)
             app.syncFrameMarkersAndLabel(fIdx, frameNo);
             if strcmp(mode, 'drag')
                 app.updateVideoFrameByFrameNo(fIdx, frameNo, 'drag');
@@ -1962,7 +2081,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.updateVideoFrameByFrameNo(fIdx, frameNo, 'sync');
             end
 
-            % 5. 동기 모드일 때 비행데이터 측도 갱신
+            % 5. ?숆린 紐⑤뱶????鍮꾪뻾?곗씠??痢〓룄 媛깆떊
             if app.VideoSyncState(fIdx).IsSynced && ~isempty(app.Models(fIdx).rawData)
                 try
                     targetTime = app.frameToTime(fIdx, frameNo);
@@ -1977,8 +2096,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                             if strcmp(mode, 'drag')
                                 app.updateMarkersOnly(fIdx, idx);
                             else
-                                % [FIX] IsUpdating onCleanup 보장
-                                app.IsUpdating(fIdx) = true;
+                                % [FIX] IsUpdating onCleanup 蹂댁옣
+                                app.setStateUpdating(fIdx, true);
                                 cleanup_ = onCleanup(@() resetIsUpdating(app, fIdx)); %#ok<NASGU>
                                 app.updateDashboard(fIdx, idx);
                                 clear cleanup_;
@@ -1992,35 +2111,35 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.15 항목 1] 슬라이더 드래그 중 콜백 (ValueChangingFcn)
-        % - throttle 0.03s(33fps) 적용으로 디코딩 큐 적체 방지
-        % - 'drag' 모드로 goToFrame 호출 → 경량 갱신만 수행
+        % [V3.15 ??ぉ 1] ?щ씪?대뜑 ?쒕옒洹?以?肄쒕갚 (ValueChangingFcn)
+        % - throttle 0.03s(33fps) ?곸슜?쇰줈 ?붿퐫?????곸껜 諛⑹?
+        % - 'drag' 紐⑤뱶濡?goToFrame ?몄텧 ??寃쎈웾 媛깆떊留??섑뻾
         function onVdubSliderChanging(app, fIdx, evtValue)
-            % 슬라이더 throttle: 너무 자주 호출되면 무시
+            % ?щ씪?대뜑 throttle: ?덈Т ?먯＜ ?몄텧?섎㈃ 臾댁떆
             if app.throttleHit('LastSliderUpdate', fIdx, flightdash.util.AppConstants.SLIDER_THROTTLE_S), return; end
 
             frameNo = round(evtValue);
-            % [FIX] 드래그 중 시각 피드백 즉시화: goToFrame 진입 전 라벨/슬라이더 라벨만 1회 갱신
+            % [FIX] ?쒕옒洹?以??쒓컖 ?쇰뱶諛?利됱떆?? goToFrame 吏꾩엯 ???쇰꺼/?щ씪?대뜑 ?쇰꺼留?1??媛깆떊
             try, app.updateVdubFrameLabel(fIdx, frameNo); catch, end
 
-            % [V3.19 (2)] 드래그 속도 측정 (adaptive prefetch용)
+            % [V3.19 (2)] ?쒕옒洹??띾룄 痢≪젙 (adaptive prefetch??
             app.updateDragVelocity(fIdx, frameNo);
 
             app.goToFrame(fIdx, evtValue, 'drag');
         end
 
-        % [V3.15 항목 1] 슬라이더 드래그 종료 시 콜백 (ValueChangedFcn)
-        % - 'final' 모드로 goToFrame 호출 → 전체 패널 1회 동기화 보장
-        % - [V3.16] 같은 frame이라도 drag 모드 종료 직후일 수 있으므로 updateDashboard 강제
+        % [V3.15 ??ぉ 1] ?щ씪?대뜑 ?쒕옒洹?醫낅즺 ??肄쒕갚 (ValueChangedFcn)
+        % - 'final' 紐⑤뱶濡?goToFrame ?몄텧 ???꾩껜 ?⑤꼸 1???숆린??蹂댁옣
+        % - [V3.16] 媛숈? frame?대씪??drag 紐⑤뱶 醫낅즺 吏곹썑?????덉쑝誘濡?updateDashboard 媛뺤젣
         function onVdubSliderChanged(app, fIdx, src)
             try
                 target = round(src.Value);
                 if app.VideoSyncState(fIdx).CurrentFrame == target
-                    % drag 모드는 updateMarkersOnly만 호출 → 테이블/게이지 stale 가능
-                    % final 모드 1회 강제 호출로 전체 동기화 보장
+                    % drag 紐⑤뱶??updateMarkersOnly留??몄텧 ???뚯씠釉?寃뚯씠吏 stale 媛??
+                    % final 紐⑤뱶 1??媛뺤젣 ?몄텧濡??꾩껜 ?숆린??蹂댁옣
                     if app.VideoSyncState(fIdx).IsSynced && ~isempty(app.Models(fIdx).rawData)
-                        % [FIX] IsUpdating onCleanup 보장
-                        app.IsUpdating(fIdx) = true;
+                        % [FIX] IsUpdating onCleanup 蹂댁옣
+                        app.setStateUpdating(fIdx, true);
                         cleanup_ = onCleanup(@() resetIsUpdating(app, fIdx)); %#ok<NASGU>
                         try, app.updateDashboard(fIdx, app.Models(fIdx).currentIndex); catch, end
                         clear cleanup_;
@@ -2028,27 +2147,26 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     return;
                 end
                 app.goToFrame(fIdx, src.Value, 'final');
-                % [V3.19 (2)] 슬라이더 드래그 종료 시 adaptive prefetch
+                % [V3.19 (2)] ?щ씪?대뜑 ?쒕옒洹?醫낅즺 ??adaptive prefetch
                 app.prefetchAdjacentFrames(fIdx);
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.16 / V3.17 (8)] goToFrame 재진입 플래그 해제 (onCleanup 콜백)
+        % [V3.16 / V3.17 (8)] goToFrame ?ъ쭊???뚮옒洹??댁젣 (onCleanup 肄쒕갚)
         function clearGoToFrameFlag(app, fIdx)
-            app.InGoToFrame(fIdx) = false;
-            if ~any(app.InGoToFrame), app.State = 'IDLE'; end
+            app.setStateGoToFrame(fIdx, false);
+            if ~app.anyStateGoToFrame(), app.State = 'IDLE'; end
         end
 
-        % [V3.17 (7)] 디코딩 진행 중 플래그 해제 (onCleanup 콜백)
+        % [V3.17 (7)] ?붿퐫??吏꾪뻾 以??뚮옒洹??댁젣 (onCleanup 肄쒕갚)
         function clearDecodingFlag(app, fIdx)
-            app.IsDecoding(fIdx) = false;
+            app.setStateDecoding(fIdx, false);
             app.processPendingDecodeRequest(fIdx);
         end
 
         function queuePendingFrame(app, fIdx, frameNo, source)
             try
-                app.PendingFrame(fIdx) = frameNo;
-                app.PendingMode{fIdx} = source;
+                app.setStatePendingFrame(fIdx, frameNo, source);
             catch ME
                 app.logCaught(ME, 'Video:queuePending');
             end
@@ -2056,12 +2174,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function processPendingDecodeRequest(app, fIdx)
             try
-                if app.IsDeleting || fIdx < 1 || fIdx > numel(app.PendingFrame), return; end
-                if isnan(app.PendingFrame(fIdx)), return; end
-                frameNo = app.PendingFrame(fIdx);
-                source = app.PendingMode{fIdx};
-                app.PendingFrame(fIdx) = NaN;
-                app.PendingMode{fIdx} = '';
+                if app.IsDeleting || fIdx < 1 || fIdx > 2, return; end
+                [hasPending, frameNo, source] = app.consumeStatePendingFrame(fIdx);
+                if ~hasPending, return; end
                 if isempty(source), source = 'force'; end
                 if app.LastDisplayedFrame(fIdx) ~= frameNo
                     app.requestFrame(fIdx, frameNo, source);
@@ -2071,377 +2186,28 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.17 (2) / REFACTOR Step 1] 캐시 존재 여부만 확인 (LRU 갱신 안 함) - CacheModel 위임
-        function tf = hasCachedFrame(app, fIdx, frameNo)
-            tf = false;
-            try
-                if isempty(app.CacheModel) || fIdx > numel(app.CacheModel), return; end
-                % VideoSyncState의 TotalFrames와 동기화 (clamp 보호)
-                app.CacheModel(fIdx).setTotalFrames(app.VideoSyncState(fIdx).TotalFrames);
-                tf = app.CacheModel(fIdx).has(frameNo);
-            catch
-                tf = false;
-            end
-        end
-
-        % [V3.19 (2)] 드래그 속도 추적 (지수 이동평균)
-        function updateDragVelocity(app, fIdx, newFrame)
-            try
-                if app.LastDragTime{fIdx} == 0, app.LastDragTime{fIdx} = tic; end
-                nowT = toc(app.LastDragTime{fIdx});   % [PATCH] 채널별 상대초
-                samples = app.DragVelocitySamples{fIdx};
-
-                if isempty(samples)
-                    samples = struct('time', nowT, 'frame', newFrame);
-                else
-                    last = samples(end);
-                    dt = nowT - last.time;
-                    if dt > 0.001
-                        instantV = (newFrame - last.frame) / dt;
-                        % 지수 이동평균 (alpha=0.3)
-                        app.DragVelocity(fIdx) = 0.7 * app.DragVelocity(fIdx) + 0.3 * instantV;
-                    end
-                    samples(end+1) = struct('time', nowT, 'frame', newFrame);
-                    if length(samples) > 5, samples(1) = []; end
-                end
-                app.DragVelocitySamples{fIdx} = samples;
-            catch ME
-                app.logCaught(ME, 'updateDragVelocity');
-            end
-        end
-
-        % [REFACTOR Step 0] util.Throttle 싱글톤 위임 - 호환성 100% 유지
-        function hit = throttleHit(~, slotName, fIdx, limitS)
-            hit = flightdash.util.Throttle.instance().hit(slotName, fIdx, limitS);
-        end
-
-        % [PATCH / REFACTOR Step 0] DebugMode 게이팅 catch 로깅 헬퍼 - util.ErrorLog 위임
-        % - 모든 호출처는 그대로 동작 (호환성 100%)
-        function logCaught(app, ME, tag)
-            flightdash.util.ErrorLog.log(ME, tag, app.DebugMode);
-        end
-
-        % [V3.22 #1 / REFACTOR Step 0] 사후 조사용: 누적된 에러 로그 콘솔 출력
-        % 사용 예: app.dumpErrorLog()         → 전체 출력
-        %         app.dumpErrorLog(20)        → 최근 20건
-        %         app.dumpErrorLog(20, 'Async') → 최근 20건 중 'Async' 포함 태그만
-        function dumpErrorLog(app, n, filterTag) %#ok<INUSD>
-            if nargin < 2, n = []; end
-            if nargin < 3, filterTag = ''; end
-            flightdash.util.ErrorLog.dump(n, filterTag);
-        end
-
-        function state = dumpLayoutState(app)
-            % Runtime layout snapshot for MATLAB Online / DPI troubleshooting.
-            state = struct();
-            try
-                [figW, figH] = app.currentFigureSizePx();
-                profile = flightdash.util.UIScale.profileForSize(figW, figH);
-                state.Profile = profile;
-                state.FigureSize = [figW, figH];
-                state.LastLayoutSize = app.LastLayoutSize;
-                try
-                    oldUnits = app.UIFigure.Units;
-                    app.UIFigure.Units = 'pixels';
-                    state.FigurePosition = app.UIFigure.Position;
-                    app.UIFigure.Units = oldUnits;
-                catch
-                end
-
-                if isfield(app.LayoutHandles, 'header')
-                    h = app.LayoutHandles.header;
-                    if isfield(h, 'HeaderGrid') && ~isempty(h.HeaderGrid) && isvalid(h.HeaderGrid)
-                        state.HeaderRowHeight = h.HeaderGrid.RowHeight;
-                        state.HeaderColumnWidth = h.HeaderGrid.ColumnWidth;
-                    end
-                end
-
-                if isfield(app.LayoutHandles, 'bodyGrid') && ...
-                        ~isempty(app.LayoutHandles.bodyGrid) && isvalid(app.LayoutHandles.bodyGrid)
-                    state.BodyRowHeight = app.LayoutHandles.bodyGrid.RowHeight;
-                end
-
-                nChannels = min(2, numel(app.UI));
-                channelTemplate = struct('ColumnWidth', {{}}, 'PanelVisible', {struct()});
-                channels = repmat(channelTemplate, 1, nChannels);
-                for fIdx = 1:nChannels
-                    if isfield(app.UI(fIdx), 'dataGrid') && ~isempty(app.UI(fIdx).dataGrid) && isvalid(app.UI(fIdx).dataGrid)
-                        channels(fIdx).ColumnWidth = app.UI(fIdx).dataGrid.ColumnWidth;
-                    end
-                    if isfield(app.UI(fIdx), 'PanelVisible')
-                        channels(fIdx).PanelVisible = app.UI(fIdx).PanelVisible;
-                    end
-                end
-                state.Channel = channels;
-            catch ME
-                app.logCaught(ME, 'Layout:dumpState');
-            end
-
-            if nargout == 0
-                disp(state);
-                clear state;
-            end
-        end
-
-        function report = validateLayoutState(app)
-            % Lightweight runtime checks for responsive layout regressions.
-            report = struct('IsOk', false, 'Warnings', {{}}, 'State', struct());
-            warnings = {};
-            try
-                state = app.dumpLayoutState();
-                report.State = state;
-
-                if ~isfield(state, 'FigureSize') || numel(state.FigureSize) < 2 || ...
-                        any(~isfinite(state.FigureSize)) || any(state.FigureSize <= 0)
-                    warnings{end+1} = 'Figure size is unavailable or invalid.'; %#ok<AGROW>
-                end
-
-                profile = app.LayoutProfile;
-                if isfield(state, 'Profile') && ~isempty(state.Profile)
-                    profile = state.Profile;
-                end
-                profile = flightdash.util.UIScale.normalizeProfile(profile);
-                isNarrow = strcmp(profile, flightdash.util.AppConstants.LAYOUT_PROFILE_NARROW);
-
-                figH = NaN;
-                if isfield(state, 'FigureSize') && numel(state.FigureSize) >= 2
-                    figH = state.FigureSize(2);
-                end
-                isShort = ~isfinite(figH) || figH < flightdash.util.AppConstants.LAYOUT_SHORT_VIEW_H || isNarrow;
-
-                if isNarrow
-                    if ~isfield(state, 'HeaderRowHeight') || numel(state.HeaderRowHeight) < 2
-                        warnings{end+1} = 'Narrow profile should use a two-row header.'; %#ok<AGROW>
-                    end
-                end
-                if isShort
-                    if ~isfield(state, 'BodyRowHeight') || ~iscell(state.BodyRowHeight) || ...
-                            numel(state.BodyRowHeight) < 2 || ...
-                            ~isnumeric(state.BodyRowHeight{1}) || ~isnumeric(state.BodyRowHeight{2})
-                        warnings{end+1} = 'Short/narrow profile should use numeric scrollable body row heights.'; %#ok<AGROW>
-                    end
-                end
-
-                figW = NaN;
-                if isfield(state, 'FigureSize') && numel(state.FigureSize) >= 1
-                    figW = state.FigureSize(1);
-                end
-
-                if isfield(state, 'Channel')
-                    for fIdx = 1:numel(state.Channel)
-                        cw = state.Channel(fIdx).ColumnWidth;
-                        if isempty(cw)
-                            warnings{end+1} = sprintf('Channel %d has no dataGrid ColumnWidth.', fIdx); %#ok<AGROW>
-                            continue;
-                        end
-                        if numel(cw) < 9
-                            warnings{end+1} = sprintf('Channel %d dataGrid should have 9 columns.', fIdx); %#ok<AGROW>
-                            continue;
-                        end
-                        if ~(ischar(cw{7}) && strcmp(cw{7}, '1x'))
-                            warnings{end+1} = sprintf('Channel %d H panel column is not flexible 1x.', fIdx); %#ok<AGROW>
-                        end
-                        if isNarrow && any(cellfun(@(v) isnumeric(v) && isscalar(v) && v > 0, cw([2 4 6 8])))
-                            warnings{end+1} = sprintf('Channel %d splitter should be hidden in narrow profile.', fIdx); %#ok<AGROW>
-                        end
-
-                        fixedW = 0;
-                        fixedCols = [1 2 3 4 5 6 8 9];
-                        for k = fixedCols
-                            if isnumeric(cw{k}) && isscalar(cw{k}) && isfinite(cw{k})
-                                fixedW = fixedW + cw{k};
-                            end
-                        end
-                        if isfinite(figW) && fixedW > figW
-                            warnings{end+1} = sprintf('Channel %d fixed columns exceed figure width.', fIdx); %#ok<AGROW>
-                        end
-                    end
-                else
-                    warnings{end+1} = 'No channel layout snapshot is available.'; %#ok<AGROW>
-                end
-            catch ME
-                warnings{end+1} = ['Layout validation failed: ' ME.message]; %#ok<AGROW>
-                app.logCaught(ME, 'Layout:validateState');
-            end
-
-            report.Warnings = warnings;
-            report.IsOk = isempty(warnings);
-            if nargout == 0
-                if report.IsOk
-                    fprintf('[Layout] OK: responsive layout checks passed.\n');
-                else
-                    fprintf('[Layout] %d warning(s):\n', numel(warnings));
-                    for k = 1:numel(warnings)
-                        fprintf('  - %s\n', warnings{k});
-                    end
-                end
-                clear report;
-            end
-        end
-
-        % [V3.19 (1) / V3.20 (5-2)] 비동기 디코딩 시작
-        % - thread pool 우선 (직렬화 비용 0), 미지원 시 process pool 폴백
-        % - 둘 다 실패하면 UseAsyncDecode=false로 자동 폴백 (재시도 안 함)
-        % [PATCH Async 1.1] thread pool 사용 금지 - persistent VR이 워커 간 공유되어
-        %                   race condition 발생. process pool은 워커별 독립 메모리.
-        function startAsyncDecode(app, fIdx, frameNo)
-            try
-                % parallel pool 준비 (없으면 지연 생성)
-                if isempty(app.AsyncPool) || ~isvalid(app.AsyncPool)
-                    poolOk = false;
-                    % [PATCH] 기존 pool 재사용 가능하면 사용 (단, threads는 거부)
-                    try
-                        existing = gcp('nocreate');
-                        if ~isempty(existing) && isvalid(existing)
-                            poolType = class(existing);
-                            if contains(poolType, 'Thread', 'IgnoreCase', true)
-                                if app.DebugMode
-                                    fprintf('[Async] existing thread pool rejected (race risk)\n');
-                                end
-                            else
-                                app.AsyncPool = existing;
-                                poolOk = true;
-                            end
-                        end
-                    catch ME, app.logCaught(ME, 'Async:gcp'); end
-
-                    % process pool 신규 생성
-                    if ~poolOk
-                        try
-                            app.AsyncPool = parpool('local', flightdash.util.AppConstants.ASYNC_WORKER_COUNT);
-                            try
-                                if isprop(app.AsyncPool, 'IdleTimeout')
-                                    app.AsyncPool.IdleTimeout = 30;
-                                end
-                            catch ME_idle
-                                app.logCaught(ME_idle, 'Async:IdleTimeout');
-                            end
-                            poolOk = true;
-                            if app.DebugMode
-                                fprintf('[Async] process pool ready (%d workers)\n', flightdash.util.AppConstants.ASYNC_WORKER_COUNT);
-                            end
-                        catch e2
-                            if app.DebugMode
-                                fprintf('[Async] process pool failed: %s\n', e2.message);
-                            end
-                        end
-                    end
-
-                    % 실패: 영구 비활성화
-                    if ~poolOk
-                        app.UseAsyncDecode = false;
-                        if app.DebugMode
-                            fprintf('[Async] disabled - falling back to sync decode\n');
-                        end
-                        return;
-                    end
-                end
-
-                % [V3.21 #1-A] generation counter 증가 - 신규 요청 발행
-                app.AsyncGen(fIdx) = app.AsyncGen(fIdx) + 1;
-                myGen = app.AsyncGen(fIdx);
-
-                % 이전 future 취소 (구식 결과 폐기)
-                try
-                    if ~isempty(app.AsyncFutures{fIdx}) && isvalid(app.AsyncFutures{fIdx})
-                        fut = app.AsyncFutures{fIdx};
-                        cancel(fut);
-                        try
-                            wait(fut, 'finished', 0.25);
-                        catch ME_wait
-                            app.logCaught(ME_wait, 'Async:cancelWait:replaceFuture');
-                        end
-                    end
-                catch ME_silent, app.logCaught(ME_silent, 'silent'); end
-                app.AsyncTargetFrame(fIdx) = frameNo;
-                fps = app.VideoSyncState(fIdx).VideoFps;
-                filePath = app.VideoFilePath{fIdx};
-                if isempty(filePath) || ~isfile(filePath)
-                    app.AsyncTargetFrame(fIdx) = NaN;
-                    return;
-                end
-
-                % [V3.21 #2-A / V3.22 #4 / V3.22 #6] persistent VR worker 함수 사용
-                % static wrapper를 통해 향후 +flightdash 패키지 마이그레이션 가능
-                fut = parfeval(app.AsyncPool, @asyncDecodeFramePersistent, 1, ...
-                    filePath, frameNo, fps, flightdash.util.AppConstants.WORKER_VR_CACHE_SLOTS);
-                app.AsyncFutures{fIdx} = fut;
-
-                % [V3.21 #1-A] afterEach에 myGen 캡처 → 완료 시 generation 비교
-                afterEach(fut, @(img) app.onAsyncDecodeComplete(fIdx, frameNo, myGen, img), 1, ...
-                    'PassFuture', false);
-            catch e
-                if app.DebugMode
-                    fprintf('[Async] startAsyncDecode error: %s\n', e.message);
-                end
-                app.logCaught(e, 'Async:startAsyncDecode');
-            end
-        end
-
-        % [V3.19 (1) / V3.21 #1-A / V3.21 #3-A] 비동기 디코딩 완료 콜백 (main thread)
-        % - generation 비교로 stale 결과 차단
-        % - displayFrame 단일 출구 통과 (write-through)
-        function onAsyncDecodeComplete(app, fIdx, frameNo, gen, img)
-            try
-                if ~isvalid(app) || app.IsDeleting, return; end
-                if isempty(app.UIFigure) || ~isvalid(app.UIFigure), return; end
-                if fIdx < 1 || fIdx > numel(app.VideoState) || ~app.isVideoReady(fIdx), return; end
-                if isempty(img)
-                    if gen == app.AsyncGen(fIdx)
-                        app.AsyncTargetFrame(fIdx) = NaN;
-                        app.AsyncFutures{fIdx} = [];
-                    end
-                    return;
-                end
-                if gen ~= app.AsyncGen(fIdx)
-                    if app.DebugMode
-                        fprintf('[Async] stale result discarded (gen=%d, current=%d)\n', ...
-                            gen, app.AsyncGen(fIdx));
-                    end
-                    if ~isempty(app.AsyncFutures{fIdx}), app.AsyncFutures{fIdx} = []; end
-                    return;
-                end
-                % [FIX] PendingFrame 체크 - 더 최신 요청이 큐잉됐다면 displayFrame 스킵
-                % (즉시 덮어쓰여질 UI 작업 방지, race-safe)
-                if ~isnan(app.PendingFrame(fIdx)) && app.PendingFrame(fIdx) ~= frameNo
-                    if app.DebugMode
-                        fprintf('[Async] superseded by pending frame %d (this=%d)\n', ...
-                            app.PendingFrame(fIdx), frameNo);
-                    end
-                    app.AsyncFutures{fIdx} = [];
-                    app.processPendingDecodeRequest(fIdx);
-                    return;
-                end
-                % [V3.21 #3-A] Layer 3 단일 출구 통과
-                app.displayFrame(fIdx, frameNo, img, false);
-                app.AsyncTargetFrame(fIdx) = NaN;
-                app.AsyncFutures{fIdx} = [];   % [FIX] 완료된 future 즉시 해제 (메모리 누적 차단)
-                app.processPendingDecodeRequest(fIdx);
-            catch ME_silent, app.logCaught(ME_silent, 'silent'); end
-        end
-
-        % [V3.18 (4) / V3.19 (2)] adaptive prefetch: 드래그 속도/방향 기반 prefetch 범위
+        % [V3.18 (4) / V3.19 (2)] adaptive prefetch: ?쒕옒洹??띾룄/諛⑺뼢 湲곕컲 prefetch 踰붿쐞
         function prefetchAdjacentFrames(app, fIdx)
             try
                 if ~app.isVideoReady(fIdx), return; end
                 cur = app.VideoSyncState(fIdx).CurrentFrame;
                 total = app.VideoSyncState(fIdx).TotalFrames;
 
-                v = app.DragVelocity(fIdx);   % frames/sec (부호 = 방향)
+                v = app.DragVelocity(fIdx);   % frames/sec (遺??= 諛⑺뼢)
                 speed = abs(v);
 
-                % [V3.19 (2)] 속도 기반 prefetch 범위
+                % [V3.19 (2)] ?띾룄 湲곕컲 prefetch 踰붿쐞
                 if speed < 30
-                    offsets = [-3:-1, 1:3];        % 느림: 균등 양방향
+                    offsets = [-3:-1, 1:3];        % ?먮┝: 洹좊벑 ?묐갑??
                 elseif speed < 100
                     if v > 0
-                        offsets = [-2, -1, 1:7];   % 정방향 우세
+                        offsets = [-2, -1, 1:7];   % ?뺣갑???곗꽭
                     else
-                        offsets = [-7:-1, 1, 2];   % 역방향 우세
+                        offsets = [-7:-1, 1, 2];   % ??갑???곗꽭
                     end
                 else
                     if v > 0
-                        offsets = 1:12;            % 빠름: 진행방향만 깊게
+                        offsets = 1:12;            % 鍮좊쫫: 吏꾪뻾諛⑺뼢留?源딄쾶
                     else
                         offsets = -12:-1;
                     end
@@ -2451,7 +2217,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     fprintf('[Prefetch] fIdx=%d, v=%.1f f/s, %d offsets\n', fIdx, v, length(offsets));
                 end
 
-                % 다음 드래그용 reset
+                % ?ㅼ쓬 ?쒕옒洹몄슜 reset
                 app.DragVelocity(fIdx) = 0;
                 app.DragVelocitySamples{fIdx} = [];
 
@@ -2467,7 +2233,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function prefetchFramesToCache(app, fIdx, targets)
-            % 화면 상태와 main VideoReader 위치를 건드리지 않고 별도 reader로 cache만 예열.
+            % ?붾㈃ ?곹깭? main VideoReader ?꾩튂瑜?嫄대뱶由ъ? ?딄퀬 蹂꾨룄 reader濡?cache留??덉뿴.
             if isempty(targets), return; end
             try
                 filePath = app.VideoFilePath{fIdx};
@@ -2519,8 +2285,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.14 VirtualDub UI] ◄◄ ◄ ► ►► 네비게이션 버튼 콜백
-        % [V3.15 항목 2] goToFrame 단일 진입점 사용
+        % [V3.14 VirtualDub UI] ?꾟뾼 ?????뷜뼷 ?ㅻ퉬寃뚯씠??踰꾪듉 肄쒕갚
+        % [V3.15 ??ぉ 2] goToFrame ?⑥씪 吏꾩엯???ъ슜
         function onVdubNav(app, fIdx, action)
             try
                 if ~app.isVideoReady(fIdx), return; end
@@ -2541,19 +2307,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.14 VirtualDub UI] Frame 마커/슬라이더/라벨 일괄 동기화 헬퍼
+        % [V3.14 VirtualDub UI] Frame 留덉빱/?щ씪?대뜑/?쇰꺼 ?쇨큵 ?숆린???ы띁
         function syncFrameMarkersAndLabel(app, fIdx, frameNo)
             try
-                % [수정] 사용하지 않는 옛날 마커 갱신 코드는 완전히 삭제하여 에러 원천 차단
+                % [?섏젙] ?ъ슜?섏? ?딅뒗 ?쏅궇 留덉빱 媛깆떊 肄붾뱶???꾩쟾????젣?섏뿬 ?먮윭 ?먯쿇 李⑤떒
 
-                % 1. 슬라이더 위치 갱신
+                % 1. ?щ씪?대뜑 ?꾩튂 媛깆떊
                 if isfield(app.UI(fIdx), 'vidVdubSlider') && any(isvalid(app.UI(fIdx).vidVdubSlider))
                     if abs(app.UI(fIdx).vidVdubSlider.Value - frameNo) > 0.5
                         app.UI(fIdx).vidVdubSlider.Value = frameNo;
                     end
                 end
 
-                % 2. 라벨 텍스트 갱신 (에러 없이 안전하게 도달)
+                % 2. ?쇰꺼 ?띿뒪??媛깆떊 (?먮윭 ?놁씠 ?덉쟾?섍쾶 ?꾨떖)
                 app.updateVdubFrameLabel(fIdx, frameNo);
 
             catch ME_silent
@@ -2561,9 +2327,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.12] 비디오 동기 상태 초기화
+        % [V3.12] 鍮꾨뵒???숆린 ?곹깭 珥덇린??
         function resetVideoSync(app, fIdx)
-            % [REFACTOR Step 2-B] SyncModel 먼저 clear (model-first; VideoSyncState는 compat alias)
+            % [REFACTOR Step 2-B] SyncModel 癒쇱? clear (model-first; VideoSyncState??compat alias)
             app.SyncMdl(fIdx).clear();
             app.VideoSyncState(fIdx).IsSynced = false;
             app.VideoSyncState(fIdx).AnchorFrame = 0;
@@ -2571,94 +2337,94 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.VideoSyncState(fIdx).AnchorTime = 0;
             try
                 if isfield(app.UI(fIdx), 'vidSyncBtn') && isvalid(app.UI(fIdx).vidSyncBtn)
-                    app.UI(fIdx).vidSyncBtn.Text = '동기';
+                    app.UI(fIdx).vidSyncBtn.Text = '?숆린';
                     app.UI(fIdx).vidSyncBtn.BackgroundColor = [0.58 0.0 0.83];
                 end
                 if isfield(app.UI(fIdx), 'vidSyncStatus') && isvalid(app.UI(fIdx).vidSyncStatus)
-                    app.UI(fIdx).vidSyncStatus.Text = '동기 미설정';
+                    app.UI(fIdx).vidSyncStatus.Text = '?숆린 誘몄꽕??;
                     app.UI(fIdx).vidSyncStatus.FontColor = [0.5 0.5 0.5];
                 end
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.12 2.2.3] 동기 버튼 콜백 - 입력값 검증 및 동기 설정
+        % [V3.12 2.2.3] ?숆린 踰꾪듉 肄쒕갚 - ?낅젰媛?寃利?諛??숆린 ?ㅼ젙
         function applyVideoSync(app, fIdx)
-            % 동기 해제 모드
+            % ?숆린 ?댁젣 紐⑤뱶
             if app.VideoSyncState(fIdx).IsSynced
                 app.resetVideoSync(fIdx);
                 return;
             end
 
-            % 1. 영상/데이터 로드 검증
+            % 1. ?곸긽/?곗씠??濡쒕뱶 寃利?
             if isempty(app.VideoState(fIdx).videoReader)
-                errordlg('먼저 AVI 파일을 로드하세요.', '동기 오류'); return;
+                errordlg('癒쇱? AVI ?뚯씪??濡쒕뱶?섏꽭??', '?숆린 ?ㅻ쪟'); return;
             end
             if isempty(app.Models(fIdx).rawData)
-                errordlg('먼저 비행데이터(CSV)를 로드하세요.', '동기 오류'); return;
+                errordlg('癒쇱? 鍮꾪뻾?곗씠??CSV)瑜?濡쒕뱶?섏꽭??', '?숆린 ?ㅻ쪟'); return;
             end
 
-            % 2. 입력값 추출
+            % 2. ?낅젰媛?異붿텧
             frameNo = app.UI(fIdx).vidSyncFrameInput.Value;
             timeVal = app.UI(fIdx).vidSyncTimeInput.Value;
 
-            % 3. 범위 검증
+            % 3. 踰붿쐞 寃利?
             totalFrames = app.VideoSyncState(fIdx).TotalFrames;
             timeCol = app.Models(fIdx).mappedCols.Time;
             times = app.Models(fIdx).rawData.(timeCol);
 
             if frameNo < 1 || frameNo > totalFrames
-                errordlg(sprintf('Frame No는 1 ~ %d 범위여야 합니다.', totalFrames), '범위 오류'); return;
+                errordlg(sprintf('Frame No??1 ~ %d 踰붿쐞?ъ빞 ?⑸땲??', totalFrames), '踰붿쐞 ?ㅻ쪟'); return;
             end
             if timeVal < times(1) || timeVal > times(end)
-                errordlg(sprintf('Time(s)는 %.3f ~ %.3f 범위여야 합니다.', times(1), times(end)), '범위 오류'); return;
+                errordlg(sprintf('Time(s)??%.3f ~ %.3f 踰붿쐞?ъ빞 ?⑸땲??', times(1), times(end)), '踰붿쐞 ?ㅻ쪟'); return;
             end
 
-            % 4. Hz 값 갱신
+            % 4. Hz 媛?媛깆떊
             vfpsUI = app.UI(fIdx).vidVideoFpsInput.Value;
             dfps = app.UI(fIdx).vidDataFpsInput.Value;
             if vfpsUI < 1 || dfps < 1
-                errordlg('Hz 값은 1 이상이어야 합니다.', '입력 오류'); return;
+                errordlg('Hz 媛믪? 1 ?댁긽?댁뼱???⑸땲??', '?낅젰 ?ㅻ쪟'); return;
             end
 
-            % [수정 3] 소수점 정밀도 유실 방지 로직
-            % 내부의 정확한 소수점 FPS를 반올림한 값과 현재 UI 스피너의 값이 같다면,
-            % 사용자가 스피너를 수동 조작하지 않은 것으로 간주하여 정확한 내부 소수점 FPS를 유지함.
+            % [?섏젙 3] ?뚯닔???뺣????좎떎 諛⑹? 濡쒖쭅
+            % ?대????뺥솗???뚯닔??FPS瑜?諛섏삱由쇳븳 媛믨낵 ?꾩옱 UI ?ㅽ뵾?덉쓽 媛믪씠 媛숇떎硫?
+            % ?ъ슜?먭? ?ㅽ뵾?덈? ?섎룞 議곗옉?섏? ?딆? 寃껋쑝濡?媛꾩＜?섏뿬 ?뺥솗???대? ?뚯닔??FPS瑜??좎???
             if round(app.VideoSyncState(fIdx).VideoFps) == vfpsUI
-                % do nothing (소수점 정밀도 유지)
+                % do nothing (?뚯닔???뺣????좎?)
             else
-                app.VideoSyncState(fIdx).VideoFps = vfpsUI; % 사용자가 스피너를 바꾼 경우에만 갱신
+                app.VideoSyncState(fIdx).VideoFps = vfpsUI; % ?ъ슜?먭? ?ㅽ뵾?덈? 諛붽씔 寃쎌슦?먮쭔 媛깆떊
             end
 
             app.VideoSyncState(fIdx).DataFps = dfps;
 
-            % 5. 동기 정보 저장
-            % [V3.23 sub-frame / FIX] 수동 동기는 사용자 입력을 절대값으로 신뢰 → offset=0 고정
-            % (sub-frame offset은 자동 anchor에서만 의미. 수동 입력에서는 frameNo↔timeVal이 곧 진실)
+            % 5. ?숆린 ?뺣낫 ???
+            % [V3.23 sub-frame / FIX] ?섎룞 ?숆린???ъ슜???낅젰???덈?媛믪쑝濡??좊ː ??offset=0 怨좎젙
+            % (sub-frame offset? ?먮룞 anchor?먯꽌留??섎?. ?섎룞 ?낅젰?먯꽌??frameNo?봳imeVal??怨?吏꾩떎)
             anchorOffset = 0;
 
-            % [REFACTOR Step 2-B] SyncModel 먼저 갱신 (model-first; VideoSyncState는 compat alias)
+            % [REFACTOR Step 2-B] SyncModel 癒쇱? 媛깆떊 (model-first; VideoSyncState??compat alias)
             app.SyncMdl(fIdx).setAnchor(frameNo, timeVal, anchorOffset);
             app.VideoSyncState(fIdx).IsSynced     = true;
             app.VideoSyncState(fIdx).AnchorFrame  = frameNo;
             app.VideoSyncState(fIdx).AnchorOffset = anchorOffset;
             app.VideoSyncState(fIdx).AnchorTime   = timeVal;
 
-            % 6. UI 피드백
-            app.UI(fIdx).vidSyncBtn.Text = '동기 해제';
+            % 6. UI ?쇰뱶諛?
+            app.UI(fIdx).vidSyncBtn.Text = '?숆린 ?댁젣';
             app.UI(fIdx).vidSyncBtn.Text = 'Sync Off';
             app.UI(fIdx).vidSyncBtn.BackgroundColor = [0.8 0.2 0.2];
-            app.UI(fIdx).vidSyncStatus.Text = sprintf('동기 완료 (F%d ↔ %.3fs)', frameNo, timeVal);
+            app.UI(fIdx).vidSyncStatus.Text = sprintf('?숆린 ?꾨즺 (F%d ??%.3fs)', frameNo, timeVal);
             app.UI(fIdx).vidSyncStatus.FontColor = [0.06 0.65 0.50];
 
-            % [V3.14 항목 4 / REFACTOR Step 1] 동기 재설정 시 캐시 무효화 - 래퍼 사용
+            % [V3.14 ??ぉ 4 / REFACTOR Step 1] ?숆린 ?ъ꽕????罹먯떆 臾댄슚??- ?섑띁 ?ъ슜
             app.invalidateFrameCache(fIdx);
             if app.DebugMode
-                fprintf('[VideoSync] fIdx=%d, anchor F%d ↔ %.3fs, vfps=%d, dfps=%d, cache cleared\n', ...
+                fprintf('[VideoSync] fIdx=%d, anchor F%d ??%.3fs, vfps=%d, dfps=%d, cache cleared\n', ...
                     fIdx, frameNo, timeVal, vfpsUI, dfps);
             end
         end
 
-        % [V3.12 2.2.3.1] Hz 입력 ± 화살표 버튼 콜백 (1Hz 단위)
+        % [V3.12 2.2.3.1] Hz ?낅젰 짹 ?붿궡??踰꾪듉 肄쒕갚 (1Hz ?⑥쐞)
         function adjustHzValue(app, fIdx, target, delta)
             try
                 if strcmp(target, 'video')
@@ -2671,7 +2437,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if newVal > 1000, newVal = 1000; end
                 fld.Value = newVal;
 
-                % 즉시 VideoSyncState에도 반영 (동기 설정 전이라도)
+                % 利됱떆 VideoSyncState?먮룄 諛섏쁺 (?숆린 ?ㅼ젙 ?꾩씠?쇰룄)
                 if strcmp(target, 'video')
                     app.VideoSyncState(fIdx).VideoFps = newVal;
                 else
@@ -2680,7 +2446,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.12 2.2.3.1] Hz 직접 입력 시 콜백 (스피너 ValueChangedFcn)
+        % [V3.12 2.2.3.1] Hz 吏곸젒 ?낅젰 ??肄쒕갚 (?ㅽ뵾??ValueChangedFcn)
         function onHzInputChanged(app, fIdx, target, newVal)
             try
                 if newVal < 1, newVal = 1; end
@@ -2693,21 +2459,21 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.12 2.2.3] Frame No → Time 매핑 (앵커 기반 선형)
+        % [V3.12 2.2.3] Frame No ??Time 留ㅽ븨 (?듭빱 湲곕컲 ?좏삎)
         function timeVal = frameToTime(app, fIdx, frameNo)
-            % [REFACTOR Step 2 / V3.23] SyncModel 위임 - anchor/fps/offset 명시 전달
+            % [REFACTOR Step 2 / V3.23] SyncModel ?꾩엫 - anchor/fps/offset 紐낆떆 ?꾨떖
             s = app.VideoSyncState(fIdx);
             timeVal = app.SyncMdl(fIdx).frameToTime(frameNo, s.VideoFps, s.AnchorFrame, s.AnchorTime, s.AnchorOffset);
         end
 
-        % [V3.12 2.2.3] Time → Frame No 매핑
+        % [V3.12 2.2.3] Time ??Frame No 留ㅽ븨
         function frameNo = timeToFrame(app, fIdx, timeVal)
-            % [REFACTOR Step 2 / V3.23] SyncModel 위임 - anchor/fps/total/offset 명시 전달
+            % [REFACTOR Step 2 / V3.23] SyncModel ?꾩엫 - anchor/fps/total/offset 紐낆떆 ?꾨떖
             s = app.VideoSyncState(fIdx);
             frameNo = app.SyncMdl(fIdx).timeToFrame(timeVal, s.VideoFps, s.TotalFrames, s.AnchorFrame, s.AnchorTime, s.AnchorOffset);
         end
 
-        % [V3.13 C-1 / REFACTOR Step 1] 프레임 캐시 조회 - CacheModel 위임
+        % [V3.13 C-1 / REFACTOR Step 1] ?꾨젅??罹먯떆 議고쉶 - CacheModel ?꾩엫
         function img = cacheGetFrame(app, fIdx, frameNo)
             img = [];
             try
@@ -2720,8 +2486,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.13 C-1 / REFACTOR Step 1] 프레임 캐시 저장 - CacheModel 위임
-        % - 가중 LRU + 메모리 예산 evict는 모두 모델 내부에서 처리
+        % [V3.13 C-1 / REFACTOR Step 1] ?꾨젅??罹먯떆 ???- CacheModel ?꾩엫
+        % - 媛以?LRU + 硫붾え由??덉궛 evict??紐⑤몢 紐⑤뜽 ?대??먯꽌 泥섎━
         function cacheStoreFrame(app, fIdx, frameNo, img)
             try
                 if isempty(app.CacheModel) || fIdx > numel(app.CacheModel), return; end
@@ -2736,62 +2502,62 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [REFACTOR Step 1] evictByScore는 CacheModel 내부 메서드로 이전됨.
-        % 외부에서 직접 호출하는 코드가 없으므로 본 클래스에서 완전 제거.
-        % (필요 시 app.CacheModel(fIdx).stats() 로 캐시 상태 점검 가능)
+        % [REFACTOR Step 1] evictByScore??CacheModel ?대? 硫붿꽌?쒕줈 ?댁쟾??
+        % ?몃??먯꽌 吏곸젒 ?몄텧?섎뒗 肄붾뱶媛 ?놁쑝誘濡?蹂??대옒?ㅼ뿉???꾩쟾 ?쒓굅.
+        % (?꾩슂 ??app.CacheModel(fIdx).stats() 濡?罹먯떆 ?곹깭 ?먭? 媛??
 
         % =====================================================================
-        % [V3.21 #3-A] 3계층 분리 구조 - 책임 명확화
+        % [V3.21 #3-A] 3怨꾩링 遺꾨━ 援ъ“ - 梨낆엫 紐낇솗??
         %
-        %   Layer 1: requestFrame  - 진입점 + 캐시 lookup + 전략 선택
-        %   Layer 2: decodeFrameSync - 동기 디코딩 (read or 폴백)
-        %            startAsyncDecode - 비동기 디코딩 (별도 메서드, 기존)
-        %   Layer 3: displayFrame  - 표시 + 캐시 store (단일 출구)
+        %   Layer 1: requestFrame  - 吏꾩엯??+ 罹먯떆 lookup + ?꾨왂 ?좏깮
+        %   Layer 2: decodeFrameSync - ?숆린 ?붿퐫??(read or ?대갚)
+        %            startAsyncDecode - 鍮꾨룞湲??붿퐫??(蹂꾨룄 硫붿꽌?? 湲곗〈)
+        %   Layer 3: displayFrame  - ?쒖떆 + 罹먯떆 store (?⑥씪 異쒓뎄)
         %
-        % 기존 updateVideoFrameByFrameNo는 호환을 위해 requestFrame로 위임.
+        % 湲곗〈 updateVideoFrameByFrameNo???명솚???꾪빐 requestFrame濡??꾩엫.
         % =====================================================================
 
-        % [V3.21 #3-A Layer 1] Frame 요청 진입점
+        % [V3.21 #3-A Layer 1] Frame ?붿껌 吏꾩엯??
         % source: 'drag' / 'autoplay' / 'sync' / 'force'
         function requestFrame(app, fIdx, frameNo, source)
             if nargin < 4, source = 'force'; end
             if ~app.isVideoReady(fIdx), return; end
 
-            % 유효성 검사
+            % ?좏슚??寃??
 
-            % autoplay throttle 분기
+            % autoplay throttle 遺꾧린
             if strcmp(source, 'autoplay')
                 if app.throttleHit('LastVideoUpdate', fIdx, flightdash.util.AppConstants.VIDEO_THROTTLE_S), return; end
             end
 
-            % clamp (lookup/store 키 일관성)
+            % clamp (lookup/store ???쇨???
             totalF = app.VideoSyncState(fIdx).TotalFrames;
             clampedFrame = max(1, min(round(frameNo), max(1, totalF)));
 
-            % [PATCH] 동일 프레임 조기 반환 - GUI/디코딩 부하 동시 절감
+            % [PATCH] ?숈씪 ?꾨젅??議곌린 諛섑솚 - GUI/?붿퐫??遺???숈떆 ?덇컧
             if app.LastDisplayedFrame(fIdx) == clampedFrame, return; end
 
-            % Layer 1: 캐시 lookup
+            % Layer 1: 罹먯떆 lookup
             cached = app.cacheGetFrame(fIdx, clampedFrame);
             if ~isempty(cached)
                 app.displayFrame(fIdx, clampedFrame, cached, true);  % cacheHit=true
                 return;
             end
 
-            % 디코딩 진행 중이면 최신 요청을 보존한다.
-            if app.IsDecoding(fIdx)
+            % ?붿퐫??吏꾪뻾 以묒씠硫?理쒖떊 ?붿껌??蹂댁〈?쒕떎.
+            if app.stateIsDecoding(fIdx)
                 app.queuePendingFrame(fIdx, clampedFrame, source);
                 return;
             end
 
-            % 전략 선택: async vs sync
+            % ?꾨왂 ?좏깮: async vs sync
             if app.UseAsyncDecode && strcmp(source, 'drag')
                 app.startAsyncDecode(fIdx, clampedFrame);
                 return;
             end
 
-            % Layer 2: 동기 디코딩
-            app.IsDecoding(fIdx) = true;
+            % Layer 2: ?숆린 ?붿퐫??
+            app.setStateDecoding(fIdx, true);
             cleanup2 = onCleanup(@() app.clearDecodingFlag(fIdx)); %#ok<NASGU>
 
             img = app.decodeFrameSync(fIdx, clampedFrame);
@@ -2800,7 +2566,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.21 #3-A Layer 2] 동기 디코딩 (read or 폴백)
+        % [V3.21 #3-A Layer 2] ?숆린 ?붿퐫??(read or ?대갚)
         function img = decodeFrameSync(app, fIdx, clampedFrame)
             img = [];
             vr = app.VideoState(fIdx).videoReader;
@@ -2808,7 +2574,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 img = read(vr, clampedFrame);
             catch
-                % 폴백: CurrentTime + readFrame
+                % ?대갚: CurrentTime + readFrame
                 try
                     fps = app.VideoSyncState(fIdx).VideoFps;
                     if fps <= 0, fps = 70; end
@@ -2827,14 +2593,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.21 #3-A Layer 3] 단일 표시 출구 - 모든 디코딩 결과는 여기 통과
+        % [V3.21 #3-A Layer 3] ?⑥씪 ?쒖떆 異쒓뎄 - 紐⑤뱺 ?붿퐫??寃곌낵???ш린 ?듦낵
         function displayFrame(app, fIdx, frameNo, img, isCacheHit)
             try
                 if ~app.isVideoReady(fIdx) || isempty(img), return; end
                 set(app.VideoState(fIdx).vidImageHandle, 'CData', img);
-                app.LastDisplayedFrame(fIdx) = frameNo;   % [PATCH] 조기반환 키
+                app.LastDisplayedFrame(fIdx) = frameNo;   % [PATCH] 議곌린諛섑솚 ??
 
-                % 캐시 store (히트 아닐 때만 - cache-first write-through)
+                % 罹먯떆 store (?덊듃 ?꾨땺 ?뚮쭔 - cache-first write-through)
                 if ~isCacheHit
                     app.cacheStoreFrame(fIdx, frameNo, img);
                 end
@@ -2843,8 +2609,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.13 / V3.14 / V3.21 호환] 기존 updateVideoFrameByFrameNo는
-        % requestFrame로 위임 (외부 호출처 호환 유지)
+        % [V3.13 / V3.14 / V3.21 ?명솚] 湲곗〈 updateVideoFrameByFrameNo??
+        % requestFrame濡??꾩엫 (?몃? ?몄텧泥??명솚 ?좎?)
         function updateVideoFrameByFrameNo(app, fIdx, frameNo, source)
             if nargin < 4, source = 'force'; end
             app.requestFrame(fIdx, frameNo, source);
@@ -2882,20 +2648,20 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         % ---------------------------------------------------------------------
-        % 마커 클릭 & 드래그 이벤트 전용 핸들러 (스턱 방어 강화)
+        % 留덉빱 ?대┃ & ?쒕옒洹??대깽???꾩슜 ?몃뱾??(?ㅽ꽦 諛⑹뼱 媛뺥솕)
         % ---------------------------------------------------------------------
         function startPlotMarkerDrag(app, fIdx, ~, src, event)
-            % 마우스 왼쪽 버튼 클릭 시에만 실행 (우클릭 등 제외)
+            % 留덉슦???쇱そ 踰꾪듉 ?대┃ ?쒖뿉留??ㅽ뻾 (?고겢由????쒖쇅)
             if event.Button ~= 1, return; end
             if isempty(app.Models(fIdx).rawData), return; end
             if app.SyncState.IsSynced && fIdx == 2, return; end
 
-            % 드래그 상태 활성화 및 객체 HitTest 끄기
+            % ?쒕옒洹??곹깭 ?쒖꽦??諛?媛앹껜 HitTest ?꾧린
             app.IsDraggingMarker = true;
             app.DraggedMarker = src;
-            app.DraggedFIdx = fIdx;   % [V3.11 B] 드래그 종료 시 전체 동기화용
-            app.DraggedFromVideo = false;   % [V3.12] 비행데이터 측에서 시작
-            app.VideoThrottleDyn = 0.05;    % [V3.12] 동적 throttle 초기값 20fps
+            app.DraggedFIdx = fIdx;   % [V3.11 B] ?쒕옒洹?醫낅즺 ???꾩껜 ?숆린?붿슜
+            app.DraggedFromVideo = false;   % [V3.12] 鍮꾪뻾?곗씠??痢≪뿉???쒖옉
+            app.VideoThrottleDyn = 0.05;    % [V3.12] ?숈쟻 throttle 珥덇린媛?20fps
             app.LastDragTime{fIdx} = tic;
             try
                 throttle = flightdash.util.Throttle.instance();
@@ -2905,19 +2671,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.State = 'DRAGGING';   % [V3.17 (8)]
             src.HitTest = 'off';
 
-            % 드래그 중 Axes의 기본 조작(Pan/Zoom) 끄기 (마우스 뗌 씹힘 방지)
+            % ?쒕옒洹?以?Axes??湲곕낯 議곗옉(Pan/Zoom) ?꾧린 (留덉슦?????뱁옒 諛⑹?)
             try
                 ax = src.Parent;
                 if isvalid(ax) && isprop(ax, 'Interactions')
-                    app.DraggedMarker.UserData = ax.Interactions; % 기존 설정 백업
-                    ax.Interactions = []; % 드래그 중 내장 Pan 비활성화
+                    app.DraggedMarker.UserData = ax.Interactions; % 湲곗〈 ?ㅼ젙 諛깆뾽
+                    ax.Interactions = []; % ?쒕옒洹?以??댁옣 Pan 鍮꾪솢?깊솕
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [V3.11 B] 드래그 중 XLim 리스너 일시 중단
+            % [V3.11 B] ?쒕옒洹?以?XLim 由ъ뒪???쇱떆 以묐떒
             app.setXLimListenersEnabled(fIdx, false);
 
-            % [V3.11 C] 드래그 중 xline을 불투명(Alpha=1)으로 전환 → 렌더링 가속
+            % [V3.11 C] ?쒕옒洹?以?xline??遺덊닾紐?Alpha=1)?쇰줈 ?꾪솚 ???뚮뜑留?媛??
             try
                 for tIdx = 1:length(app.UI(fIdx).timeLines)
                     tlArr = app.UI(fIdx).timeLines{tIdx};
@@ -2936,7 +2702,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.UIFigure.WindowButtonUpFcn = @(~,~) app.stopPlotMarkerDrag();
         end
 
-        % [V3.12 2.2.2] 비디오 Frame 마커 드래그 시작 핸들러
+        % [V3.12 2.2.2] 鍮꾨뵒??Frame 留덉빱 ?쒕옒洹??쒖옉 ?몃뱾??
         function startVideoFrameDrag(app, fIdx, src, event)
             if event.Button ~= 1, return; end
             if isempty(app.VideoState(fIdx).videoReader), return; end
@@ -2944,7 +2710,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.IsDraggingMarker = true;
             app.DraggedMarker = src;
             app.DraggedFIdx = fIdx;
-            app.DraggedFromVideo = true;   % ⭐ 비디오 측에서 드래그 시작
+            app.DraggedFromVideo = true;   % 狩?鍮꾨뵒??痢≪뿉???쒕옒洹??쒖옉
             app.VideoThrottleDyn = 0.05;
             app.LastDragTime{fIdx} = tic;
             app.State = 'DRAGGING';   % [V3.17 (8)]
@@ -2958,7 +2724,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % XLim 리스너 중단 (비행데이터와 동일 정책)
+            % XLim 由ъ뒪??以묐떒 (鍮꾪뻾?곗씠?곗? ?숈씪 ?뺤콉)
             app.setXLimListenersEnabled(fIdx, false);
 
             app.UIFigure.WindowButtonMotionFcn = @(~,~) app.videoFrameDragMotion(fIdx);
@@ -2978,9 +2744,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     return;
                 end
 
-                % [V3.13] V3.12 동적 throttle 호출 제거 - source 기반 절충 throttle 사용
+                % [V3.13] V3.12 ?숈쟻 throttle ?몄텧 ?쒓굅 - source 湲곕컲 ?덉땐 throttle ?ъ슜
 
-                % [V3.11 C] 드래그 중에는 경량 경로로만 업데이트
+                % [V3.11 C] ?쒕옒洹?以묒뿉??寃쎈웾 寃쎈줈濡쒕쭔 ?낅뜲?댄듃
                 targetTime = pt(1,1);
                 timeCol = app.Models(fIdx).mappedCols.Time;
                 times = app.Models(fIdx).rawData.(timeCol);
@@ -2994,9 +2760,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.12 2.2.2] 비디오 Frame 마커 드래그 모션 핸들러
-        % [V3.12 2.2.2] 비디오 Frame 마커 별표 드래그 모션 핸들러
-        % [V3.15 항목 2] goToFrame 단일 진입점 사용으로 리팩토링
+        % [V3.12 2.2.2] 鍮꾨뵒??Frame 留덉빱 ?쒕옒洹?紐⑥뀡 ?몃뱾??
+        % [V3.12 2.2.2] 鍮꾨뵒??Frame 留덉빱 蹂꾪몴 ?쒕옒洹?紐⑥뀡 ?몃뱾??
+        % [V3.15 ??ぉ 2] goToFrame ?⑥씪 吏꾩엯???ъ슜?쇰줈 由ы뙥?좊쭅
         function videoFrameDragMotion(app, fIdx)
             if ~app.IsDraggingMarker, return; end
             try
@@ -3014,18 +2780,18 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 totalFrames = app.VideoSyncState(fIdx).TotalFrames;
                 if totalFrames < 1, return; end
 
-                % [V3.19 (2)] 드래그 속도 측정 (adaptive prefetch용)
+                % [V3.19 (2)] ?쒕옒洹??띾룄 痢≪젙 (adaptive prefetch??
                 app.updateDragVelocity(fIdx, targetFrame);
 
-                % [V3.15 항목 2] 단일 진입점 통과 - 'drag' 모드로 경량 갱신
+                % [V3.15 ??ぉ 2] ?⑥씪 吏꾩엯???듦낵 - 'drag' 紐⑤뱶濡?寃쎈웾 媛깆떊
                 app.goToFrame(fIdx, targetFrame, 'drag');
                 drawnow limitrate;
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.12 영상 동적 throttle 계산]
-        % - 드래그 이동이 빠르면 throttle 간격을 늘려 영상 갱신 빈도를 줄임 (5fps까지)
-        % - 느리면 간격을 줄여 영상이 부드럽게 따라오게 함 (20fps까지)
+        % [V3.12 ?곸긽 ?숈쟻 throttle 怨꾩궛]
+        % - ?쒕옒洹??대룞??鍮좊Ⅴ硫?throttle 媛꾧꺽???섎젮 ?곸긽 媛깆떊 鍮덈룄瑜?以꾩엫 (5fps源뚯?)
+        % - ?먮━硫?媛꾧꺽??以꾩뿬 ?곸긽??遺?쒕읇寃??곕씪?ㅺ쾶 ??(20fps源뚯?)
         function computeDynamicVideoThrottle(app)
             try
                 fIdx = app.DraggedFIdx;
@@ -3036,10 +2802,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
                 if dt <= 0, return; end
 
-                % 이동 빈도가 60fps에 가까울수록(dt 작을수록) 영상은 적게 갱신
-                % dt=0.016(60fps) → throttle 0.20 (5fps)
-                % dt=0.05 (20fps) → throttle 0.10 (10fps)
-                % dt=0.1+(10fps 이하) → throttle 0.05 (20fps)
+                % ?대룞 鍮덈룄媛 60fps??媛源뚯슱?섎줉(dt ?묒쓣?섎줉) ?곸긽? ?곴쾶 媛깆떊
+                % dt=0.016(60fps) ??throttle 0.20 (5fps)
+                % dt=0.05 (20fps) ??throttle 0.10 (10fps)
+                % dt=0.1+(10fps ?댄븯) ??throttle 0.05 (20fps)
                 if dt < 0.025
                     target = 0.20;
                 elseif dt < 0.06
@@ -3048,7 +2814,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     target = 0.05;
                 end
 
-                % 부드러운 전이 (지수 가중 이동평균)
+                % 遺?쒕윭???꾩씠 (吏??媛以??대룞?됯퇏)
                 app.VideoThrottleDyn = 0.7 * app.VideoThrottleDyn + 0.3 * target;
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
@@ -3158,50 +2924,36 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function setManualPanelWidth(app, fIdx, panelName, widthVal, profile, gridW)
             try
-                widthVal = double(widthVal);
-                if ~isfinite(widthVal), return; end
-                minW = app.minimumPanelWidth(panelName, profile);
-                maxW = max(minW, gridW * 0.70);
-                widthVal = min(max(widthVal, minW), maxW);
-                m = app.ManualPanelWidths{fIdx};
-                m.(panelName) = round(widthVal);
-                app.ManualPanelWidths{fIdx} = m;
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.setManualPanelWidth(app, fIdx, panelName, widthVal, profile, gridW);
+                end
             catch ME
-                app.logCaught(ME, 'PanelSplitter:setManual');
+                app.logCaught(ME, 'PanelSplitter:setManualWrapper');
             end
         end
 
         function widthVal = resolveManualPanelWidth(app, fIdx, panelName, defaultW, profile)
             widthVal = defaultW;
             try
-                if fIdx < 1 || fIdx > numel(app.ManualPanelWidths), return; end
-                m = app.ManualPanelWidths{fIdx};
-                if isstruct(m) && isfield(m, panelName)
-                    candidate = double(m.(panelName));
-                    if isfinite(candidate) && candidate >= app.minimumPanelWidth(panelName, profile)
-                        widthVal = candidate;
-                    end
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    widthVal = app.LayoutMgr.resolveManualPanelWidth(app, fIdx, panelName, defaultW, profile);
                 end
-            catch
-                widthVal = defaultW;
+            catch ME
+                app.logCaught(ME, 'PanelSplitter:resolveManualWrapper');
             end
         end
 
-        function minW = minimumPanelWidth(~, panelName, profile)
-            switch char(panelName)
-                case 'attitude'
-                    minD = flightdash.util.AppConstants.LAYOUT_ATT_RAIL;
-                case 'map'
-                    minD = flightdash.util.AppConstants.LAYOUT_MAP_RAIL;
-                case 'info'
-                    minD = flightdash.util.AppConstants.LAYOUT_INFO_RAIL;
-                otherwise
-                    minD = 80;
+        function minW = minimumPanelWidth(app, panelName, profile)
+            minW = 80;
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    minW = app.LayoutMgr.minimumPanelWidth(panelName, profile);
+                end
+            catch ME
+                app.logCaught(ME, 'PanelSplitter:minWidthWrapper');
             end
-            minW = flightdash.util.UIScale.pxForProfile(minD, profile);
         end
 
-        % [PATCH UX-3] H↔I 패널 경계 splitter 드래그 핸들러
         function startHISplitterDrag(app, fIdx)
             try
                 if app.isSplitterRestricted()
@@ -3243,7 +2995,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if ~isfinite(newVideoW), return; end
                 app.ManualVideoWidth(fIdx) = max(0, round(newVideoW));
 
-                % [FIX] 사용자가 splitter 조작 시 자동 리사이즈 차단 플래그
+                % [FIX] ?ъ슜?먭? splitter 議곗옉 ???먮룞 由ъ궗?댁쫰 李⑤떒 ?뚮옒洹?
                 app.VideoUserResized(fIdx) = true;
                 app.applyResponsiveChannelLayout(fIdx, profile);
                 drawnow limitrate;
@@ -3263,10 +3015,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function stopPlotMarkerDrag(app)
-            % 콜백 및 드래그 상태 완벽 초기화
+            % 肄쒕갚 諛??쒕옒洹??곹깭 ?꾨꼍 珥덇린??
             wasDraggingFIdx = app.DraggedFIdx;
             app.IsDraggingMarker = false;
-            app.State = 'IDLE';   % [V3.17 (8)] 드래그 종료 시 IDLE 복원
+            app.State = 'IDLE';   % [V3.17 (8)] ?쒕옒洹?醫낅즺 ??IDLE 蹂듭썝
 
             try
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
@@ -3278,7 +3030,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 if ~isempty(app.DraggedMarker) && isvalid(app.DraggedMarker)
                     app.DraggedMarker.HitTest = 'on';
-                    % 기존 Axes 상호작용(Pan/Zoom) 복원
+                    % 湲곗〈 Axes ?곹샇?묒슜(Pan/Zoom) 蹂듭썝
                     ax = app.DraggedMarker.Parent;
                     if isvalid(ax) && isprop(ax, 'Interactions') && ~isempty(app.DraggedMarker.UserData)
                         ax.Interactions = app.DraggedMarker.UserData;
@@ -3288,10 +3040,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             app.DraggedMarker = [];
             app.DraggedFIdx = 0;
-            app.DraggedFromVideo = false;   % [V3.12] 비디오 드래그 플래그 리셋
-            app.VideoThrottleDyn = 0.05;    % [V3.12] throttle 기본값 복원
+            app.DraggedFromVideo = false;   % [V3.12] 鍮꾨뵒???쒕옒洹??뚮옒洹?由ъ뀑
+            app.VideoThrottleDyn = 0.05;    % [V3.12] throttle 湲곕낯媛?蹂듭썝
 
-            % [V3.11 C] xline Alpha를 0.5로 복원
+            % [V3.11 C] xline Alpha瑜?0.5濡?蹂듭썝
             for fIdx = 1:2
                 try
                     for tIdx = 1:length(app.UI(fIdx).timeLines)
@@ -3308,18 +3060,18 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 catch ME, app.logCaught(ME, 'silent'); end
             end
 
-            % [V3.11 B] XLim 리스너 복원 (드래그 시작 시 중단했던 리스너 복구)
+            % [V3.11 B] XLim 由ъ뒪??蹂듭썝 (?쒕옒洹??쒖옉 ??以묐떒?덈뜕 由ъ뒪??蹂듦뎄)
             if wasDraggingFIdx >= 1 && wasDraggingFIdx <= 2
                 app.setXLimListenersEnabled(wasDraggingFIdx, true);
             end
 
-            % [V3.11 C] 드래그 종료 시 전체 대시보드 1회 동기화
-            % (드래그 중 경량 경로로만 갱신했던 테이블/게이지/맵/비디오 최종 반영)
+            % [V3.11 C] ?쒕옒洹?醫낅즺 ???꾩껜 ??쒕낫??1???숆린??
+            % (?쒕옒洹?以?寃쎈웾 寃쎈줈濡쒕쭔 媛깆떊?덈뜕 ?뚯씠釉?寃뚯씠吏/留?鍮꾨뵒??理쒖쥌 諛섏쁺)
             for fIdx = 1:2
                 if ~isempty(app.Models(fIdx).rawData)
                     idx = app.Models(fIdx).currentIndex;
-                    % [FIX] IsUpdating onCleanup 보장 + warning → ErrorLog
-                    app.IsUpdating(fIdx) = true;
+                    % [FIX] IsUpdating onCleanup 蹂댁옣 + warning ??ErrorLog
+                    app.setStateUpdating(fIdx, true);
                     cleanup_ = onCleanup(@() resetIsUpdating(app, fIdx)); %#ok<NASGU>
                     try
                         app.updateDashboard(fIdx, idx);
@@ -3327,17 +3079,17 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         app.logCaught(e, 'stopPlotMarkerDrag:sync');
                     end
                     clear cleanup_;
-                    % [V3.18 (4)] 드래그 종료 후 인접 frame 워밍업 (idle CPU 활용)
+                    % [V3.18 (4)] ?쒕옒洹?醫낅즺 ???몄젒 frame ?뚮컢??(idle CPU ?쒖슜)
                     app.prefetchAdjacentFrames(fIdx);
                 end
             end
         end
 
         % ---------------------------------------------------------------------
-        % [V3.11 B] XLim 리스너 일괄 제어 (드래그 중 중단/복원)
+        % [V3.11 B] XLim 由ъ뒪???쇨큵 ?쒖뼱 (?쒕옒洹?以?以묐떒/蹂듭썝)
         % ---------------------------------------------------------------------
         function setXLimListenersEnabled(app, fIdx, enabled)
-            % H 패널 내 모든 탭의 XLim 리스너 제어
+            % H ?⑤꼸 ??紐⑤뱺 ??쓽 XLim 由ъ뒪???쒖뼱
             try
                 for tIdx = 1:length(app.UI(fIdx).xLimListeners)
                     listeners = app.UI(fIdx).xLimListeners{tIdx};
@@ -3350,7 +3102,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % Altitude 패널 XLim 리스너 제어
+            % Altitude ?⑤꼸 XLim 由ъ뒪???쒖뼱
             try
                 if isfield(app.UI(fIdx), 'altXLimListener')
                     L = app.UI(fIdx).altXLimListener;
@@ -3362,15 +3114,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         % ---------------------------------------------------------------------
-        % [V3.11 C / V3.12 확장] 경량 업데이트 경로 (드래그 중 전용)
-        % - V3.11: 마커/xline + 현재시간 라벨 + H 패널 책장 넘기기
-        % - V3.12 1.1: Map 비행경로 + 빨간 삼각형 실시간 갱신 추가
-        % - V3.12 2.2.3: 비디오 동기 설정 시 Frame 마커 갱신 + 영상 프레임 갱신
-        % - 현재 비행 정보 테이블과 비행 게이지는 드래그 중에도 즉시 갱신
+        % [V3.11 C / V3.12 ?뺤옣] 寃쎈웾 ?낅뜲?댄듃 寃쎈줈 (?쒕옒洹?以??꾩슜)
+        % - V3.11: 留덉빱/xline + ?꾩옱?쒓컙 ?쇰꺼 + H ?⑤꼸 梨낆옣 ?섍린湲?
+        % - V3.12 1.1: Map 鍮꾪뻾寃쎈줈 + 鍮④컙 ?쇨컖???ㅼ떆媛?媛깆떊 異붽?
+        % - V3.12 2.2.3: 鍮꾨뵒???숆린 ?ㅼ젙 ??Frame 留덉빱 媛깆떊 + ?곸긽 ?꾨젅??媛깆떊
+        % - ?꾩옱 鍮꾪뻾 ?뺣낫 ?뚯씠釉붽낵 鍮꾪뻾 寃뚯씠吏???쒕옒洹?以묒뿉??利됱떆 媛깆떊
         % ---------------------------------------------------------------------
         function updateMarkersOnly(app, fIdx, idx)
-            % [V3.17 (4)(11)] persistent inCascade → InCascade 인스턴스 속성으로 이동
-            % [V3.17 (5)] drawnow를 외부(goToFrame)에서 처리하므로 자체 호출은 가드
+            % [V3.17 (4)(11)] persistent inCascade ??InCascade ?몄뒪?댁뒪 ?띿꽦?쇰줈 ?대룞
+            % [V3.17 (5)] drawnow瑜??몃?(goToFrame)?먯꽌 泥섎━?섎?濡??먯껜 ?몄텧? 媛??
             isOuter = ~app.InCascade;
 
             isOuter = ~app.InCascade;
@@ -3382,7 +3134,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 altCol = app.Models(fIdx).mappedCols.Alt;
                 alts = app.Models(fIdx).rawData.(altCol);
 
-                % Altitude 패널 마커 + xline 갱신
+                % Altitude ?⑤꼸 留덉빱 + xline 媛깆떊
                 if isfield(app.UI(fIdx), 'hAltMarker') && isvalid(app.UI(fIdx).hAltMarker)
                     set(app.UI(fIdx).hAltMarker, 'XData', currTime, 'YData', alts(idx));
                 end
@@ -3390,12 +3142,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.UI(fIdx).timeLine.Value = currTime;
                 end
 
-                % 현재시간 라벨 (매우 가벼움)
+                % ?꾩옱?쒓컙 ?쇰꺼 (留ㅼ슦 媛踰쇱?)
                 if isfield(app.UI(fIdx), 'currentTimeLabel') && isvalid(app.UI(fIdx).currentTimeLabel)
                     app.UI(fIdx).currentTimeLabel.Text = sprintf('%.3f s', currTime);
                 end
 
-                % 스피너 갱신 (가벼움)
+                % ?ㅽ뵾??媛깆떊 (媛踰쇱?)
                 if isfield(app.UI(fIdx), 'spinner') && isvalid(app.UI(fIdx).spinner)
                     if abs(app.UI(fIdx).spinner.Value - currTime) > eps
                         app.UI(fIdx).spinner.Value = currTime;
@@ -3406,8 +3158,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.updateAttitudeGauges(fIdx, idx);
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [V3.12 1.1] Map 비행경로 + 빨간 삼각형 실시간 갱신 (가벼움)
-            % [PERF] validIdx 제거 - load 시 NaN 전처리됨, plot이 NaN에서 자동 끊김
+            % [V3.12 1.1] Map 鍮꾪뻾寃쎈줈 + 鍮④컙 ?쇨컖???ㅼ떆媛?媛깆떊 (媛踰쇱?)
+            % [PERF] validIdx ?쒓굅 - load ??NaN ?꾩쿂由щ맖, plot??NaN?먯꽌 ?먮룞 ?딄?
             try
                 pathLon = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lon);
                 pathLat = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lat);
@@ -3431,15 +3183,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % H 패널 책장 넘기기 + 마커 갱신 (개선안 A의 IsProgrammaticXLim 가드 작동)
+            % H ?⑤꼸 梨낆옣 ?섍린湲?+ 留덉빱 媛깆떊 (媛쒖꽑??A??IsProgrammaticXLim 媛???묐룞)
             if ~app.IsDraggingMarker || ...
                     ~app.throttleHit('PlotDragTimelineUpdate', fIdx, flightdash.util.AppConstants.PLOT_DRAG_THROTTLE_S)
                 app.updatePlotTimeLines(fIdx, idx, currTime);
             end
 
-            % [V3.12 2.2.3] 비디오 동기 설정 시 Frame 마커 + 영상 프레임 갱신
-            % (단, 비디오 측에서 시작된 드래그가 아닐 때만 - 무한 루프 방지)
-            % [PATCH UX-1] Sync 명시 활성화 + 비디오 ready 동시 충족 시에만 갱신
+            % [V3.12 2.2.3] 鍮꾨뵒???숆린 ?ㅼ젙 ??Frame 留덉빱 + ?곸긽 ?꾨젅??媛깆떊
+            % (?? 鍮꾨뵒??痢≪뿉???쒖옉???쒕옒洹멸? ?꾨땺 ?뚮쭔 - 臾댄븳 猷⑦봽 諛⑹?)
+            % [PATCH UX-1] Sync 紐낆떆 ?쒖꽦??+ 鍮꾨뵒??ready ?숈떆 異⑹” ?쒖뿉留?媛깆떊
             if app.VideoSyncState(fIdx).IsSynced && ~app.DraggedFromVideo ...
                     && app.isVideoReady(fIdx) && app.VideoSyncState(fIdx).AnchorFrame > 0
                 try
@@ -3447,22 +3199,22 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.VideoSyncState(fIdx).CurrentFrame = targetFrame;
                     app.syncFrameMarkersAndLabel(fIdx, targetFrame);
 
-                    % [V3.14] Frame 마커 + xline + 슬라이더 + 라벨 일괄 동기화
+                    % [V3.14] Frame 留덉빱 + xline + ?щ씪?대뜑 + ?쇰꺼 ?쇨큵 ?숆린??
                     app.syncFrameMarkersAndLabel(fIdx, targetFrame);
 
-                    % [V3.13 절충] 비행데이터 드래그 시 영상 갱신은 throttle 유지
+                    % [V3.13 ?덉땐] 鍮꾪뻾?곗씠???쒕옒洹????곸긽 媛깆떊? throttle ?좎?
                     app.syncFrameMarkersAndLabel(fIdx, targetFrame);
                     app.updateVideoFrameByFrameNo(fIdx, targetFrame, 'autoplay');
                 catch ME, app.logCaught(ME, 'silent'); end
             end
 
-            % 동기화 모드: 경로 1 드래그 시 경로 2도 경량 업데이트
+            % ?숆린??紐⑤뱶: 寃쎈줈 1 ?쒕옒洹???寃쎈줈 2??寃쎈웾 ?낅뜲?댄듃
             if app.SyncState.IsSynced && fIdx == 1 && ~isempty(app.Models(2).rawData)
                 targetT2 = app.SyncState.SyncT2 + (currTime - app.SyncState.SyncT1);
                 timeCol2 = app.Models(2).mappedCols.Time;
                 idx2 = app.findClosestIndexByTime(app.Models(2).rawData.(timeCol2), targetT2);
                 if ~isequal(app.Models(2).currentIndex, idx2)
-                    % [V3.17 (4)(11) / FIX] InCascade를 onCleanup으로 보장 (예외 시 스턱 방지)
+                    % [V3.17 (4)(11) / FIX] InCascade瑜?onCleanup?쇰줈 蹂댁옣 (?덉쇅 ???ㅽ꽦 諛⑹?)
                     app.InCascade = true;
                     cascadeCleanup_ = onCleanup(@() resetInCascade(app)); %#ok<NASGU>
                     app.updateMarkersOnly(2, idx2);
@@ -3472,9 +3224,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             try, app.updatePanelRailSummaries(fIdx); catch, end
 
-            % [V3.17 (5)] cascade 외부 + goToFrame 미경유 시에만 drawnow
-            % goToFrame은 자체 종료 시 drawnow 호출하므로 중복 방지
-            if isOuter && ~any(app.InGoToFrame)
+            % [V3.17 (5)] cascade ?몃? + goToFrame 誘멸꼍???쒖뿉留?drawnow
+            % goToFrame? ?먯껜 醫낅즺 ??drawnow ?몄텧?섎?濡?以묐났 諛⑹?
+            if isOuter && ~app.anyStateGoToFrame()
                 drawnow limitrate;
             end
         end
@@ -3544,82 +3296,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function updatePlotTimeLines(app, fIdx, currIdx, currTime)
-            currTab = app.UI(fIdx).tabGroup.SelectedTab;
-            if isempty(currTab), return; end
-
-            tabIdx = find(app.UI(fIdx).plotTabs == currTab, 1);
-            if isempty(tabIdx), return; end
-
-            % [기능 유지] H 패널 자동 화면 넘김 (Auto-Page Panning)
-            % 확대된 상태에서 마커가 화면 밖을 벗어나면 기존 확대 폭을 유지한 채 X축 이동
-            % [V3.11 A] XLim 변경 시 handlePlotXLimChange 리스너 무한 재귀 차단
-            if ~isempty(app.UI(fIdx).plotAxes{tabIdx}) && app.currentTabXAutoEnabled(fIdx, tabIdx)
-                firstAx = app.UI(fIdx).plotAxes{tabIdx}{1};
-                try
-                    if isvalid(firstAx)
-                        xlims = firstAx.XLim;
-                        xMin = xlims(1);
-                        xMax = xlims(2);
-                        xWidth = xMax - xMin;
-                        newLims = [];
-
-                        if currTime > xMax
-                            newMin = xMax;
-                            newMax = xMax + xWidth;
-                            while currTime > newMax
-                                newMin = newMax;
-                                newMax = newMax + xWidth;
-                            end
-                            newLims = [newMin, newMax];
-                        elseif currTime < xMin
-                            newMax = xMin;
-                            newMin = xMin - xWidth;
-                            while currTime < newMin
-                                newMax = newMin;
-                                newMin = newMin - xWidth;
-                            end
-                            newLims = [newMin, newMax];
-                        end
-
-                        if ~isempty(newLims)
-                            app.IsProgrammaticXLim(fIdx) = true;   % ⭐ 리스너 가드 ON
-                            firstAx.XLim = newLims;
-                            app.IsProgrammaticXLim(fIdx) = false;  % ⭐ 리스너 가드 OFF
-                        end
-                    end
-                catch
-                    app.IsProgrammaticXLim(fIdx) = false;  % 예외 시 플래그 복원
-                end
+            if app.hasPlotView(fIdx)
+                app.PlotView(fIdx).updateTimeIndicators(currIdx, currTime);
             end
-
-            tlArr = app.UI(fIdx).timeLines{tabIdx};
-            mkArr = app.UI(fIdx).timeMarkers{tabIdx};
-            labelArr = {};
-            if isfield(app.UI(fIdx), 'plotValueLabels') && tabIdx <= numel(app.UI(fIdx).plotValueLabels)
-                labelArr = app.UI(fIdx).plotValueLabels{tabIdx};
-            end
-            dataArr = app.UI(fIdx).plotData{tabIdx};
-            metaArr = app.UI(fIdx).plotMeta{tabIdx};
-
-            for i = 1:length(tlArr)
-                try
-                    if ~isempty(tlArr{i}) && isvalid(tlArr{i})
-                        set(tlArr{i}, 'Value', currTime);
-                    end
-                    if ~isempty(mkArr{i}) && isvalid(mkArr{i})
-                        yData = dataArr{i};
-                        if currIdx >= 1 && currIdx <= numel(yData)
-                            set(mkArr{i}, 'XData', currTime, 'YData', yData(currIdx));
-                            if i <= numel(labelArr) && ~isempty(labelArr{i}) && isvalid(labelArr{i})
-                                labelText = app.plotValueLabelText(metaArr{i}.YColumn, yData(currIdx), metaArr{i}.Format);
-                                set(labelArr{i}, 'Position', [currTime yData(currIdx) 0], 'String', labelText);
-                            end
-                        end
-                    end
-                catch ME_silent, app.logCaught(ME_silent, 'silent'); end
-            end
-            app.updatePannerViewport(fIdx);
-            app.refreshStatsFigure(fIdx);
         end
 
         function tf = currentTabXAutoEnabled(app, fIdx, tabIdx)
@@ -3636,6 +3315,25 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch
                 tf = true;
+            end
+        end
+
+        function tf = hasPlotView(app, fIdx)
+            tf = false;
+            try
+                tf = ~isempty(app.PlotView) && fIdx >= 1 && fIdx <= numel(app.PlotView) && isvalid(app.PlotView(fIdx));
+            catch
+                tf = false;
+            end
+        end
+
+        function setPlotProgrammaticXLim(app, fIdx, value)
+            try
+                if fIdx >= 1 && fIdx <= numel(app.IsProgrammaticXLim)
+                    app.IsProgrammaticXLim(fIdx) = logical(value);
+                end
+            catch ME
+                app.logCaught(ME, 'Plot:XLimGuard');
             end
         end
 
@@ -3862,7 +3560,6 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function applyMainLineLegend(app, ax, info)
-            if app.IsUpdating(fIdx), return; end
             try
                 if isempty(ax) || ~isvalid(ax), return; end
                 if ~isfield(info, 'MainLine') || isempty(info.MainLine) || ~isvalid(info.MainLine)
@@ -4058,23 +3755,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function togglePanner(app, fIdx)
             try
-                if ~isfield(app.UI(fIdx), 'plotShellGrid') || ~isvalid(app.UI(fIdx).plotShellGrid), return; end
-                if ~isfield(app.UI(fIdx), 'pannerPanel') || isempty(app.UI(fIdx).pannerPanel) || ~isvalid(app.UI(fIdx).pannerPanel), return; end
-                curr = false;
-                if isfield(app.UI(fIdx), 'PannerVisible'), curr = logical(app.UI(fIdx).PannerVisible); end
-                next = ~curr;
-                app.UI(fIdx).PannerVisible = next;
-                app.UI(fIdx).pannerPanel.Visible = app.visibleState(next);
-                rh = app.UI(fIdx).plotShellGrid.RowHeight;
-                if next
-                    rh{3} = flightdash.util.UIScale.px(58);
-                    app.refreshPanner(fIdx);
-                else
-                    rh{3} = 0;
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.togglePanner(fIdx);
                 end
-                app.UI(fIdx).plotShellGrid.RowHeight = rh;
             catch ME
-                app.logCaught(ME, 'Panner:toggle');
+                app.logCaught(ME, 'Panner:toggleWrapper');
             end
         end
 
@@ -4101,46 +3786,21 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function refreshPanner(app, fIdx)
             try
-                if isempty(app.Models(fIdx).rawData), return; end
-                if ~isfield(app.UI(fIdx), 'pannerAxes') || isempty(app.UI(fIdx).pannerAxes) || ~isvalid(app.UI(fIdx).pannerAxes)
-                    return;
+                if ~isempty(app.PannerView) && isvalid(app.PannerView)
+                    app.PannerView.refresh(fIdx);
                 end
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                if isempty(times), return; end
-
-                ax = app.UI(fIdx).pannerAxes;
-                cla(ax);
-                hold(ax, 'on');
-                app.drawPannerModeBands(fIdx, ax, times);
-                ax.YLim = [0 1];
-                ax.YTick = [];
-                ax.XTick = [];
-                ax.XLim = [times(1) times(end)];
-                grid(ax, 'off');
-                app.drawModeAxes(fIdx);
-                app.updatePannerViewport(fIdx);
             catch ME
-                app.logCaught(ME, 'Panner:refresh');
+                app.logCaught(ME, 'Panner:refreshWrapper');
             end
         end
 
         function drawPannerModeBands(app, fIdx, ax, times)
             try
-                if ~isfield(app.UI(fIdx), 'flightModeBands') || isempty(app.UI(fIdx).flightModeBands)
-                    h = patch(ax, [times(1) times(end) times(end) times(1)], [0.18 0.18 0.82 0.82], ...
-                        [0.88 0.90 0.94], 'EdgeColor', [0.72 0.74 0.78], 'FaceAlpha', 1.0, 'HitTest', 'off');
-                    app.excludeFromLegend(h);
-                    return;
-                end
-                bands = app.UI(fIdx).flightModeBands;
-                for k = 1:numel(bands)
-                    h = patch(ax, [bands(k).Start bands(k).End bands(k).End bands(k).Start], [0.18 0.18 0.82 0.82], ...
-                        bands(k).Color, 'EdgeColor', 'none', 'FaceAlpha', 0.78, 'HitTest', 'off');
-                    app.excludeFromLegend(h);
+                if ~isempty(app.PannerView) && isvalid(app.PannerView)
+                    app.PannerView.drawModeBands(fIdx, ax, times);
                 end
             catch ME
-                app.logCaught(ME, 'Panner:modeBands');
+                app.logCaught(ME, 'Panner:modeBandsWrapper');
             end
         end
 
@@ -4175,54 +3835,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function updatePannerViewport(app, fIdx)
             try
-                if isempty(app.Models(fIdx).rawData), return; end
-                if ~isfield(app.UI(fIdx), 'pannerAxes') || isempty(app.UI(fIdx).pannerAxes) || ~isvalid(app.UI(fIdx).pannerAxes)
-                    return;
+                if ~isempty(app.PannerView) && isvalid(app.PannerView)
+                    app.PannerView.updateViewport(fIdx);
                 end
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                if isempty(times), return; end
-                xlims = app.currentPlotXLim(fIdx, times);
-                xlims(1) = max(times(1), min(times(end), xlims(1)));
-                xlims(2) = max(times(1), min(times(end), xlims(2)));
-                if xlims(2) <= xlims(1), xlims = [times(1), times(end)]; end
-
-                ax = app.UI(fIdx).pannerAxes;
-                hold(ax, 'on');
-                if ~isfield(app.UI(fIdx), 'pannerViewPatch') || isempty(app.UI(fIdx).pannerViewPatch) || ~isvalid(app.UI(fIdx).pannerViewPatch)
-                    app.UI(fIdx).pannerViewPatch = patch(ax, [xlims(1) xlims(2) xlims(2) xlims(1)], [0.08 0.08 0.92 0.92], ...
-                        [0.96 0.74 0.18], 'FaceAlpha', 0.22, 'EdgeColor', [0.85 0.45 0.05], 'HitTest', 'off');
-                    app.excludeFromLegend(app.UI(fIdx).pannerViewPatch);
-                else
-                    set(app.UI(fIdx).pannerViewPatch, 'XData', [xlims(1) xlims(2) xlims(2) xlims(1)], 'YData', [0.08 0.08 0.92 0.92]);
-                end
-                if ~isfield(app.UI(fIdx), 'pannerLeftHandle') || isempty(app.UI(fIdx).pannerLeftHandle) || ~isvalid(app.UI(fIdx).pannerLeftHandle)
-                    app.UI(fIdx).pannerLeftHandle = xline(ax, xlims(1), 'Color', [0.85 0.45 0.05], 'LineWidth', 4.0, 'HitTest', 'on');
-                    app.UI(fIdx).pannerLeftHandle.ButtonDownFcn = @(~,event) app.startPannerHandleDrag(fIdx, 'left', event);
-                    app.excludeFromLegend(app.UI(fIdx).pannerLeftHandle);
-                else
-                    app.UI(fIdx).pannerLeftHandle.Value = xlims(1);
-                end
-                if ~isfield(app.UI(fIdx), 'pannerRightHandle') || isempty(app.UI(fIdx).pannerRightHandle) || ~isvalid(app.UI(fIdx).pannerRightHandle)
-                    app.UI(fIdx).pannerRightHandle = xline(ax, xlims(2), 'Color', [0.85 0.45 0.05], 'LineWidth', 4.0, 'HitTest', 'on');
-                    app.UI(fIdx).pannerRightHandle.ButtonDownFcn = @(~,event) app.startPannerHandleDrag(fIdx, 'right', event);
-                    app.excludeFromLegend(app.UI(fIdx).pannerRightHandle);
-                else
-                    app.UI(fIdx).pannerRightHandle.Value = xlims(2);
-                end
-                currIdx = max(1, min(numel(times), app.Models(fIdx).currentIndex));
-                currTime = times(currIdx);
-                if ~isfield(app.UI(fIdx), 'pannerCurrentLine') || isempty(app.UI(fIdx).pannerCurrentLine) || ~isvalid(app.UI(fIdx).pannerCurrentLine)
-                    app.UI(fIdx).pannerCurrentLine = xline(ax, currTime, 'r', 'LineWidth', 1.5, 'HitTest', 'off');
-                    app.excludeFromLegend(app.UI(fIdx).pannerCurrentLine);
-                else
-                    app.UI(fIdx).pannerCurrentLine.Value = currTime;
-                end
-                try, uistack(app.UI(fIdx).pannerViewPatch, 'bottom'); catch, end
-                if isfield(app.UI(fIdx), 'pannerFrom') && isvalid(app.UI(fIdx).pannerFrom), app.UI(fIdx).pannerFrom.Value = xlims(1); end
-                if isfield(app.UI(fIdx), 'pannerTo') && isvalid(app.UI(fIdx).pannerTo), app.UI(fIdx).pannerTo.Value = xlims(2); end
             catch ME
-                app.logCaught(ME, 'Panner:viewport');
+                app.logCaught(ME, 'Panner:viewportWrapper');
             end
         end
 
@@ -4243,146 +3860,81 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function onPannerClicked(app, fIdx)
             try
-                ax = app.UI(fIdx).pannerAxes;
-                pt = ax.CurrentPoint;
-                clickTime = pt(1, 1);
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                xlims = app.currentPlotXLim(fIdx, times);
-                minGap = max(eps, (times(end) - times(1)) * 0.001);
-                clickTime = max(times(1), min(times(end), clickTime));
-                if abs(clickTime - xlims(1)) <= abs(clickTime - xlims(2))
-                    clickTime = min(clickTime, xlims(2) - minGap);
-                    app.setCurrentTabXLim(fIdx, clickTime, xlims(2));
-                else
-                    clickTime = max(clickTime, xlims(1) + minGap);
-                    app.setCurrentTabXLim(fIdx, xlims(1), clickTime);
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.onPannerClicked(fIdx);
                 end
             catch ME
-                app.logCaught(ME, 'Panner:clicked');
+                app.logCaught(ME, 'Panner:clickedWrapper');
             end
         end
 
         function startPannerHandleDrag(app, fIdx, side, event)
             try
-                if nargin >= 4 && ~isempty(event)
-                    try
-                        if isprop(event, 'Button') && event.Button ~= 1
-                            return;
-                        end
-                    catch
-                    end
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.startHandleDrag(fIdx, side, event);
                 end
-                if isempty(app.Models(fIdx).rawData), return; end
-                app.IsDraggingPanner = true;
-                app.PannerDragFIdx = fIdx;
-                app.PannerDragSide = char(side);
-                if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
-                app.UIFigure.WindowButtonMotionFcn = @(~,~) app.pannerHandleDragMotion();
-                app.UIFigure.WindowButtonUpFcn = @(~,~) app.stopPannerHandleDrag();
             catch ME
-                app.logCaught(ME, 'PannerHandle:start');
+                app.logCaught(ME, 'PannerHandle:startWrapper');
             end
         end
 
         function pannerHandleDragMotion(app)
-            if ~app.IsDraggingPanner, return; end
             try
-                fIdx = app.PannerDragFIdx;
-                if fIdx < 1 || fIdx > numel(app.UI), return; end
-                ax = app.UI(fIdx).pannerAxes;
-                if isempty(ax) || ~isvalid(ax), return; end
-                pt = ax.CurrentPoint;
-                newTime = pt(1, 1);
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                xlims = app.currentPlotXLim(fIdx, times);
-                minGap = max(eps, (times(end) - times(1)) * 0.001);
-                newTime = max(times(1), min(times(end), newTime));
-                if strcmp(app.PannerDragSide, 'left')
-                    newTime = min(newTime, xlims(2) - minGap);
-                    app.setCurrentTabXLim(fIdx, newTime, xlims(2));
-                else
-                    newTime = max(newTime, xlims(1) + minGap);
-                    app.setCurrentTabXLim(fIdx, xlims(1), newTime);
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.handleDragMotion();
                 end
-                drawnow limitrate nocallbacks;
             catch ME
-                app.logCaught(ME, 'PannerHandle:motion');
+                app.logCaught(ME, 'PannerHandle:motionWrapper');
             end
         end
 
         function stopPannerHandleDrag(app)
             try
-                app.IsDraggingPanner = false;
-                app.PannerDragFIdx = 0;
-                app.PannerDragSide = '';
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    app.UIFigure.WindowButtonMotionFcn = '';
-                    app.UIFigure.WindowButtonUpFcn = '';
-                    if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'arrow'; end
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.stopHandleDrag();
                 end
-                drawnow limitrate;
             catch ME
-                app.logCaught(ME, 'PannerHandle:stop');
+                app.logCaught(ME, 'PannerHandle:stopWrapper');
             end
         end
 
         function onPannerRangeChanged(app, fIdx, ~)
             try
-                fromVal = app.UI(fIdx).pannerFrom.Value;
-                toVal = app.UI(fIdx).pannerTo.Value;
-                app.setCurrentTabXLim(fIdx, fromVal, toVal);
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.onRangeChanged(fIdx);
+                end
             catch ME
-                app.logCaught(ME, 'Panner:range');
+                app.logCaught(ME, 'Panner:rangeWrapper');
             end
         end
 
         function resetPannerRange(app, fIdx)
             try
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                app.setCurrentTabXLim(fIdx, times(1), times(end));
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.resetRange(fIdx);
+                end
             catch ME
-                app.logCaught(ME, 'Panner:reset');
+                app.logCaught(ME, 'Panner:resetWrapper');
             end
         end
 
         function setCurrentTabXLim(app, fIdx, fromVal, toVal)
             try
-                if isempty(app.Models(fIdx).rawData), return; end
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                if isempty(times), return; end
-                fromVal = max(times(1), min(times(end), fromVal));
-                toVal = max(times(1), min(times(end), toVal));
-                if toVal <= fromVal
-                    toVal = min(times(end), fromVal + max(eps, (times(end) - times(1)) * 0.05));
-                    fromVal = max(times(1), min(fromVal, toVal - eps));
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.setCurrentTabXLim(fIdx, fromVal, toVal);
                 end
-                tabIdx = app.currentPlotTabIndex(fIdx);
-                if ~isempty(tabIdx) && ~isempty(app.UI(fIdx).plotAxes{tabIdx})
-                    app.IsProgrammaticXLim(fIdx) = true;
-                    cleanup_ = onCleanup(@() app.resetProgrammaticXLim(fIdx)); %#ok<NASGU>
-                    for k = 1:numel(app.UI(fIdx).plotAxes{tabIdx})
-                        ax = app.UI(fIdx).plotAxes{tabIdx}{k};
-                        if ~isempty(ax) && isvalid(ax), ax.XLim = [fromVal, toVal]; end
-                    end
-                    clear cleanup_;
-                end
-                app.updatePannerViewport(fIdx);
             catch ME
-                app.IsProgrammaticXLim(fIdx) = false;
-                app.logCaught(ME, 'Panner:setXLim');
+                app.logCaught(ME, 'Panner:setXLimWrapper');
             end
         end
 
         function resetProgrammaticXLim(app, fIdx)
             try
-                if fIdx >= 1 && fIdx <= numel(app.IsProgrammaticXLim)
-                    app.IsProgrammaticXLim(fIdx) = false;
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.resetProgrammaticXLim(fIdx);
                 end
-            catch
+            catch ME
+                app.logCaught(ME, 'Panner:resetProgrammaticWrapper');
             end
         end
 
@@ -4408,132 +3960,38 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function bands = computeFlightModeBands(app, fIdx)
             bands = struct('Start', {}, 'End', {}, 'Mode', {}, 'Color', {});
-            if isempty(app.Models(fIdx).rawData), return; end
-            timeCol = app.Models(fIdx).mappedCols.Time;
-            times = app.Models(fIdx).rawData.(timeCol);
-            if numel(times) < 2, return; end
-            alt = app.modelSeries(fIdx, 'Alt', zeros(size(times)));
-            roll = app.modelSeries(fIdx, 'Roll', zeros(size(times)));
-            if max(abs(roll), [], 'omitnan') < 7
-                roll = roll * 180 / pi;
+            try
+                if isempty(app.Models(fIdx).rawData), return; end
+                bands = flightdash.model.FlightModeAnalyzer.computeBands(app.Models(fIdx).mappedCols, app.Models(fIdx).rawData);
+            catch ME
+                app.logCaught(ME, 'FlightModes:computeWrapper');
             end
-            speed = app.rawSeries(fIdx, 'GroundSpeed', []);
-            if isempty(speed), speed = zeros(size(times)); end
-            labels = app.flightModeLabelsFromData(fIdx, numel(times));
-            if isempty(labels)
-                dtRaw = diff(times);
-                dtMed = median(dtRaw(dtRaw > 0 & isfinite(dtRaw)));
-                if isempty(dtMed) || ~isfinite(dtMed), dtMed = 1; end
-                dt = [dtRaw; dtMed];
-                dt(dt <= 0 | ~isfinite(dt)) = dtMed;
-                if isempty(dt) || any(~isfinite(dt)), dt = ones(size(times)); end
-                vz = [0; diff(alt) ./ dt(1:end-1)];
-
-                labels = repmat({'Cruise'}, numel(times), 1);
-                labels(abs(roll) > 12) = {'Turn'};
-                labels(speed < 2) = {'Loiter'};
-                labels(vz > 0.35) = {'Climb'};
-                labels(vz < -0.35) = {'Descent'};
-                labels(times < times(1) + 2) = {'Start'};
-            end
-
-            startIdx = 1;
-            for k = 2:numel(labels)
-                if ~strcmp(labels{k}, labels{startIdx})
-                    bands(end+1) = app.modeBand(times(startIdx), times(k-1), labels{startIdx}); %#ok<AGROW>
-                    startIdx = k;
-                end
-            end
-            bands(end+1) = app.modeBand(times(startIdx), times(end), labels{startIdx});
         end
 
         function labels = flightModeLabelsFromData(app, fIdx, nRows)
             labels = {};
             try
-                vars = app.Models(fIdx).rawData.Properties.VariableNames;
-                candidates = {'FlightMode', 'Flight_Mode', 'VehicleMode', 'Vehicle_Mode', ...
-                    'Mode', 'MainState', 'Main_State', 'NavState', 'Nav_State'};
-                modeCol = '';
-                for k = 1:numel(candidates)
-                    idx = find(strcmpi(vars, candidates{k}), 1);
-                    if ~isempty(idx)
-                        modeCol = vars{idx};
-                        break;
-                    end
-                end
-                if isempty(modeCol)
-                    lowerVars = lower(vars);
-                    idx = find(contains(lowerVars, 'flightmode') | contains(lowerVars, 'flight_mode') | ...
-                        contains(lowerVars, 'navstate') | contains(lowerVars, 'mainstate'), 1);
-                    if ~isempty(idx), modeCol = vars{idx}; end
-                end
-                if isempty(modeCol), return; end
-
-                col = app.Models(fIdx).rawData.(modeCol);
-                if isnumeric(col) || islogical(col)
-                    labels = arrayfun(@(v) app.flightModeCodeLabel(v), col(:), 'UniformOutput', false);
-                elseif iscategorical(col)
-                    labels = cellstr(col(:));
-                elseif isstring(col)
-                    labels = cellstr(col(:));
-                elseif iscell(col)
-                    labels = cellfun(@(v) char(string(v)), col(:), 'UniformOutput', false);
-                else
-                    labels = cellstr(string(col(:)));
-                end
-                labels = labels(:);
-                labels(cellfun(@isempty, labels)) = {'Unknown'};
-                if numel(labels) ~= nRows
-                    labels = {};
-                end
-            catch
-                labels = {};
+                labels = flightdash.model.FlightModeAnalyzer.labelsFromData(app.Models(fIdx).rawData, nRows);
+            catch ME
+                app.logCaught(ME, 'FlightModes:labelsWrapper');
             end
         end
 
         function label = flightModeCodeLabel(~, value)
-            if isempty(value) || ~isfinite(value)
-                label = 'Unknown';
-            else
-                label = sprintf('Mode %g', value);
-            end
+            label = flightdash.model.FlightModeAnalyzer.codeLabel(value);
         end
 
         function band = modeBand(~, t0, t1, modeName)
-            band = struct('Start', t0, 'End', t1, 'Mode', modeName, 'Color', [0.55 0.55 0.55]);
-            switch char(modeName)
-                case 'Start',   band.Color = [0.25 0.55 0.95];
-                case 'Climb',   band.Color = [0.15 0.65 0.35];
-                case 'Descent', band.Color = [0.90 0.55 0.15];
-                case 'Turn',    band.Color = [0.55 0.25 0.75];
-                case 'Loiter',  band.Color = [0.20 0.70 0.85];
-                otherwise,      band.Color = [0.40 0.55 0.20];
-            end
+            band = flightdash.model.FlightModeAnalyzer.modeBand(t0, t1, modeName);
         end
 
         function drawModeAxes(app, fIdx)
             try
-                if ~isfield(app.UI(fIdx), 'modeAxes') || isempty(app.UI(fIdx).modeAxes) || ~isvalid(app.UI(fIdx).modeAxes)
-                    return;
-                end
-                ax = app.UI(fIdx).modeAxes;
-                cla(ax);
-                hold(ax, 'on');
-                if isempty(app.Models(fIdx).rawData), return; end
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                ax.XLim = [times(1), times(end)];
-                ax.YLim = [0 1];
-                ax.XTick = [];
-                ax.YTick = [];
-                if ~isfield(app.UI(fIdx), 'flightModeBands'), return; end
-                bands = app.UI(fIdx).flightModeBands;
-                for k = 1:numel(bands)
-                    patch(ax, [bands(k).Start bands(k).End bands(k).End bands(k).Start], [0 0 1 1], ...
-                        bands(k).Color, 'EdgeColor', 'none', 'FaceAlpha', 0.95, 'HitTest', 'off');
+                if ~isempty(app.PannerView) && isvalid(app.PannerView)
+                    app.PannerView.drawModeAxes(fIdx);
                 end
             catch ME
-                app.logCaught(ME, 'FlightModes:draw');
+                app.logCaught(ME, 'FlightModes:drawWrapper');
             end
         end
 
@@ -4632,227 +4090,115 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function addCurrentRoi(app, fIdx)
             try
-                if isempty(app.Models(fIdx).rawData), return; end
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                xlims = app.currentPlotXLim(fIdx, times);
-                tabIdx = app.currentPlotTabIndex(fIdx);
-                plotIdx = app.selectedPlotIndex(fIdx);
-                signalName = 'time';
-                if ~isempty(tabIdx) && plotIdx > 0 && plotIdx <= numel(app.UI(fIdx).plotMeta{tabIdx})
-                    signalName = app.UI(fIdx).plotMeta{tabIdx}{plotIdx}.YColumn;
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.addCurrentRoi(fIdx);
                 end
-                row = {xlims(1), xlims(2), signalName, '--', '--'};
-                if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows)
-                    app.UI(fIdx).roiRows = row;
-                else
-                    app.UI(fIdx).roiRows(end+1, :) = row;
-                end
-                app.UI(fIdx).selectedRoiIdx = size(app.UI(fIdx).roiRows, 1);
-                app.refreshRoiTable(fIdx);
-                app.drawRoiBands(fIdx);
-                app.openRoiFigure(fIdx);
             catch ME
-                app.logCaught(ME, 'ROI:add');
+                app.logCaught(ME, 'ROI:addWrapper');
             end
         end
 
         function onRoiSelectionChanged(app, fIdx, event)
             try
-                app.UI(fIdx).selectedRoiIdx = 0;
-                if isempty(event) || isempty(event.Indices), return; end
-                row = event.Indices(1, 1);
-                if row >= 1 && isfield(app.UI(fIdx), 'roiRows') && row <= size(app.UI(fIdx).roiRows, 1)
-                    app.UI(fIdx).selectedRoiIdx = row;
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.onSelectionChanged(fIdx, event);
                 end
             catch ME
-                app.logCaught(ME, 'ROI:select');
+                app.logCaught(ME, 'ROI:selectWrapper');
             end
         end
 
         function deleteSelectedRoi(app, fIdx)
             try
-                if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows), return; end
-                row = 0;
-                if isfield(app.UI(fIdx), 'selectedRoiIdx'), row = app.UI(fIdx).selectedRoiIdx; end
-                if isempty(row) || row < 1 || row > size(app.UI(fIdx).roiRows, 1), return; end
-                app.UI(fIdx).roiRows(row, :) = [];
-                app.UI(fIdx).selectedRoiIdx = min(row, size(app.UI(fIdx).roiRows, 1));
-                app.refreshRoiTable(fIdx);
-                app.drawRoiBands(fIdx);
-                app.refreshRoiFigure(fIdx);
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.deleteSelectedRoi(fIdx);
+                end
             catch ME
-                app.logCaught(ME, 'ROI:deleteSelected');
+                app.logCaught(ME, 'ROI:deleteSelectedWrapper');
             end
         end
 
         function clearRois(app, fIdx)
             try
-                app.deleteRoiGraphics(fIdx);
-                app.UI(fIdx).roiRows = cell(0, 5);
-                app.UI(fIdx).selectedRoiIdx = 0;
-                app.refreshRoiTable(fIdx);
-                app.refreshRoiFigure(fIdx);
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.clearRois(fIdx);
+                end
             catch ME
-                app.logCaught(ME, 'ROI:clear');
+                app.logCaught(ME, 'ROI:clearWrapper');
             end
         end
 
         function refreshRoiTable(app, fIdx)
             try
-                if isfield(app.UI(fIdx), 'roiTable') && ~isempty(app.UI(fIdx).roiTable) && isvalid(app.UI(fIdx).roiTable)
-                    app.UI(fIdx).roiTable.Data = app.UI(fIdx).roiRows;
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.refreshTable(fIdx);
                 end
-                app.refreshRoiFigure(fIdx);
-            catch
+            catch ME
+                app.logCaught(ME, 'ROI:refreshTableWrapper');
             end
         end
 
         function computeRoiAnalysis(app, fIdx)
             try
-                if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows)
-                    app.openStatsFigure(fIdx);
-                    return;
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.computeAnalysis(fIdx);
                 end
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                rows = app.UI(fIdx).roiRows;
-                for r = 1:size(rows, 1)
-                    signalName = rows{r, 3};
-                    if ~ismember(signalName, app.Models(fIdx).rawData.Properties.VariableNames)
-                        rows{r, 4} = '--';
-                        rows{r, 5} = '--';
-                        continue;
-                    end
-                    idx = times >= rows{r, 1} & times <= rows{r, 2};
-                    y = app.Models(fIdx).rawData.(signalName);
-                    if ~any(idx)
-                        rows{r, 4} = '--';
-                        rows{r, 5} = '--';
-                        continue;
-                    end
-                    rows{r, 4} = sprintf('%.5g', mean(y(idx), 'omitnan'));
-                    targetCol = app.matchTargetColumn(fIdx, signalName);
-                    if ~isempty(targetCol)
-                        target = app.Models(fIdx).rawData.(targetCol);
-                        err = y(idx) - target(idx);
-                        rows{r, 5} = sprintf('RMSE %.5g', sqrt(mean(err.^2, 'omitnan')));
-                    else
-                        rows{r, 5} = sprintf('STD %.5g', std(y(idx), 'omitnan'));
-                    end
-                end
-                app.UI(fIdx).roiRows = rows;
-                app.refreshRoiTable(fIdx);
-                app.drawRoiBands(fIdx);
-                app.openStatsFigure(fIdx);
             catch ME
-                app.logCaught(ME, 'ROI:analysis');
+                app.logCaught(ME, 'ROI:analysisWrapper');
             end
         end
 
         function targetCol = matchTargetColumn(app, fIdx, signalName)
             targetCol = '';
-            vars = app.Models(fIdx).rawData.Properties.VariableNames;
-            candidates = {[signalName 'Target'], [signalName '_Target']};
-            switch char(signalName)
-                case {'Roll', 'roll'}
-                    candidates{end+1} = 'RollTarget';
-                case {'Pitch', 'pitch'}
-                    candidates{end+1} = 'PitchTarget';
-                case {'Yaw', 'Heading', 'hdg_deg'}
-                    candidates{end+1} = 'YawTarget';
-            end
-            for k = 1:numel(candidates)
-                if ismember(candidates{k}, vars)
-                    targetCol = candidates{k};
-                    return;
+            try
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    targetCol = app.RoiCtrl.matchTargetColumn(fIdx, signalName);
                 end
+            catch ME
+                app.logCaught(ME, 'ROI:matchTargetWrapper');
             end
         end
 
         function drawRoiBands(app, fIdx)
             try
-                app.deleteRoiGraphics(fIdx);
-                if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows), return; end
-                tabIdx = app.currentPlotTabIndex(fIdx);
-                if isempty(tabIdx) || isempty(app.UI(fIdx).plotAxes{tabIdx}), return; end
-                roiHandles = {};
-                for aIdx = 1:numel(app.UI(fIdx).plotAxes{tabIdx})
-                    ax = app.UI(fIdx).plotAxes{tabIdx}{aIdx};
-                    if isempty(ax) || ~isvalid(ax), continue; end
-                    yl = ax.YLim;
-                    hold(ax, 'on');
-                    for r = 1:size(app.UI(fIdx).roiRows, 1)
-                        x0 = app.UI(fIdx).roiRows{r, 1};
-                        x1 = app.UI(fIdx).roiRows{r, 2};
-                        h = patch(ax, [x0 x1 x1 x0], [yl(1) yl(1) yl(2) yl(2)], ...
-                            [0.96 0.74 0.18], 'FaceAlpha', 0.10, 'EdgeColor', 'none', 'HitTest', 'off');
-                        app.excludeFromLegend(h);
-                        try, uistack(h, 'bottom'); catch, end
-                        roiHandles{end+1} = h; %#ok<AGROW>
-                    end
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.drawBands(fIdx);
                 end
-                app.UI(fIdx).roiGraphics = roiHandles;
             catch ME
-                app.logCaught(ME, 'ROI:draw');
+                app.logCaught(ME, 'ROI:drawWrapper');
             end
         end
 
         function deleteRoiGraphics(app, fIdx)
             try
-                if isfield(app.UI(fIdx), 'roiGraphics')
-                    app.deleteGraphicsHandles(app.UI(fIdx).roiGraphics);
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.deleteGraphics(fIdx);
                 end
-                app.UI(fIdx).roiGraphics = {};
-            catch
+            catch ME
+                app.logCaught(ME, 'ROI:deleteGraphicsWrapper');
             end
         end
 
         % ---------------------------------------------------------------------
-        % H 영역 탭 및 다중 플롯 관리
+        % H ?곸뿭 ??諛??ㅼ쨷 ?뚮’ 愿由?
         % ---------------------------------------------------------------------
         function addPlotTab(app, fIdx)
-            nTabs = length(app.UI(fIdx).plotTabs);
-            if nTabs >= flightdash.util.AppConstants.MAX_TABS
-                errordlg(sprintf('최대 %d개의 탭만 생성할 수 있습니다.', flightdash.util.AppConstants.MAX_TABS), '알림');
-                return;
+            if app.hasPlotView(fIdx)
+                app.PlotView(fIdx).addTab();
             end
-
-            newTab = uitab(app.UI(fIdx).tabGroup, 'Title', sprintf('Tab %d', nTabs+1));
-            app.UI(fIdx).plotTabs(end+1) = newTab;
-
-            plotLayout = uigridlayout(newTab, 'ColumnWidth', {'1x'}, 'RowHeight', {}, ...
-                                      'Padding', [5 5 5 5], 'RowSpacing', 5, 'Scrollable', 'on');
-
-            app.UI(fIdx).plotLayouts{end+1} = plotLayout;
-
-            tabIdx = nTabs + 1;
-            app.UI(fIdx).plotAxes{tabIdx} = {};
-            app.UI(fIdx).timeLines{tabIdx} = {};
-            app.UI(fIdx).timeMarkers{tabIdx} = {};
-            app.UI(fIdx).plotValueLabels{tabIdx} = {};
-            app.UI(fIdx).plotData{tabIdx} = {};
-            app.UI(fIdx).plotMeta{tabIdx} = {};
-            app.UI(fIdx).xLimListeners{tabIdx} = {};
-
-            app.UI(fIdx).tabGroup.SelectedTab = newTab;
-            app.UI(fIdx).selectedPlotIdx = 0;
-            app.refreshPlotManager(fIdx);
-            app.refreshPlotDetails(fIdx);
-            app.refreshPanner(fIdx);
         end
 
-        % [FIX] 한 화면 최대 3개 보장: tabGroup 가시 높이를 3등분해 RowHeight 동적 갱신
-        % - throttle 0.05s로 리사이즈 중 다발 호출 차단
-        % - 모든 탭의 모든 row를 동일 높이로 통일 (4개 이상 시 자동 스크롤)
+        % [FIX] ???붾㈃ 理쒕? 3媛?蹂댁옣: tabGroup 媛???믪씠瑜?3?깅텇??RowHeight ?숈쟻 媛깆떊
+        % - throttle 0.05s濡?由ъ궗?댁쫰 以??ㅻ컻 ?몄텧 李⑤떒
+        % - 紐⑤뱺 ??쓽 紐⑤뱺 row瑜??숈씪 ?믪씠濡??듭씪 (4媛??댁긽 ???먮룞 ?ㅽ겕濡?
         function updatePlotRowHeights(app, fIdx)
             if flightdash.util.Throttle.instance().hit('PlotRowResize', fIdx, 0.05), return; end
             try
                 if ~isfield(app.UI(fIdx), 'tabGroup') || ~isvalid(app.UI(fIdx).tabGroup), return; end
                 pos = getpixelposition(app.UI(fIdx).tabGroup, true);
-                visH = pos(4) - 30;  % 탭 헤더 ~30px 차감
+                visH = pos(4) - 30;  % ???ㅻ뜑 ~30px 李④컧
                 if visH < 90, visH = 90; end
-                rowH = max(120, floor(visH / 3));  % 최소 120px, 한 화면 3개
+                rowH = max(120, floor(visH / 3));  % 理쒖냼 120px, ???붾㈃ 3媛?
                 for t = 1:numel(app.UI(fIdx).plotLayouts)
                     L = app.UI(fIdx).plotLayouts{t};
                     if isempty(L) || ~isvalid(L) || isempty(L.RowHeight), continue; end
@@ -4861,49 +4207,50 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME, app.logCaught(ME, 'silent'); end
         end
 
-        % [FIX] UIFigure 리사이즈 시 두 채널 plot row 동시 갱신
+        % [FIX] UIFigure 由ъ궗?댁쫰 ????梨꾨꼸 plot row ?숈떆 媛깆떊
         function onUIFigureResized(app)
             if app.IsDeleting, return; end
             app.applyResponsiveLayout('resize');
         end
 
         function applyResponsiveLayout(app, reason)
-            if nargin < 2, reason = ''; end %#ok<NASGU>
-            if app.InResponsiveLayout, return; end
-            if isempty(app.UIFigure) || ~isvalid(app.UIFigure), return; end
-
-            app.InResponsiveLayout = true;
-            cleanup_ = onCleanup(@() app.finishResponsiveLayout()); %#ok<NASGU>
+            if nargin < 2, reason = ''; end
             try
-                [figW, figH] = app.currentFigureSizePx();
-                profile = flightdash.util.UIScale.profileForSize(figW, figH);
-                app.LayoutProfile = profile;
-                app.LastLayoutSize = [figW, figH];
-                app.applyResponsiveShellLayout(profile, figH);
-
-                if isempty(app.UI), return; end
-                nChannels = min(2, numel(app.UI));
-                for fIdx = 1:nChannels
-                    app.applyResponsiveChannelLayout(fIdx, profile);
-                    try, app.updatePlotRowHeights(fIdx); catch, end
-                end
+                if isempty(app.LayoutMgr) || ~isvalid(app.LayoutMgr), return; end
+                app.LayoutMgr.applyLayout(app, reason);
             catch ME
-                app.logCaught(ME, 'Layout:responsive');
+                app.logCaught(ME, 'Layout:responsiveWrapper');
             end
         end
 
         function finishResponsiveLayout(app)
-            app.InResponsiveLayout = false;
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.finishResponsiveLayout(app);
+                else
+                    app.InResponsiveLayout = false;
+                end
+            catch
+                app.InResponsiveLayout = false;
+            end
         end
 
         function pos = initialFigurePosition(app)
-            mon = app.primaryMonitorRect();
-            pos = app.figurePositionForMonitor(mon, false);
+            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                pos = app.LayoutMgr.initialFigurePosition(app);
+            else
+                mon = app.primaryMonitorRect();
+                pos = app.figurePositionForMonitor(mon, false);
+            end
         end
 
         function pos = fitFigurePosition(app)
-            mon = app.currentMonitorRect();
-            pos = app.figurePositionForMonitor(mon, true);
+            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                pos = app.LayoutMgr.fitFigurePosition(app);
+            else
+                mon = app.currentMonitorRect();
+                pos = app.figurePositionForMonitor(mon, true);
+            end
         end
 
         function captureNormalFigurePosition(app)
@@ -4979,545 +4326,267 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function mon = primaryMonitorRect(~)
-            try
-                monitors = get(groot, 'MonitorPositions');
-                if ~isempty(monitors) && size(monitors, 2) >= 4
-                    mon = monitors(1, 1:4);
-                    return;
-                end
-            catch
+        function mon = primaryMonitorRect(app)
+            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                mon = app.LayoutMgr.primaryMonitorRect();
+            else
+                [screenW, screenH] = flightdash.util.UIScale.screenSize();
+                mon = [1, 1, screenW, screenH];
             end
-            [screenW, screenH] = flightdash.util.UIScale.screenSize();
-            mon = [1, 1, screenW, screenH];
         end
 
         function mon = currentMonitorRect(app)
-            try
-                monitors = get(groot, 'MonitorPositions');
-                if isempty(monitors) || size(monitors, 2) < 4
-                    mon = app.primaryMonitorRect();
-                    return;
-                end
-
-                oldUnits = app.UIFigure.Units;
-                app.UIFigure.Units = 'pixels';
-                figPos = app.UIFigure.Position;
-                app.UIFigure.Units = oldUnits;
-                figCenter = [figPos(1) + figPos(3)/2, figPos(2) + figPos(4)/2];
-
-                for k = 1:size(monitors, 1)
-                    r = monitors(k, 1:4);
-                    if figCenter(1) >= r(1) && figCenter(1) <= r(1) + r(3) && ...
-                            figCenter(2) >= r(2) && figCenter(2) <= r(2) + r(4)
-                        mon = r;
-                        return;
-                    end
-                end
-
-                centers = [monitors(:,1) + monitors(:,3)/2, monitors(:,2) + monitors(:,4)/2];
-                dist2 = (centers(:,1) - figCenter(1)).^2 + (centers(:,2) - figCenter(2)).^2;
-                [~, idx] = min(dist2);
-                mon = monitors(idx, 1:4);
-            catch
+            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                mon = app.LayoutMgr.currentMonitorRect(app);
+            else
                 mon = app.primaryMonitorRect();
             end
         end
 
-        function pos = figurePositionForMonitor(~, mon, fitToScreen)
-            marginX = min(flightdash.util.AppConstants.FIGURE_MARGIN_X, max(8, floor(mon(3) * 0.04)));
-            marginY = min(flightdash.util.AppConstants.FIGURE_MARGIN_Y, max(16, floor(mon(4) * 0.08)));
-            availW = max(360, mon(3) - 2 * marginX);
-            availH = max(360, mon(4) - 2 * marginY);
-
-            if fitToScreen
-                w = availW;
-                h = availH;
+        function pos = figurePositionForMonitor(app, mon, fitToScreen)
+            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                pos = app.LayoutMgr.figurePositionForMonitor(mon, fitToScreen);
             else
-                w = min(flightdash.util.AppConstants.FIGURE_INITIAL_W, availW);
-                h = min(flightdash.util.AppConstants.FIGURE_INITIAL_H, availH);
-                if availW >= flightdash.util.AppConstants.FIGURE_MIN_W
-                    w = max(w, flightdash.util.AppConstants.FIGURE_MIN_W);
-                end
-                if availH >= flightdash.util.AppConstants.FIGURE_MIN_H
-                    h = max(h, flightdash.util.AppConstants.FIGURE_MIN_H);
-                end
+                pos = [mon(1), mon(2), max(360, mon(3)), max(360, mon(4))];
             end
-
-            x = mon(1) + max(4, floor((mon(3) - w) / 2));
-            y = mon(2) + max(24, floor((mon(4) - h) / 2));
-            pos = [x, y, max(360, round(w)), max(360, round(h))];
         end
 
         function [figW, figH] = currentFigureSizePx(app)
-            [figW, figH] = app.LayoutMgr.currentFigureSizePx(app);
+            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                [figW, figH] = app.LayoutMgr.currentFigureSizePx(app);
+            else
+                [figW, figH] = flightdash.util.UIScale.screenSize();
+            end
         end
 
         function applyResponsiveShellLayout(app, profile, figH)
             try
-                app.applyResponsiveHeaderLayout(profile);
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.applyResponsiveShellLayout(app, profile, figH);
+                end
             catch ME
-                app.logCaught(ME, 'Layout:header');
-            end
-            try
-                app.applyResponsiveBodyLayout(profile, figH);
-            catch ME
-                app.logCaught(ME, 'Layout:body');
+                app.logCaught(ME, 'Layout:shellWrapper');
             end
         end
 
         function applyResponsiveHeaderLayout(app, profile)
-            if ~isfield(app.LayoutHandles, 'header'), return; end
-            h = app.LayoutHandles.header;
-            if ~isfield(h, 'HeaderGrid') || isempty(h.HeaderGrid) || ~isvalid(h.HeaderGrid), return; end
-
-            profile = flightdash.util.UIScale.normalizeProfile(profile);
-            UIScale = flightdash.util.UIScale;
-            isNarrow = strcmp(profile, flightdash.util.AppConstants.LAYOUT_PROFILE_NARROW);
-            isCompact = strcmp(profile, flightdash.util.AppConstants.LAYOUT_PROFILE_COMPACT);
-
-            g = h.HeaderGrid;
-            if isNarrow
-                g.RowHeight = {UIScale.pxForProfile(32, profile), UIScale.pxForProfile(32, profile), UIScale.pxForProfile(32, profile)};
-                app.placeGridItem(h.Flight1Button, 1, 1);
-                app.placeGridItem(h.Flight2Button, 1, 2);
-                app.placeGridItem(h.CoastButton, 1, 3);
-                app.placeGridItem(h.FitScreenButton, 1, 4);
-                app.placeGridItem(h.ExportConfigButton, 2, 1);
-                app.placeGridItem(h.ImportConfigButton, 2, 2);
-                app.placeGridItem(h.ChannelViewDropDown, 2, 3);
-                app.placeGridItem(h.DebugBox, 2, 4);
-                app.placeGridItem(h.SyncInput, 3, [1 2]);
-                app.placeGridItem(h.SyncBtn, 3, [3 4]);
-                app.setHandleVisible(h.HeaderSpacer, false);
-
-                g.ColumnWidth = {'1x', '1x', '1x', UIScale.pxForProfile(42, profile)};
-                g.Padding = [3 3 3 3];
-                g.ColumnSpacing = 3;
-                g.RowSpacing = 3;
-            else
-                if isCompact
-                    fileW = 96; coastW = 80; cfgW = 92; viewW = 88; fitW = 38; debugW = 70; inputW = 120; syncW = 120;
-                else
-                    fileW = 104; coastW = 88; cfgW = 100; viewW = 92; fitW = 42; debugW = 80; inputW = 145; syncW = 145;
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.applyResponsiveHeaderLayout(app, profile);
                 end
-
-                g.ColumnWidth = { ...
-                    UIScale.pxForProfile(fileW, profile), ...
-                    UIScale.pxForProfile(coastW, profile), ...
-                    UIScale.pxForProfile(cfgW, profile), ...
-                    UIScale.pxForProfile(viewW, profile), ...
-                    '1x', ...
-                    UIScale.pxForProfile(fitW, profile), ...
-                    UIScale.pxForProfile(debugW, profile), ...
-                    UIScale.pxForProfile(inputW, profile), ...
-                    UIScale.pxForProfile(syncW, profile)};
-                g.Padding = [5 5 5 5];
-                g.ColumnSpacing = 5;
-                g.RowSpacing = 3;
-
-                app.placeGridItem(h.Flight1Button, 1, 1);
-                app.placeGridItem(h.Flight2Button, 1, 2);
-                app.placeGridItem(h.CoastButton, 1, 3);
-                app.placeGridItem(h.ExportConfigButton, 1, 4);
-                app.placeGridItem(h.ImportConfigButton, 1, 5);
-                app.placeGridItem(h.ChannelViewDropDown, 1, 6);
-                app.placeGridItem(h.HeaderSpacer, 1, 7);
-                app.placeGridItem(h.FitScreenButton, 1, 8);
-                app.placeGridItem(h.DebugBox, 1, 9);
-                app.placeGridItem(h.SyncInput, 1, 10);
-                app.placeGridItem(h.SyncBtn, 1, 11);
-                app.setHandleVisible(h.HeaderSpacer, true);
-                g.RowHeight = {'fit'};
+            catch ME
+                app.logCaught(ME, 'Layout:headerWrapper');
             end
-            app.updateMaximizeButtonState();
         end
 
         function applyResponsiveBodyLayout(app, profile, figH)
-            if ~isfield(app.LayoutHandles, 'bodyGrid'), return; end
-            bodyGrid = app.LayoutHandles.bodyGrid;
-            if isempty(bodyGrid) || ~isvalid(bodyGrid), return; end
-
-            profile = flightdash.util.UIScale.normalizeProfile(profile);
-            switch lower(char(app.ChannelViewMode))
-                case 'flight1'
-                    bodyGrid.RowHeight = {'1x', 0};
-                    app.setChannelRootVisible(1, true);
-                    app.setChannelRootVisible(2, false);
-                    try, bodyGrid.Scrollable = 'on'; catch, end
-                    return;
-                case 'flight2'
-                    bodyGrid.RowHeight = {0, '1x'};
-                    app.setChannelRootVisible(1, false);
-                    app.setChannelRootVisible(2, true);
-                    try, bodyGrid.Scrollable = 'on'; catch, end
-                    return;
-                otherwise
-                    app.setChannelRootVisible(1, true);
-                    app.setChannelRootVisible(2, true);
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.applyResponsiveBodyLayout(app, profile, figH);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:bodyWrapper');
             end
-            isShort = ~isfinite(figH) || figH < flightdash.util.AppConstants.LAYOUT_SHORT_VIEW_H || ...
-                strcmp(profile, flightdash.util.AppConstants.LAYOUT_PROFILE_NARROW);
-            if isShort
-                rowH = flightdash.util.UIScale.pxForProfile(app.channelMinHeightForProfile(profile), profile);
-                bodyGrid.RowHeight = {rowH, rowH};
-            else
-                bodyGrid.RowHeight = {'1x', '1x'};
-            end
-            try, bodyGrid.Scrollable = 'on'; catch, end
         end
 
         function setChannelRootVisible(app, fIdx, tf)
             try
-                if fIdx <= numel(app.UI) && isfield(app.UI(fIdx), 'rootPanel') && ...
-                        ~isempty(app.UI(fIdx).rootPanel) && isvalid(app.UI(fIdx).rootPanel)
-                    app.UI(fIdx).rootPanel.Visible = app.visibleState(tf);
-                elseif fIdx <= numel(app.UI) && isfield(app.UI(fIdx), 'channelPanel') && ...
-                        ~isempty(app.UI(fIdx).channelPanel) && isvalid(app.UI(fIdx).channelPanel)
-                    app.UI(fIdx).channelPanel.Visible = app.visibleState(tf);
-                elseif fIdx <= numel(app.UI) && isfield(app.UI(fIdx), 'panel') && ...
-                        ~isempty(app.UI(fIdx).panel) && isvalid(app.UI(fIdx).panel)
-                    app.UI(fIdx).panel.Visible = app.visibleState(tf);
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.setChannelRootVisible(app, fIdx, tf);
                 end
-            catch
+            catch ME
+                app.logCaught(ME, 'Layout:channelVisibleWrapper');
             end
         end
 
-        function rowH = channelMinHeightForProfile(~, profile)
-            profile = flightdash.util.UIScale.normalizeProfile(profile);
-            switch profile
-                case flightdash.util.AppConstants.LAYOUT_PROFILE_NARROW
-                    rowH = flightdash.util.AppConstants.LAYOUT_CHANNEL_MIN_H_NARROW;
-                case flightdash.util.AppConstants.LAYOUT_PROFILE_COMPACT
-                    rowH = flightdash.util.AppConstants.LAYOUT_CHANNEL_MIN_H_COMPACT;
-                case flightdash.util.AppConstants.LAYOUT_PROFILE_MEDIUM
-                    rowH = flightdash.util.AppConstants.LAYOUT_CHANNEL_MIN_H_MEDIUM;
-                otherwise
-                    rowH = flightdash.util.AppConstants.LAYOUT_CHANNEL_MIN_H_WIDE;
-            end
-        end
-
-        function placeGridItem(~, h, row, col)
+        function rowH = channelMinHeightForProfile(app, profile)
+            rowH = flightdash.util.AppConstants.LAYOUT_CHANNEL_MIN_H_WIDE;
             try
-                if isempty(h) || ~isvalid(h), return; end
-                h.Layout.Row = row;
-                h.Layout.Column = col;
-            catch
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    rowH = app.LayoutMgr.channelMinHeightForProfile(profile);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:channelMinHeightWrapper');
+            end
+        end
+
+        function placeGridItem(app, h, row, col)
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.placeGridItem(h, row, col);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:placeGridItemWrapper');
             end
         end
 
         function applyResponsiveChannelLayout(app, fIdx, profile)
             try
-                if fIdx < 1 || fIdx > numel(app.UI), return; end
-                if ~isfield(app.UI(fIdx), 'dataGrid'), return; end
-                dg = app.UI(fIdx).dataGrid;
-                if isempty(dg) || ~isvalid(dg), return; end
-
-                gridW = NaN;
-                try
-                    gridPos = getpixelposition(dg, true);
-                    if numel(gridPos) >= 4 && isfinite(gridPos(3)) && gridPos(3) > 0
-                        gridW = gridPos(3);
-                    end
-                catch
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.applyResponsiveChannelLayout(app, fIdx, profile);
                 end
-                if ~isfinite(gridW) || gridW <= 0
-                    gridW = app.LastLayoutSize(1);
-                end
-
-                widths = app.computeResponsiveColumnWidths(fIdx, profile, gridW, dg);
-                if isempty(widths), return; end
-                dg.ColumnWidth = widths;
-
-                try
-                    if isfield(app.UI(fIdx), 'attMapSplitter')
-                        app.setHandleVisible(app.UI(fIdx).attMapSplitter, isnumeric(widths{2}) && widths{2} > 0);
-                    end
-                    if isfield(app.UI(fIdx), 'mapInfoSplitter')
-                        app.setHandleVisible(app.UI(fIdx).mapInfoSplitter, isnumeric(widths{4}) && widths{4} > 0);
-                    end
-                    if isfield(app.UI(fIdx), 'infoPlotSplitter')
-                        app.setHandleVisible(app.UI(fIdx).infoPlotSplitter, isnumeric(widths{6}) && widths{6} > 0);
-                    end
-                    if isfield(app.UI(fIdx), 'hiSplitter')
-                        app.setHandleVisible(app.UI(fIdx).hiSplitter, isnumeric(widths{8}) && widths{8} > 0);
-                    end
-                catch
-                end
-                app.applyResponsiveRailStates(fIdx, widths, profile);
-                app.updatePanelRailSummaries(fIdx);
             catch ME
-                app.logCaught(ME, 'Layout:channel');
+                app.logCaught(ME, 'Layout:channelWrapper');
             end
         end
 
         function widths = computeResponsiveColumnWidths(app, fIdx, profile, gridW, dg)
-            widths = app.LayoutMgr.computeResponsiveColumnWidths(app, fIdx, profile, gridW, dg);
+            widths = {};
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    widths = app.LayoutMgr.computeResponsiveColumnWidths(app, fIdx, profile, gridW, dg);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:widthsWrapper');
+            end
         end
 
         function [attD, mapD, infoD, videoD, hMinD] = layoutDesignWidths(app, profile)
-            [attD, mapD, infoD, videoD, hMinD] = app.LayoutMgr.layoutDesignWidths(profile);
+            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                [attD, mapD, infoD, videoD, hMinD] = app.LayoutMgr.layoutDesignWidths(profile);
+            else
+                attD = 0; mapD = 0; infoD = 0; videoD = 0; hMinD = 0;
+            end
         end
 
         function videoW = resolvePreferredVideoWidth(app, fIdx, profile, videoW, dg)
             try
-                if app.VideoUserResized(fIdx)
-                    manualW = app.ManualVideoWidth(fIdx);
-                    if isfinite(manualW) && manualW >= 0
-                        videoW = manualW;
-                    else
-                        cw = dg.ColumnWidth;
-                        if numel(cw) >= 9 && isnumeric(cw{9}) && isfinite(cw{9}) && cw{9} > 0
-                            videoW = cw{9};
-                        end
-                    end
-                    return;
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    videoW = app.LayoutMgr.resolvePreferredVideoWidth(app, fIdx, profile, videoW, dg);
                 end
-
-                prefW = app.PreferredVideoWidth(fIdx);
-                if ~isfinite(prefW) || prefW <= 0, return; end
-
-                if strcmp(profile, flightdash.util.AppConstants.LAYOUT_PROFILE_WIDE)
-                    capW = flightdash.util.UIScale.pxForProfile(flightdash.util.AppConstants.LAYOUT_VIDEO_WIDE_MAX, profile);
-                    videoW = min(max(videoW, prefW), capW);
-                else
-                    videoW = min(videoW, prefW);
-                end
-            catch
+            catch ME
+                app.logCaught(ME, 'Layout:videoWidthWrapper');
             end
         end
 
         function tf = isSplitterRestricted(app)
+            tf = false;
             try
-                [figW, figH] = app.currentFigureSizePx();
-                profile = flightdash.util.UIScale.profileForSize(figW, figH);
-                tf = app.isSplitterRestrictedForProfile(profile);
-            catch
-                tf = false;
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    tf = app.LayoutMgr.isSplitterRestricted(app);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:splitterRestrictedWrapper');
             end
         end
 
-        function tf = isSplitterRestrictedForProfile(~, profile)
-            profile = flightdash.util.UIScale.normalizeProfile(profile);
-            tf = strcmp(profile, flightdash.util.AppConstants.LAYOUT_PROFILE_NARROW);
+        function tf = isSplitterRestrictedForProfile(app, profile)
+            tf = false;
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    tf = app.LayoutMgr.isSplitterRestrictedForProfile(profile);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:splitterProfileWrapper');
+            end
         end
 
         function tf = isPanelVisibleForLayout(app, fIdx, pnlName)
             tf = true;
             try
-                if isfield(app.UI(fIdx), 'PanelVisible') && isfield(app.UI(fIdx).PanelVisible, pnlName)
-                    tf = logical(app.UI(fIdx).PanelVisible.(pnlName));
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    tf = app.LayoutMgr.isPanelVisibleForLayout(app, fIdx, pnlName);
                 end
-            catch
-                tf = true;
+            catch ME
+                app.logCaught(ME, 'Layout:panelVisibleWrapper');
             end
         end
 
-        function [val, deficit] = shrinkWidth(~, val, minVal, deficit)
-            if deficit <= 0 || val <= 0, return; end
-            reducible = max(0, val - minVal);
-            take = min(deficit, reducible);
-            val = val - take;
-            deficit = deficit - take;
+        function [val, deficit] = shrinkWidth(app, val, minVal, deficit)
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    [val, deficit] = app.LayoutMgr.shrinkWidth(val, minVal, deficit);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:shrinkWrapper');
+            end
         end
 
-        function setHandleVisible(~, h, isVisible)
-            if isempty(h), return; end
+        function setHandleVisible(app, h, isVisible)
             try
-                if ~all(isvalid(h)), return; end
-                if isVisible
-                    h.Visible = 'on';
-                else
-                    h.Visible = 'off';
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.setHandleVisible(h, isVisible);
+                elseif ~isempty(h) && all(isvalid(h))
+                    h.Visible = app.visibleState(isVisible);
                 end
-            catch
+            catch ME
+                app.logCaught(ME, 'Layout:visibleWrapper');
             end
         end
 
         function applyResponsiveRailStates(app, fIdx, widths, profile)
             try
-                if isempty(widths) || numel(widths) < 9, return; end
-
-                app.setContentRailMode(fIdx, 'attitudeContent', 'attitudeRail', ...
-                    app.isRailColumn(widths{1}, flightdash.util.AppConstants.LAYOUT_ATT_RAIL, profile));
-                app.setContentRailMode(fIdx, 'mapAltContent', 'mapAltRail', ...
-                    app.isRailColumn(widths{3}, flightdash.util.AppConstants.LAYOUT_MAP_RAIL, profile));
-                app.setContentRailMode(fIdx, 'infoContent', 'infoRail', ...
-                    app.isRailColumn(widths{5}, flightdash.util.AppConstants.LAYOUT_INFO_RAIL, profile));
-                app.setContentRailMode(fIdx, 'videoContent', 'videoRail', ...
-                    app.isRailColumn(widths{9}, flightdash.util.AppConstants.LAYOUT_VIDEO_RAIL, profile));
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.applyResponsiveRailStates(app, fIdx, widths, profile);
+                end
             catch ME
-                app.logCaught(ME, 'Layout:railState');
+                app.logCaught(ME, 'Layout:railStateWrapper');
             end
         end
 
-        function tf = isRailColumn(~, widthVal, railDesignWidth, profile)
+        function tf = isRailColumn(app, widthVal, railDesignWidth, profile)
             tf = false;
-            if ~isnumeric(widthVal) || isempty(widthVal) || ~isfinite(widthVal) || widthVal <= 0
-                return;
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    tf = app.LayoutMgr.isRailColumn(widthVal, railDesignWidth, profile);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:isRailWrapper');
             end
-            railMax = flightdash.util.UIScale.pxForProfile(railDesignWidth + 16, profile);
-            tf = widthVal <= railMax;
         end
 
         function setContentRailMode(app, fIdx, contentField, railField, useRail)
-            if fIdx < 1 || fIdx > numel(app.UI), return; end
-            if isfield(app.UI(fIdx), contentField)
-                app.setHandleVisible(app.UI(fIdx).(contentField), ~useRail);
-            end
-            if isfield(app.UI(fIdx), railField)
-                app.setHandleVisible(app.UI(fIdx).(railField), useRail);
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.setContentRailMode(app, fIdx, contentField, railField, useRail);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:railModeWrapper');
             end
         end
 
         function updatePanelRailSummaries(app, fIdx)
             try
-                if fIdx < 1 || fIdx > numel(app.UI), return; end
-
-                hasData = ~isempty(app.Models(fIdx).rawData) && height(app.Models(fIdx).rawData) > 0;
-                if hasData
-                    nRows = height(app.Models(fIdx).rawData);
-                    idx = max(1, min(nRows, app.Models(fIdx).currentIndex));
-                    currTime = app.modelValueAt(fIdx, 'Time', idx, NaN);
-                    pitch = app.modelValueAt(fIdx, 'Pitch', idx, NaN);
-                    roll  = app.modelValueAt(fIdx, 'Roll', idx, NaN);
-                    hdg   = app.modelValueAt(fIdx, 'Heading', idx, NaN);
-                    lat   = app.modelValueAt(fIdx, 'Lat', idx, NaN);
-                    lon   = app.modelValueAt(fIdx, 'Lon', idx, NaN);
-                    alt   = app.modelValueAt(fIdx, 'Alt', idx, NaN);
-                else
-                    nRows = 0; idx = 0; currTime = NaN;
-                    pitch = NaN; roll = NaN; hdg = NaN; lat = NaN; lon = NaN; alt = NaN;
-                end
-
-                if isfield(app.UI(fIdx), 'attitudeRail') && ~isempty(app.UI(fIdx).attitudeRail) && isvalid(app.UI(fIdx).attitudeRail)
-                    app.UI(fIdx).attitudeRail.Text = sprintf('ATT\nP %s\nR %s\nH %s', ...
-                        app.formatRailNumber('%+.0f', pitch, '--'), ...
-                        app.formatRailNumber('%+.0f', roll, '--'), ...
-                        app.formatRailNumber('%.0f', hdg, '--'));
-                end
-
-                if isfield(app.UI(fIdx), 'mapAltRail') && ~isempty(app.UI(fIdx).mapAltRail) && isvalid(app.UI(fIdx).mapAltRail)
-                    app.UI(fIdx).mapAltRail.Text = sprintf('MAP\nLat %s\nLon %s\nAlt %s', ...
-                        app.formatRailNumber('%.4f', lat, '--'), ...
-                        app.formatRailNumber('%.4f', lon, '--'), ...
-                        app.formatRailNumber('%.0f', alt, '--'));
-                end
-
-                if isfield(app.UI(fIdx), 'infoRail') && ~isempty(app.UI(fIdx).infoRail) && isvalid(app.UI(fIdx).infoRail)
-                    if hasData
-                        app.UI(fIdx).infoRail.Text = sprintf('INFO\n%s\nRow %d/%d', ...
-                            app.formatRailNumber('%.2fs', currTime, '--'), idx, nRows);
-                    else
-                        app.UI(fIdx).infoRail.Text = sprintf('INFO\nNo data');
-                    end
-                end
-
-                if isfield(app.UI(fIdx), 'videoRail') && ~isempty(app.UI(fIdx).videoRail) && isvalid(app.UI(fIdx).videoRail)
-                    total = app.VideoSyncState(fIdx).TotalFrames;
-                    cur = app.VideoSyncState(fIdx).CurrentFrame;
-                    if total > 0
-                        if app.VideoSyncState(fIdx).IsSynced
-                            syncTxt = 'SYNC';
-                        else
-                            syncTxt = 'FREE';
-                        end
-                        app.UI(fIdx).videoRail.Text = sprintf('VID\n%d/%d\n%s', cur, total, syncTxt);
-                    else
-                        app.UI(fIdx).videoRail.Text = sprintf('VID\nNo AVI');
-                    end
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    app.LayoutMgr.updatePanelRailSummaries(app, fIdx);
                 end
             catch ME
-                app.logCaught(ME, 'Layout:railSummary');
+                app.logCaught(ME, 'Layout:railSummaryWrapper');
             end
         end
 
         function val = modelValueAt(app, fIdx, keyName, idx, defaultVal)
             val = defaultVal;
             try
-                if isempty(app.Models(fIdx).rawData) || ~isfield(app.Models(fIdx).mappedCols, keyName)
-                    return;
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    val = app.LayoutMgr.modelValueAt(app, fIdx, keyName, idx, defaultVal);
                 end
-                colName = app.Models(fIdx).mappedCols.(keyName);
-                if ~ismember(colName, app.Models(fIdx).rawData.Properties.VariableNames)
-                    return;
-                end
-                arr = app.Models(fIdx).rawData.(colName);
-                if idx >= 1 && idx <= numel(arr)
-                    val = arr(idx);
-                end
-            catch
-                val = defaultVal;
+            catch ME
+                app.logCaught(ME, 'Layout:modelValueWrapper');
             end
         end
 
-        function txt = formatRailNumber(~, fmt, val, fallback)
-            if isnumeric(val) && isscalar(val) && isfinite(val)
-                txt = sprintf(fmt, val);
-            else
-                txt = fallback;
+        function txt = formatRailNumber(app, fmt, val, fallback)
+            txt = fallback;
+            try
+                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
+                    txt = app.LayoutMgr.formatRailNumber(fmt, val, fallback);
+                end
+            catch ME
+                app.logCaught(ME, 'Layout:formatRailWrapper');
             end
         end
 
         function clearCurrentTab(app, fIdx)
-            currTab = app.UI(fIdx).tabGroup.SelectedTab;
-            if isempty(currTab), return; end
-            tabIdx = find(app.UI(fIdx).plotTabs == currTab, 1);
-            if isempty(tabIdx), return; end
-
-            app.deleteListeners(app.UI(fIdx).xLimListeners{tabIdx});
-            app.deleteGraphicsHandles(app.UI(fIdx).timeLines{tabIdx});
-            app.deleteGraphicsHandles(app.UI(fIdx).timeMarkers{tabIdx});
-            app.deleteGraphicsHandles(app.UI(fIdx).plotAxes{tabIdx});
-
-            targetLayout = app.UI(fIdx).plotLayouts{tabIdx};
-            try
-                if ~isempty(targetLayout) && isvalid(targetLayout)
-                    delete(targetLayout.Children);
-                    targetLayout.RowHeight = {};
-                end
-            catch ME, app.logCaught(ME, 'silent'); end
-
-            app.UI(fIdx).plotAxes{tabIdx} = {};
-            app.UI(fIdx).timeLines{tabIdx} = {};
-            app.UI(fIdx).timeMarkers{tabIdx} = {};
-            app.UI(fIdx).plotValueLabels{tabIdx} = {};
-            app.UI(fIdx).plotData{tabIdx} = {};
-            app.UI(fIdx).plotMeta{tabIdx} = {};
-            app.UI(fIdx).xLimListeners{tabIdx} = {};
-            app.UI(fIdx).selectedPlotIdx = 0;
-            app.refreshPlotManager(fIdx);
-            app.refreshPlotDetails(fIdx);
-            app.refreshPanner(fIdx);
+            if app.hasPlotView(fIdx)
+                app.PlotView(fIdx).clearCurrentTab();
+            end
         end
 
         function clearAllTabs(app, fIdx)
-            for i = 1:length(app.UI(fIdx).plotTabs)
-                if i <= length(app.UI(fIdx).xLimListeners)
-                    app.deleteListeners(app.UI(fIdx).xLimListeners{i});
-                end
-                try
-                    if ~isempty(app.UI(fIdx).plotTabs(i)) && isvalid(app.UI(fIdx).plotTabs(i))
-                        delete(app.UI(fIdx).plotTabs(i));
-                    end
-                catch ME, app.logCaught(ME, 'silent'); end
+            if app.hasPlotView(fIdx)
+                app.PlotView(fIdx).clearAllTabs();
             end
-            app.UI(fIdx).plotTabs = [];
-            app.UI(fIdx).plotLayouts = {};
-            app.UI(fIdx).plotAxes = cell(1, flightdash.util.AppConstants.MAX_TABS);
-            app.UI(fIdx).timeLines = cell(1, flightdash.util.AppConstants.MAX_TABS);
-            app.UI(fIdx).timeMarkers = cell(1, flightdash.util.AppConstants.MAX_TABS);
-            app.UI(fIdx).plotValueLabels = cell(1, flightdash.util.AppConstants.MAX_TABS);
-            app.UI(fIdx).plotData = cell(1, flightdash.util.AppConstants.MAX_TABS);
-            app.UI(fIdx).plotMeta = cell(1, flightdash.util.AppConstants.MAX_TABS);
-            app.UI(fIdx).xLimListeners = cell(1, flightdash.util.AppConstants.MAX_TABS);
-            app.UI(fIdx).selectedPlotIdx = 0;
-
-            app.addPlotTab(fIdx);
-            app.refreshPlotManager(fIdx);
-            app.refreshPlotDetails(fIdx);
-            app.refreshPanner(fIdx);
-            app.drawRoiBands(fIdx);
         end
 
         function deleteGraphicsHandles(app, handleCell)
@@ -5545,14 +4614,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function handlePlotXLimChange(app, fIdx, ax)
-            % [V3.11 A] 프로그래밍적 XLim 변경(책장 넘기기 등)인 경우 리스너 무시
-            %           → 사용자가 드래그한 마커 위치가 중앙으로 강제 점프되는 현상 차단
+            % [V3.11 A] ?꾨줈洹몃옒諛띿쟻 XLim 蹂寃?梨낆옣 ?섍린湲?????寃쎌슦 由ъ뒪??臾댁떆
+            %           ???ъ슜?먭? ?쒕옒洹명븳 留덉빱 ?꾩튂媛 以묒븰?쇰줈 媛뺤젣 ?먰봽?섎뒗 ?꾩긽 李⑤떒
             if app.IsProgrammaticXLim(fIdx), return; end
 
             % =======================================================
-            % [V3.8 보강] 툴바의 Zoom/Pan 모드를 프로그래밍적으로 강제 Off
-            % - 혹시 외부 API나 다른 경로를 통해 zoom/pan 모드가 켜졌을 경우
-            %   WindowButtonUp 이벤트 가로채기로 인한 마커 스턱 현상 원천 차단
+            % [V3.8 蹂닿컯] ?대컮??Zoom/Pan 紐⑤뱶瑜??꾨줈洹몃옒諛띿쟻?쇰줈 媛뺤젣 Off
+            % - ?뱀떆 ?몃? API???ㅻⅨ 寃쎈줈瑜??듯빐 zoom/pan 紐⑤뱶媛 耳쒖죱??寃쎌슦
+            %   WindowButtonUp ?대깽??媛濡쒖콈湲곕줈 ?명븳 留덉빱 ?ㅽ꽦 ?꾩긽 ?먯쿇 李⑤떒
             % =======================================================
             try
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
@@ -5564,14 +4633,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [버그 완벽 수정] 줌/팬 등에 의해 X축 범위가 변경되었을 때
-            % 혹시 남아있을지 모르는 드래그 상태를 안전하게 강제 초기화
+            % [踰꾧렇 ?꾨꼍 ?섏젙] 以????깆뿉 ?섑빐 X異?踰붿쐞媛 蹂寃쎈릺?덉쓣 ??
+            % ?뱀떆 ?⑥븘?덉쓣吏 紐⑤Ⅴ???쒕옒洹??곹깭瑜??덉쟾?섍쾶 媛뺤젣 珥덇린??
             if app.IsDraggingMarker
                 app.stopPlotMarkerDrag();
             end
 
-            % [줌 동기화 핵심] 확대/이동 발생 시 중앙 시간 획득 후 대시보드 동기화
-            if app.IsUpdating(fIdx), return; end
+            % [以??숆린???듭떖] ?뺣?/?대룞 諛쒖깮 ??以묒븰 ?쒓컙 ?띾뱷 ????쒕낫???숆린??
+            if app.stateIsUpdating(fIdx), return; end
             try
                 if isempty(ax) || ~isvalid(ax), return; end
             catch
@@ -5585,7 +4654,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             times = app.Models(fIdx).rawData.(timeCol);
             idx = app.findClosestIndexByTime(times, centerTime);
 
-            % Y축 자동 스케일: 확대 시 마커가 Y축 밖으로 벗어나 사라지는 것을 완벽 방지
+            % Y異??먮룞 ?ㅼ??? ?뺣? ??留덉빱媛 Y異?諛뽰쑝濡?踰쀬뼱???щ씪吏??寃껋쓣 ?꾨꼍 諛⑹?
             ax.YLimMode = 'auto';
             app.updatePannerViewport(fIdx);
 
@@ -5594,128 +4663,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function plotSelectedVariable(app, fIdx)
-            selRow = app.Models(fIdx).selectedRow;
-            if isempty(selRow) || selRow < 1, return; end
-            if isempty(app.Models(fIdx).rawData), return; end
-
-            currTab = app.UI(fIdx).tabGroup.SelectedTab;
-            if isempty(currTab)
-                app.addPlotTab(fIdx);
-                currTab = app.UI(fIdx).tabGroup.SelectedTab;
+            if app.hasPlotView(fIdx)
+                app.PlotView(fIdx).addSelectedVariable();
             end
-
-            tabIdx = find(app.UI(fIdx).plotTabs == currTab, 1);
-            if isempty(tabIdx)
-                errordlg('현재 탭이 유효하지 않습니다. "+ 빈 탭 추가"를 먼저 눌러주세요.', '탭 오류');
-                return;
-            end
-
-            numPlots = length(app.UI(fIdx).plotAxes{tabIdx});
-            if numPlots >= flightdash.util.AppConstants.MAX_PLOTS_PER_TAB
-                errordlg(sprintf('한 탭에는 최대 %d개의 플롯만 추가할 수 있습니다.', flightdash.util.AppConstants.MAX_PLOTS_PER_TAB), '알림');
-                return;
-            end
-
-            if selRow > length(app.Models(fIdx).displayMeta)
-                errordlg('선택된 행이 유효하지 않습니다.', '선택 오류');
-                return;
-            end
-
-            meta = app.Models(fIdx).displayMeta(selRow);
-            yCol = meta.header;
-            yLabelStr = sprintf('%s (%s)', meta.header, meta.unit);
-            timeCol = app.Models(fIdx).mappedCols.Time;
-
-            if ~ismember(yCol, app.Models(fIdx).rawData.Properties.VariableNames)
-                errordlg(sprintf('컬럼 "%s"을(를) 찾을 수 없습니다.', yCol), '데이터 오류');
-                return;
-            end
-
-            tData = app.Models(fIdx).rawData.(timeCol);
-            yData = app.Models(fIdx).rawData.(yCol);
-
-            targetLayout = app.UI(fIdx).plotLayouts{tabIdx};
-            targetLayout.RowHeight{end+1} = flightdash.util.AppConstants.PLOT_ROW_HEIGHT;
-            newRowIdx = numel(targetLayout.RowHeight);
-            % [FIX] 한 화면 3개 정책에 맞춰 즉시 row height 정규화
-            app.updatePlotRowHeights(fIdx);
-
-            app.updatePlotRowHeights(fIdx);
-            p = uipanel(targetLayout, 'BorderType', 'line', 'BackgroundColor', 'w');
-            p.Layout.Row = newRowIdx;
-            p.Layout.Column = 1;
-
-            axGrid = uigridlayout(p, 'ColumnWidth', {'1x'}, 'RowHeight', {'1x'}, 'Padding', [5 5 5 5]);
-            ax = uiaxes(axGrid);
-            ax.Layout.Row = 1;
-            ax.Layout.Column = 1;
-
-            % [V3.10] H 패널 Tab 플롯 전용 커스텀 툴바 (Restore/ZoomIn/ZoomOut/Pan)
-            %         Map/Altitude/비디오/게이지 axes는 툴바 숨김 유지
-            %         휠 줌/드래그 팬 기본 상호작용도 함께 허용
-            %         스턱 방어는 handlePlotXLimChange의 zoom/pan off 로직이 담당
-            ax.Interactions = [panInteraction, zoomInteraction];
-            tb = axtoolbar(ax, {'restoreview', 'zoomin', 'zoomout', 'pan'});
-            tb.Visible = 'on';
-
-            grid(ax, 'on'); set(ax, 'XMinorGrid', 'on', 'YMinorGrid', 'on');
-            mainLine = plot(ax, tData, yData, 'LineWidth', 1.5, ...
-                'Color', [0.15 0.38 0.82], 'DisplayName', meta.header, 'HitTest', 'off');
-            title(ax, meta.header, 'Interpreter', 'none', 'FontWeight', 'bold');
-            xlabel(ax, 'Time(s)', 'FontWeight', 'bold', 'FontSize', 9);
-            ylabel(ax, yLabelStr, 'FontWeight', 'bold', 'FontSize', 10, 'Interpreter', 'none');
-
-            hold(ax, 'on');
-            currIdx = app.Models(fIdx).currentIndex;
-            currTime = tData(currIdx);
-            currY = yData(currIdx);
-
-            % [개선안 3] 라인 두께(3.0) 및 반투명(0.5), 마커 크기(14) 대폭 확대
-            tl = xline(ax, currTime, 'r', 'LineWidth', 3.0, 'Alpha', 0.5, 'HitTest', 'on');
-            mk = plot(ax, currTime, currY, 'p', 'MarkerFaceColor', [0.98 0.75 0.14], ...
-                      'MarkerEdgeColor', [0.71 0.33 0.04], 'MarkerSize', 14, 'HitTest', 'on');
-            valueLabel = text(ax, currTime, currY, app.plotValueLabelText(meta.header, currY, meta.format), ...
-                'Interpreter', 'none', 'FontSize', 10, 'FontWeight', 'bold', ...
-                'Color', [0.12 0.12 0.12], 'BackgroundColor', [1 1 1], ...
-                'Margin', 3, 'VerticalAlignment', 'bottom', 'HorizontalAlignment', 'left', ...
-                'HitTest', 'off');
-            app.excludeFromLegend(tl);
-            app.excludeFromLegend(mk);
-            app.excludeFromLegend(valueLabel);
-
-            tl.ButtonDownFcn = @(src, event) app.startPlotMarkerDrag(fIdx, tabIdx, src, event);
-            mk.ButtonDownFcn = @(src, event) app.startPlotMarkerDrag(fIdx, tabIdx, src, event);
-
-            app.UI(fIdx).plotAxes{tabIdx}{end+1} = ax;
-            app.UI(fIdx).timeLines{tabIdx}{end+1} = tl;
-            app.UI(fIdx).timeMarkers{tabIdx}{end+1} = mk;
-            app.UI(fIdx).plotValueLabels{tabIdx}{end+1} = valueLabel;
-            app.UI(fIdx).plotData{tabIdx}{end+1} = yData;
-            plotInfo = struct('Name', meta.header, 'YColumn', yCol, 'YLabel', yLabelStr, ...
-                'Unit', meta.unit, 'Format', meta.format, 'MainLine', mainLine, ...
-                'Panel', p, 'Visible', true, 'Legend', false, ...
-                'XLimMode', 'auto', 'YLimMode', 'auto', 'XLim', ax.XLim, 'YLim', ax.YLim);
-            app.UI(fIdx).plotMeta{tabIdx}{end+1} = plotInfo;
-
-            L = addlistener(ax, 'XLim', 'PostSet', @(~,~) app.handlePlotXLimChange(fIdx, ax));
-            app.UI(fIdx).xLimListeners{tabIdx}{end+1} = L;
-
-            allAxes = [app.UI(fIdx).plotAxes{tabIdx}{:}];
-            if numel(allAxes) > 1
-                linkaxes(allAxes, 'x');
-            end
-            app.UI(fIdx).selectedPlotIdx = numel(app.UI(fIdx).plotAxes{tabIdx});
-            app.refreshPlotManager(fIdx);
-            app.refreshPlotDetails(fIdx);
-            app.refreshPanner(fIdx);
-            app.updateFlightModeBands(fIdx);
-
-            drawnow;
         end
     end
 
     % =========================================================================
-    % 데이터 파서 및 시각화 업데이트
+    % ?곗씠???뚯꽌 諛??쒓컖???낅뜲?댄듃
     % =========================================================================
     methods (Access = private)
         function parseFlightData(app, fIdx, filepath)
@@ -5749,7 +4704,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             modelState = app.DataLoader.generateMockFlightData(fIdx, app.Models(fIdx).bounds);
             app.applyFlightDataState(fIdx, modelState);
             app.setupDataUI(fIdx);
-            app.UI(fIdx).fileNameLabel.Text = '모의 데이터 (Auto)';
+            app.UI(fIdx).fileNameLabel.Text = '紐⑥쓽 ?곗씠??(Auto)';
         end
 
         function calculateBounds(app, fIdx)
@@ -5793,7 +4748,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if isempty(app.Models(fIdx).rawData), return; end
             bnds = app.Models(fIdx).bounds;
 
-            % --- Map 설정 ---
+            % --- Map ?ㅼ젙 ---
             axMap = app.UI(fIdx).mapAxes; cla(axMap);
             hold(axMap, 'on');
             if bnds.isValid
@@ -5810,13 +4765,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             pathLon = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lon);
             pathLat = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lat);
-            % [PERF] NaN 전처리 → 직접 plot (NaN에서 자동 끊김)
+            % [PERF] NaN ?꾩쿂由???吏곸젒 plot (NaN?먯꽌 ?먮룞 ?딄?)
             plot(axMap, pathLon, pathLat, 'Color', [0.8 0.8 0.8], 'LineWidth', 1);
 
             lineColor = [0.23 0.51 0.96];
             if fIdx == 2, lineColor = [0.31 0.27 0.90]; end
 
-            % 첫 NaN 아닌 위치
+            % 泥?NaN ?꾨땶 ?꾩튂
             firstValid = find(~isnan(pathLon) & ~isnan(pathLat), 1);
             if isempty(firstValid), firstValid = 1; end
 
@@ -5827,12 +4782,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             x_base = [0, -0.5, 0.5, 0] * scale; y_base = [1, -1, -1, 1] * scale;
             patch('Parent', app.UI(fIdx).hgMapPlane, 'XData', x_base, 'YData', y_base, 'FaceColor', 'r', 'EdgeColor', [0.5 0 0], 'LineWidth', 1);
 
-            % --- Altitude 설정 및 Y축 동적 스케일링 활성화 ---
+            % --- Altitude ?ㅼ젙 諛?Y異??숈쟻 ?ㅼ??쇰쭅 ?쒖꽦??---
             axAlt = app.UI(fIdx).altAxes; cla(axAlt);
             times = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Time);
             alts = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Alt);
 
-            % 에러 방어: altXLimListener가 유효한지 체크
+            % ?먮윭 諛⑹뼱: altXLimListener媛 ?좏슚?쒖? 泥댄겕
             if isfield(app.UI(fIdx), 'altXLimListener')
                 try
                     if ~isempty(app.UI(fIdx).altXLimListener) && isvalid(app.UI(fIdx).altXLimListener)
@@ -5841,16 +4796,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 catch ME, app.logCaught(ME, 'silent'); end
             end
 
-            % X축을 데이터 전체로 잡고, Y축은 auto 모드로 설정하여 GUI 리사이즈 시 동적으로 적응하도록 보장
+            % X異뺤쓣 ?곗씠???꾩껜濡??↔퀬, Y異뺤? auto 紐⑤뱶濡??ㅼ젙?섏뿬 GUI 由ъ궗?댁쫰 ???숈쟻?쇰줈 ?곸쓳?섎룄濡?蹂댁옣
             axAlt.XLim = [min(times) max(times)];
             axAlt.YLimMode = 'auto';
             plot(axAlt, times, alts, 'Color', [0.8 0.8 0.8], 'LineWidth', 1, 'HitTest', 'off');
 
-            % [V3.10] Altitude axes는 툴바 숨김 (휠 줌/드래그 팬만 사용)
+            % [V3.10] Altitude axes???대컮 ?④? (??以??쒕옒洹??щ쭔 ?ъ슜)
             app.UI(fIdx).altAxes.Toolbar.Visible = 'off';
             app.UI(fIdx).altAxes.Interactions = [panInteraction, zoomInteraction];
 
-            % [개선안 3] 타임라인 두께 증가 및 투명도 반영, 마커 크기 14로 고정
+            % [媛쒖꽑??3] ??꾨씪???먭퍡 利앷? 諛??щ챸??諛섏쁺, 留덉빱 ?ш린 14濡?怨좎젙
             app.UI(fIdx).hAltPath = plot(axAlt, times(1), alts(1), 'Color', [0.06 0.72 0.51], 'LineWidth', 2, 'HitTest', 'off');
             app.UI(fIdx).hAltMarker = plot(axAlt, times(1), alts(1), 'p', 'MarkerFaceColor', [0.98 0.75 0.14], 'MarkerEdgeColor', [0.71 0.33 0.04], 'MarkerSize', 14, 'HitTest', 'on');
             app.UI(fIdx).timeLine = xline(axAlt, times(1), 'r', 'LineWidth', 3.0, 'Alpha', 0.5, 'HitTest', 'on');
@@ -5858,10 +4813,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.UI(fIdx).hAltMarker.ButtonDownFcn = @(src, event) app.startPlotMarkerDrag(fIdx, 0, src, event);
             app.UI(fIdx).timeLine.ButtonDownFcn = @(src, event) app.startPlotMarkerDrag(fIdx, 0, src, event);
 
-            % Altitude 패널의 Zoom/Pan 시 동기화 리스너 추가
+            % Altitude ?⑤꼸??Zoom/Pan ???숆린??由ъ뒪??異붽?
             app.UI(fIdx).altXLimListener = addlistener(axAlt, 'XLim', 'PostSet', @(~,~) app.handlePlotXLimChange(fIdx, axAlt));
 
-            % --- 비행자세 게이지 설정 ---
+            % --- 鍮꾪뻾?먯꽭 寃뚯씠吏 ?ㅼ젙 ---
             theta = linspace(0, 2*pi, 100);
             angles = 0:30:330;
             for gaugeType = 1:3
@@ -5883,7 +4838,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     else
                         str = num2str(val);
                     end
-                    % FontSize를 0.06으로 유지하여 원안의 숫자 크기를 적절하게 설정
+                    % FontSize瑜?0.06?쇰줈 ?좎??섏뿬 ?먯븞???レ옄 ?ш린瑜??곸젅?섍쾶 ?ㅼ젙
                     text(ax, 0.65*cos(angRad), 0.65*sin(angRad), str, 'Color', 'w', ...
                          'HorizontalAlignment', 'center', 'FontWeight', 'bold', ...
                          'FontUnits', 'normalized', 'FontSize', 0.06);
@@ -6104,7 +5059,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             currLon = pathLon(1:index);
             currLat = pathLat(1:index);
 
-            % [PERF] NaN 전처리 → 직접 set
+            % [PERF] NaN ?꾩쿂由???吏곸젒 set
             set(app.UI(fIdx).hMapPath, 'XData', currLon, 'YData', currLat);
 
             hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(index);
@@ -6126,21 +5081,21 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             app.updateAttitudeGauges(fIdx, index);
 
-            % 비디오 및 H 영역 갱신
-            % [V3.12 2.2.3] 비디오 동기 설정 시 Frame No 기반 갱신 (정확한 매핑)
+            % 鍮꾨뵒??諛?H ?곸뿭 媛깆떊
+            % [V3.12 2.2.3] 鍮꾨뵒???숆린 ?ㅼ젙 ??Frame No 湲곕컲 媛깆떊 (?뺥솗??留ㅽ븨)
             if app.VideoSyncState(fIdx).IsSynced
                 try
                     targetFrame = app.timeToFrame(fIdx, currTime);
                     app.VideoSyncState(fIdx).CurrentFrame = targetFrame;
-                    % [V3.14] Frame 마커 + xline + 슬라이더 + 라벨 일괄 동기화
+                    % [V3.14] Frame 留덉빱 + xline + ?щ씪?대뜑 + ?쇰꺼 ?쇨큵 ?숆린??
                     app.syncFrameMarkersAndLabel(fIdx, targetFrame);
-                    app.updateVideoFrameByFrameNo(fIdx, targetFrame, 'sync');  % 정확한 동기화
+                    app.updateVideoFrameByFrameNo(fIdx, targetFrame, 'sync');  % ?뺥솗???숆린??
                 catch
-                    app.updateVideoFrame(fIdx, currTime);  % 폴백
+                    app.updateVideoFrame(fIdx, currTime);  % ?대갚
                 end
             else
-                % 동기 미설정: 기존 방식대로 시간 기반 갱신
-                % app.updateVideoFrame(fIdx, currTime);  % <--- 이 줄을 주석 처리하여 완전 분리
+                % ?숆린 誘몄꽕?? 湲곗〈 諛⑹떇?濡??쒓컙 湲곕컲 媛깆떊
+                % app.updateVideoFrame(fIdx, currTime);  % <--- ??以꾩쓣 二쇱꽍 泥섎━?섏뿬 ?꾩쟾 遺꾨━
             end
             app.updatePlotTimeLines(fIdx, index, currTime);
             app.updatePanelRailSummaries(fIdx);
@@ -6150,13 +5105,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     end
 
     % =========================================================================
-    % UI 레이아웃 생성 팩토리 (Create Layout)
+    % UI ?덉씠?꾩썐 ?앹꽦 ?⑺넗由?(Create Layout)
     % =========================================================================
     methods (Access = private)
         function createLayout(app)
-            % [REFACTOR Step 3] 메인 골격 + 채널별 빌드는 view 패키지로 위임
-            % - 헤더: buildHeaderBar (기존 유지)
-            % - 채널: flightdash.view.ChannelLayout.build (6컬럼 위임)
+            % [REFACTOR Step 3] 硫붿씤 怨④꺽 + 梨꾨꼸蹂?鍮뚮뱶??view ?⑦궎吏濡??꾩엫
+            % - ?ㅻ뜑: buildHeaderBar (湲곗〈 ?좎?)
+            % - 梨꾨꼸: flightdash.view.ChannelLayout.build (6而щ읆 ?꾩엫)
             mainLayout = uigridlayout(app.UIFigure, [2 1]);
             app.LayoutHandles.mainLayout = mainLayout;
             mainLayout.RowHeight = {'fit', '1x'};
@@ -6193,31 +5148,31 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             linkaxes([UI_temp(1).mapAxes, UI_temp(2).mapAxes], 'xy');
             app.UI = UI_temp;
 
-            % [V3.22 #5] UI 평면 struct를 그룹화된 view로 alias (호환 유지)
+            % [V3.22 #5] UI ?됰㈃ struct瑜?洹몃９?붾맂 view濡?alias (?명솚 ?좎?)
             app.buildUIGroups();
             app.applyResponsiveLayout('createLayout');
         end
 
-        % [V3.22 #5] 평면 UI struct를 그룹화된 view(struct)로 묶어 별도 속성에 저장
+        % [V3.22 #5] ?됰㈃ UI struct瑜?洹몃９?붾맂 view(struct)濡?臾띠뼱 蹂꾨룄 ?띿꽦?????
         % - app.UIGroup(fIdx).attitude.rollAxes = app.UI(fIdx).rollAxes  (alias)
-        % - 새 코드는 app.UIGroup(...) 경로를 권장; 기존 코드는 app.UI(...) 그대로
-        % - 핸들 객체이므로 alias가 동일 객체를 가리켜 변경 시 양쪽 모두 동기됨
+        % - ??肄붾뱶??app.UIGroup(...) 寃쎈줈瑜?沅뚯옣; 湲곗〈 肄붾뱶??app.UI(...) 洹몃?濡?
+        % - ?몃뱾 媛앹껜?대?濡?alias媛 ?숈씪 媛앹껜瑜?媛由ъ폒 蹂寃????묒そ 紐⑤몢 ?숆린??
         function buildUIGroups(app)
-            % [V3.22 #5] 평면 UI struct를 그룹화된 view(struct array, 1x2)로 묶음
-            % - 핸들 객체이므로 alias가 동일 객체를 가리켜 변경 시 양쪽 모두 동기됨
+            % [V3.22 #5] ?됰㈃ UI struct瑜?洹몃９?붾맂 view(struct array, 1x2)濡?臾띠쓬
+            % - ?몃뱾 媛앹껜?대?濡?alias媛 ?숈씪 媛앹껜瑜?媛由ъ폒 蹂寃????묒そ 紐⑤몢 ?숆린??
             UIGroup_temp = struct([]);
             for fIdx = 1:2
                 u = app.UI(fIdx);
                 grp = struct();
 
-                % 자세(Attitude) 그룹
+                % ?먯꽭(Attitude) 洹몃９
                 grp.attitude = struct( ...
                     'panel',      u.panelAttitude, ...
                     'pitchAxes',  u.pitchAxes,  'pitchLabel', u.pitchLabel, 'hgPitch', app.uiFieldOr(u, 'hgPitch', gobjects(0)), ...
                     'rollAxes',   u.rollAxes,   'rollLabel',  u.rollLabel,  'hgRoll',  app.uiFieldOr(u, 'hgRoll',  gobjects(0)), ...
                     'hdgAxes',    u.hdgAxes,    'hdgLabel',   u.hdgLabel,   'hgHdg',   app.uiFieldOr(u, 'hgHdg',   gobjects(0)));
 
-                % 지도/고도(MapAlt) 그룹
+                % 吏??怨좊룄(MapAlt) 洹몃９
                 grp.map = struct( ...
                     'panel',      u.panelMapAlt, ...
                     'mapAxes',    u.mapAxes, ...
@@ -6229,7 +5184,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     'timeLine',   app.uiFieldOr(u, 'timeLine',   gobjects(0)), ...
                     'altXLimListener', app.uiFieldOr(u, 'altXLimListener', []));
 
-                % 비디오 + Frame Navigator 그룹
+                % 鍮꾨뵒??+ Frame Navigator 洹몃９
                 grp.video = struct( ...
                     'panel',           u.panelVideo, ...
                     'vidAxes',         u.vidAxes, ...
@@ -6247,7 +5202,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     'frameXLine',      app.uiFieldOr(u, 'vidFrameXLine',  gobjects(0)), ...
                     'frameMarker',     app.uiFieldOr(u, 'vidFrameMarker', gobjects(0)));
 
-                % 플롯(H 영역) 그룹 - cell array는 struct() ctor 회피
+                % ?뚮’(H ?곸뿭) 洹몃９ - cell array??struct() ctor ?뚰뵾
                 grpPlots = struct();
                 grpPlots.tabGroup       = u.tabGroup;
                 grpPlots.plotTabs       = u.plotTabs;
@@ -6265,7 +5220,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 grpPlots.roiTable       = app.uiFieldOr(u, 'roiTable', gobjects(0));
                 grp.plots = grpPlots;
 
-                % 컨트롤 헤더 그룹
+                % 而⑦듃濡??ㅻ뜑 洹몃９
                 grp.controls = struct( ...
                     'spinner',          u.spinner, ...
                     'currentTimeLabel', u.currentTimeLabel, ...
@@ -6274,7 +5229,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     'btnMap',           u.btnMap, ...
                     'btnVid',           u.btnVid);
 
-                % 데이터 테이블 + 컨테이너
+                % ?곗씠???뚯씠釉?+ 而⑦뀒?대꼫
                 grp.data = struct( ...
                     'panel',     u.panel, ...
                     'dataTable', u.dataTable, ...
@@ -6297,30 +5252,30 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.22 #7] 메인 윈도우 상단 헤더 바 (파일 선택 / Debug / Sync 입력)
-        % - createLayout에서 분리하여 헤더 영역 변경이 메인 빌더에 영향 없도록 함
+        % [V3.22 #7] 硫붿씤 ?덈룄???곷떒 ?ㅻ뜑 諛?(?뚯씪 ?좏깮 / Debug / Sync ?낅젰)
+        % - createLayout?먯꽌 遺꾨━?섏뿬 ?ㅻ뜑 ?곸뿭 蹂寃쎌씠 硫붿씤 鍮뚮뜑???곹뼢 ?녿룄濡???
         function buildHeaderBar(app, mainLayout)
-            % [REFACTOR Step 6-1] flightdash.view.HeaderBar로 위임
+            % [REFACTOR Step 6-1] flightdash.view.HeaderBar濡??꾩엫
             ui = flightdash.view.HeaderBar.build(mainLayout);
             app.LayoutHandles.header = ui;
             app.SyncInput = ui.SyncInput;
             app.SyncBtn   = ui.SyncBtn;
         end
 
-        % [REFACTOR] createGaugePanel는 flightdash.view.AttitudePanel.createGauge로 이동
-        %            (View가 자체 게이지 구성 - app 의존 완전 제거)
+        % [REFACTOR] createGaugePanel??flightdash.view.AttitudePanel.createGauge濡??대룞
+        %            (View媛 ?먯껜 寃뚯씠吏 援ъ꽦 - app ?섏〈 ?꾩쟾 ?쒓굅)
     end
 
-    % [REFACTOR Step 5-C] 이전 Static wrapper(workerDecodeFrame/workerCleanupCache)는
-    % 사용처 0 → 완전 제거. parfeval은 이제 file-level 함수를 직접 참조:
+    % [REFACTOR Step 5-C] ?댁쟾 Static wrapper(workerDecodeFrame/workerCleanupCache)??
+    % ?ъ슜泥?0 ???꾩쟾 ?쒓굅. parfeval? ?댁젣 file-level ?⑥닔瑜?吏곸젒 李몄“:
     %   parfeval(pool, @asyncDecodeFramePersistent, ...)
     %   parfevalOnAll(pool, @cleanupAsyncDecodeCache, 0)
 end
 
 % =========================================================================
-% [REFACTOR Step 5-B] file-level worker 함수는 별도 .m 파일로 분리됨:
+% [REFACTOR Step 5-B] file-level worker ?⑥닔??蹂꾨룄 .m ?뚯씪濡?遺꾨━??
 %   - asyncDecodeFrame.m
-%   - asyncDecodeFramePersistent.m  (parfeval worker 핫패스)
+%   - asyncDecodeFramePersistent.m  (parfeval worker ?ロ뙣??
 %   - cleanupAsyncDecodeCache.m
-% 워커 path 검색을 위해 본 파일과 동일 폴더에 위치해야 함.
+% ?뚯빱 path 寃?됱쓣 ?꾪빐 蹂??뚯씪怨??숈씪 ?대뜑???꾩튂?댁빞 ??
 % =========================================================================
