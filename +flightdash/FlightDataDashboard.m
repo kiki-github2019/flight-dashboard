@@ -510,6 +510,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
+        function tf = isActiveSession(app)
+            % [PHASE 4] Returns true when this dashboard is the one the
+            % user is currently looking at. Standalone dashboards always
+            % return true. Embedded dashboards return true only when
+            % their session id matches the Studio's active workspace
+            % tab. Controllers consult this in their EventBus listener
+            % entry to skip broadcasts that target a different session.
+            tf = flightdash.util.SessionScope.isOwner(app);
+        end
+
         function tf = throttleHit(app, slotName, fIdx, limitS)
             % [PHASE 0.7] SessionId-prefixed throttle hit
             % - 모든 throttle key에 ActiveSessionId 접두 → 다중 세션 충돌 방지

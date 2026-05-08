@@ -18,10 +18,16 @@ classdef PannerController < handle
 
         function subscribeEvents(obj)
             EB = @flightdash.util.EventBus.subscribe;
-            obj.Listeners{end+1} = EB('PannerToggled', @(~,d) obj.togglePanner(d.ChannelIdx));
-            obj.Listeners{end+1} = EB('PannerClicked', @(~,d) obj.onPannerClicked(d.ChannelIdx));
-            obj.Listeners{end+1} = EB('PannerRangeChanged', @(~,d) obj.onRangeChanged(d.ChannelIdx));
-            obj.Listeners{end+1} = EB('PannerResetRequested', @(~,d) obj.resetRange(d.ChannelIdx));
+            % [PHASE 4] Skip event when this dashboard is not the active Studio session.
+            obj.Listeners{end+1} = EB('PannerToggled',        @(~,d) obj.gated(@(d_) obj.togglePanner(d_.ChannelIdx), d));
+            obj.Listeners{end+1} = EB('PannerClicked',        @(~,d) obj.gated(@(d_) obj.onPannerClicked(d_.ChannelIdx), d));
+            obj.Listeners{end+1} = EB('PannerRangeChanged',   @(~,d) obj.gated(@(d_) obj.onRangeChanged(d_.ChannelIdx), d));
+            obj.Listeners{end+1} = EB('PannerResetRequested', @(~,d) obj.gated(@(d_) obj.resetRange(d_.ChannelIdx), d));
+        end
+
+        function gated(obj, fn, d)
+            if ~obj.App.isActiveSession(), return; end
+            fn(d);
         end
 
         function togglePanner(obj, fIdx)

@@ -19,8 +19,14 @@ classdef DragController < handle
             obj.Listeners{end+1} = EB('SplitterDragStarted', @(~,d) obj.onSplitterStart(d));
         end
         
-        function onPanelSplitterStart(obj, d), obj.App.startPanelSplitterDrag(d.ChannelIdx, d.Payload); end
-        function onSplitterStart(obj, d), obj.App.startHISplitterDrag(d.ChannelIdx); end
+        function onPanelSplitterStart(obj, d)
+            if ~obj.App.isActiveSession(), return; end
+            obj.App.startPanelSplitterDrag(d.ChannelIdx, d.Payload);
+        end
+        function onSplitterStart(obj, d)
+            if ~obj.App.isActiveSession(), return; end
+            obj.App.startHISplitterDrag(d.ChannelIdx);
+        end
         
         % 호환 wrapper
         function startSplitter(obj, fIdx), obj.App.startHISplitterDrag(fIdx); end

@@ -15,11 +15,18 @@ classdef RoiController < handle
 
         function subscribeEvents(obj)
             EB = @flightdash.util.EventBus.subscribe;
-            obj.Listeners{end+1} = EB('RoiAddRequested', @(~,d) obj.addCurrentRoi(d.ChannelIdx));
-            obj.Listeners{end+1} = EB('RoiSelectionChanged', @(~,d) obj.onSelectionChanged(d.ChannelIdx, d.Payload));
-            obj.Listeners{end+1} = EB('RoiDeleteSelectedRequested', @(~,d) obj.deleteSelectedRoi(d.ChannelIdx));
-            obj.Listeners{end+1} = EB('RoiClearRequested', @(~,d) obj.clearRois(d.ChannelIdx));
-            obj.Listeners{end+1} = EB('AnalysisComputeRequested', @(~,d) obj.computeAnalysis(d.ChannelIdx));
+            % [PHASE 4] Each handler bails when this controller's app
+            % is not the active Studio session.
+            obj.Listeners{end+1} = EB('RoiAddRequested',            @(~,d) obj.gated(@(d_) obj.addCurrentRoi(d_.ChannelIdx), d));
+            obj.Listeners{end+1} = EB('RoiSelectionChanged',        @(~,d) obj.gated(@(d_) obj.onSelectionChanged(d_.ChannelIdx, d_.Payload), d));
+            obj.Listeners{end+1} = EB('RoiDeleteSelectedRequested', @(~,d) obj.gated(@(d_) obj.deleteSelectedRoi(d_.ChannelIdx), d));
+            obj.Listeners{end+1} = EB('RoiClearRequested',          @(~,d) obj.gated(@(d_) obj.clearRois(d_.ChannelIdx), d));
+            obj.Listeners{end+1} = EB('AnalysisComputeRequested',   @(~,d) obj.gated(@(d_) obj.computeAnalysis(d_.ChannelIdx), d));
+        end
+
+        function gated(obj, fn, d)
+            if ~obj.App.isActiveSession(), return; end
+            fn(d);
         end
 
         function addCurrentRoi(obj, fIdx)

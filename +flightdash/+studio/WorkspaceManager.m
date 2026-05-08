@@ -205,6 +205,8 @@ classdef WorkspaceManager < handle
 
         function onTabChanged(obj)
             % Update active session id (Phase 0.8 prep) and notify status.
+            % [PHASE 4] Also publish the session id to SessionScope so
+            % every per-session controller's EventBus gate can read it.
             try
                 newId = obj.activeSessionId();
                 if ~isempty(obj.App) && isvalid(obj.App)
@@ -212,6 +214,11 @@ classdef WorkspaceManager < handle
                     if ~isempty(obj.App.StatusBar)
                         obj.App.StatusBar.setActiveSession(newId);
                     end
+                end
+                if isempty(newId) || strcmp(newId, 'standalone')
+                    flightdash.util.SessionScope.clear();
+                else
+                    flightdash.util.SessionScope.setActive(newId);
                 end
             catch
             end

@@ -22,11 +22,26 @@ classdef FileController < handle
             obj.Listeners{end+1} = EB('ConfigImportRequested', @(~,~) obj.onConfigImport());
         end
         
-        function onFlightFile(obj, d), obj.App.handleFlightFile(d.ChannelIdx); end
-        function onAviFile(obj, d),    obj.App.loadAviFile(d.ChannelIdx); end
-        function onCoastFile(obj),     obj.App.handleCoastFile(); end
-        function onConfigExport(obj),  obj.App.exportConfigInteractive(); end
-        function onConfigImport(obj),  obj.App.importConfigInteractive(); end
+        function onFlightFile(obj, d)
+            if ~obj.App.isActiveSession(), return; end
+            obj.App.handleFlightFile(d.ChannelIdx);
+        end
+        function onAviFile(obj, d)
+            if ~obj.App.isActiveSession(), return; end
+            obj.App.loadAviFile(d.ChannelIdx);
+        end
+        function onCoastFile(obj)
+            if ~obj.App.isActiveSession(), return; end
+            obj.App.handleCoastFile();
+        end
+        function onConfigExport(obj)
+            if ~obj.App.isActiveSession(), return; end
+            obj.App.exportConfigInteractive();
+        end
+        function onConfigImport(obj)
+            if ~obj.App.isActiveSession(), return; end
+            obj.App.importConfigInteractive();
+        end
         
         % 호환 wrapper (기존 직접 호출 호환)
         function loadAvi(obj, fIdx),    obj.App.loadAviFile(fIdx); end
