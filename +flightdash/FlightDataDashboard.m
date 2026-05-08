@@ -4552,7 +4552,22 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % bypass the singleton EventBus and target only THIS
             % dashboard. Without this, multi-session Studio embeds
             % broadcast Flight/Coast/Sync clicks to every dashboard.
-            ui = flightdash.view.HeaderBar.build(mainLayout, app);
+            % Fallback to the legacy 1-arg signature so older cached
+            % copies of HeaderBar do not break dashboard construction.
+            try
+                ui = flightdash.view.HeaderBar.build(mainLayout, app);
+            catch ME
+                if strcmp(ME.identifier, 'MATLAB:TooManyInputs')
+                    warning('FlightDataDashboard:LegacyHeaderBar', ...
+                        ['flightdash.view.HeaderBar.build does not accept ' ...
+                         'an app argument. Multi-session Studio embeds may ' ...
+                         'broadcast button clicks. Refresh HeaderBar.m and ' ...
+                         'run "clear classes" to enable scoped callbacks.']);
+                    ui = flightdash.view.HeaderBar.build(mainLayout);
+                else
+                    rethrow(ME);
+                end
+            end
             app.LayoutHandles.header = ui;
             app.SyncInput = ui.SyncInput;
             app.SyncBtn   = ui.SyncBtn;
