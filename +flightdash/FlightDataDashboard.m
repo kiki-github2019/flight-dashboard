@@ -4548,7 +4548,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % - createLayout에서 분리하여 헤더 영역 변경이 메인 빌더에 영향 없도록 함
         function buildHeaderBar(app, mainLayout)
             % [REFACTOR Step 6-1] flightdash.view.HeaderBar로 위임
-            ui = flightdash.view.HeaderBar.build(mainLayout);
+            % [PHASE 3c] Pass app reference so HeaderBar buttons can
+            % bypass the singleton EventBus and target only THIS
+            % dashboard. Without this, multi-session Studio embeds
+            % broadcast Flight/Coast/Sync clicks to every dashboard.
+            ui = flightdash.view.HeaderBar.build(mainLayout, app);
             app.LayoutHandles.header = ui;
             app.SyncInput = ui.SyncInput;
             app.SyncBtn   = ui.SyncBtn;

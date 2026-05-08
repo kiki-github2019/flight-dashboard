@@ -137,6 +137,24 @@ classdef WorkspaceManager < handle
             end
         end
 
+        function tf = selectSession(obj, sessionId)
+            % [PHASE 3c] Switch the workspace to the tab bound to the
+            % given session id. Returns true if a matching tab existed.
+            tf = false;
+            sessionId = char(sessionId);
+            try
+                if ~obj.DashboardEntries.isKey(sessionId), return; end
+                entry = obj.DashboardEntries(sessionId);
+                if ~isempty(entry.Tab) && isvalid(entry.Tab) ...
+                        && ~isempty(obj.TabGroup) && isvalid(obj.TabGroup)
+                    obj.TabGroup.SelectedTab = entry.Tab;
+                    obj.onTabChanged();
+                    tf = true;
+                end
+            catch
+            end
+        end
+
         function id = activeSessionId(obj)
             % Phase 1: returns 'standalone' since no real sessions exist.
             % Phase 3: returns the SessionId stored on the active tab's UserData.

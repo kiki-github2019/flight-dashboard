@@ -150,8 +150,19 @@ classdef ProjectExplorerPanel < handle
 
         function onTreeSelection(obj, evt)
             try
-                if ~isempty(evt.SelectedNodes) && ~isempty(obj.App.StatusBar)
-                    obj.App.StatusBar.setMessage(sprintf('Selected: %s', evt.SelectedNodes(1).Text));
+                if isempty(evt.SelectedNodes), return; end
+                node = evt.SelectedNodes(1);
+                if ~isempty(obj.App.StatusBar)
+                    obj.App.StatusBar.setMessage(sprintf('Selected: %s', node.Text));
+                end
+
+                % [PHASE 3c] If the selected node is a Session (NodeData
+                % carries a SessionId), switch the workspace to that tab.
+                nd = node.NodeData;
+                if isstruct(nd) && isfield(nd, 'Kind') && strcmp(nd.Kind, 'session') ...
+                        && isfield(nd, 'SessionId') ...
+                        && ~isempty(obj.App.Workspace) && isvalid(obj.App.Workspace)
+                    obj.App.Workspace.selectSession(nd.SessionId);
                 end
             catch
             end
