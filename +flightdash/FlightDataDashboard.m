@@ -181,15 +181,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                                                      'minLon', min(areaData(:,2)), 'maxLon', max(areaData(:,2)));
                     end
                 catch e
-                    disp(['option_flight_area.dat 濡쒕뱶 ?ㅽ뙣: ', e.message]);
+                    disp(['option_flight_area.dat load failed: ', e.message]);
                 end
             end
 
-            close(findobj('Type', 'figure', 'Name', '鍮꾪뻾 ?곗씠??由щ럭 ??쒕낫??(Dual)'));
+            close(findobj('Type', 'figure', 'Name', 'Flight Data Review Dashboard (Dual)'));
             % [FIX] AutoResizeChildren='on' ??SizeChangedFcn??臾댁떆?섎뒗 寃쎄퀬 李⑤떒
             % - uigridlayout???먯떇 由ъ궗?댁쫰瑜??대떦?섎?濡?AutoResizeChildren? 遺덊븘??
             initialPos = app.LayoutMgr.initialFigurePosition(app);
-            app.UIFigure = uifigure('Name', '鍮꾪뻾 ?곗씠??由щ럭 ??쒕낫??(Dual)', ...
+            app.UIFigure = uifigure('Name', 'Flight Data Review Dashboard (Dual)', ...
                                     'Units', 'pixels', ...
                                     'Position', app.LayoutMgr.initialFigurePosition(app), ...
                                     'Color', [0.94 0.94 0.96]);
@@ -565,21 +565,21 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     methods (Access = public)
         function handleFlightFile(app, fIdx)
             [filename, pathname] = uigetfile({'*.dat;*.csv;*.txt', 'Flight data (*.dat, *.csv, *.txt)'}, ...
-                sprintf('鍮꾪뻾寃쎈줈 %d ?뚯씪 ?좏깮', fIdx));
+                sprintf('Select Flight %d Data File', fIdx));
             if isequal(filename, 0), return; end
 
             % [V3.12] 湲곗〈 鍮꾨뵒???숆린 ?ㅼ젙???덉쑝硫??ъ슜???뺤씤 ???댁젣
             if app.VideoSyncState(fIdx).IsSynced
                 sel = uiconfirm(app.UIFigure, ...
-                    '??鍮꾪뻾?곗씠?곕? 濡쒕뱶?섎㈃ 湲곗〈 鍮꾨뵒??鍮꾪뻾?곗씠???숆린 ?ㅼ젙???댁젣?⑸땲?? 怨꾩냽?섏떆寃좎뒿?덇퉴?', ...
-                    '?숆린 ?댁젣 ?뺤씤', ...
-                    'Options', {'怨꾩냽', '痍⑥냼'}, 'DefaultOption', 1, 'CancelOption', 2);
-                if strcmp(sel, '痍⑥냼'), return; end
+                    'New flight data will reset existing video sync. Continue?', ...
+                    'Confirm Sync Reset', ...
+                    'Options', {'Continue', 'Cancel'}, 'DefaultOption', 1, 'CancelOption', 2);
+                if strcmp(sel, 'Cancel'), return; end
                 app.resetVideoSync(fIdx);
             end
 
-            d = uiprogressdlg(app.UIFigure, 'Title', '?곗씠??濡쒕뵫 以?, ...
-                'Message', sprintf('鍮꾪뻾寃쎈줈 %d ?곗씠?곕? ?뚯떛?섍퀬 ?덉뒿?덈떎...', fIdx), ...
+            d = uiprogressdlg(app.UIFigure, 'Title', 'Loading Data', ...
+                'Message', sprintf('Parsing flight %d data...', fIdx), ...
                 'Indeterminate', 'on');
             try
                 fullpath = fullfile(pathname, filename);
@@ -588,7 +588,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
                 timeCol = app.Models(fIdx).mappedCols.Time;
                 if ~issorted(app.Models(fIdx).rawData.(timeCol), 'strictascend')
-                    errordlg('?쒓컙 ?곗씠?곌? ?쒖감?곸쑝濡?利앷??섏? ?딄굅??以묐났?섏뿀?듬땲??', '?곗씠???ㅻ쪟');
+                    errordlg('Time column is not strictly ascending or has duplicates.', 'Data Error');
                     close(d);
                     return;
                 end
@@ -644,12 +644,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     fprintf('[Flight] parse failed: %s\n  %s\n  stack: %s\n', ...
                         filename, e.message, e.identifier);
                 end
-                errordlg(['?ㅻ쪟 諛쒖깮: ', e.message], '?ㅻ쪟');
+                errordlg(['Error: ', e.message], 'Error');
             end
         end
 
         function handleCoastFile(app)
-            [filename, pathname] = uigetfile('*.csv', '?댁븞???뺣낫 ?뚯씪 ?좏깮');
+            [filename, pathname] = uigetfile('*.csv', 'Select Coastline File');
             if isequal(filename, 0), return; end
             try
                 fullpath = fullfile(pathname, filename);
@@ -671,7 +671,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     end
                 end
             catch e
-                errordlg(['?ㅻ쪟 諛쒖깮: ', e.message], '?ㅻ쪟');
+                errordlg(['Error: ', e.message], 'Error');
             end
         end
 
@@ -762,16 +762,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if strcmp(pnlName, 'attitude')
                 app.UI(fIdx).panelAttitude.Visible = newState;
                 if newState
-                    app.UI(fIdx).btnAtt.Text = '?먯꽭 ??;
+                    app.UI(fIdx).btnAtt.Text = 'Attitude OFF';
                 else
-                    app.UI(fIdx).btnAtt.Text = '?먯꽭 ??;
+                    app.UI(fIdx).btnAtt.Text = 'Attitude ON';
                 end
             elseif strcmp(pnlName, 'map')
                 app.UI(fIdx).panelMapAlt.Visible = newState;
                 if newState
-                    app.UI(fIdx).btnMap.Text = '吏??怨좊룄 ??;
+                    app.UI(fIdx).btnMap.Text = 'Map/Alt OFF';
                 else
-                    app.UI(fIdx).btnMap.Text = '吏??怨좊룄 ??;
+                    app.UI(fIdx).btnMap.Text = 'Map/Alt ON';
                 end
             elseif strcmp(pnlName, 'video')
                 if newState
@@ -779,9 +779,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
                 app.UI(fIdx).panelVideo.Visible = newState;
                 if newState
-                    app.UI(fIdx).btnVid.Text = '鍮꾨뵒????;
+                    app.UI(fIdx).btnVid.Text = 'Video OFF';
                 else
-                    app.UI(fIdx).btnVid.Text = '鍮꾨뵒????;
+                    app.UI(fIdx).btnVid.Text = 'Video ON';
                 end
             end
             app.LayoutMgr.applyLayout(app, 'togglePanel');
@@ -813,7 +813,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function toggleSync(app)
             if app.SyncState.IsSynced
                 app.SyncState.IsSynced = false;
-                app.SyncBtn.Text = '鍮꾪뻾?쒓컙 ?숆린';
+                app.SyncBtn.Text = 'Sync Flight Time';
                 app.SyncBtn.BackgroundColor = [0.58 0.0 0.83];
                 app.SyncInput.Enable = 'on';
                 if ~isempty(app.Models(2).rawData)
@@ -825,11 +825,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             inputStr = app.SyncInput.Value;
             tokens = regexp(inputStr, '^\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*$', 'tokens');
             if isempty(tokens)
-                errordlg('?낅젰 ?뺤떇???щ컮瑜댁? ?딆뒿?덈떎. ?? "23.4, 34.4"', '?뺤떇 ?ㅻ쪟');
+                errordlg('Invalid input format. e.g. "23.4, 34.4"', 'Format Error');
                 return;
             end
             if isempty(app.Models(1).rawData) || isempty(app.Models(2).rawData)
-                errordlg('??寃쎈줈 ?곗씠?곌? 紐⑤몢 濡쒕뱶?섏뼱???⑸땲??', '?곗씠??遺議?);
+                errordlg('Both flight paths must be loaded first.', 'Data Missing');
                 return;
             end
 
@@ -839,7 +839,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.SyncState.SyncT2 = t2;
             app.SyncState.IsSynced = true;
 
-            app.SyncBtn.Text = '鍮꾪뻾?쒓컙 ?숆린 ?댁젣';
+            app.SyncBtn.Text = 'Reset Flight Time Sync';
             app.SyncBtn.BackgroundColor = [0.8 0.2 0.2];
             app.SyncInput.Enable = 'off';
             app.UI(2).spinner.Enable = 'off';
@@ -867,7 +867,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % Long-GOP ?곸긽? ?꾩쓽 ?꾩튂濡?seek ??媛??媛源뚯슫 ?ㅽ봽?덉엫(I-Frame)遺??
         % ?ㅼ떆 ?붿퐫?⑺빐???섎?濡? ?щ씪?대뜑 ?쒕옒洹???吏?곗씠 ?ы빐吏????덉쓬.
         function loadAviFile(app, fIdx)
-            [fname, pname] = uigetfile({'*.avi;*.mp4;*.mkv', 'Video Files (*.avi, *.mp4)'}, sprintf('鍮꾨뵒???좏깮 %d', fIdx));
+            [fname, pname] = uigetfile({'*.avi;*.mp4;*.mkv', 'Video Files (*.avi, *.mp4)'}, sprintf('Select Video %d', fIdx));
             if isequal(fname, 0), return; end
             fullPath = fullfile(pname, fname);
 
@@ -909,10 +909,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             ok = true;
             if app.VideoSyncState(fIdx).IsSynced
                 sel = uiconfirm(app.UIFigure, ...
-                    '???곸긽??濡쒕뱶?섎㈃ 湲곗〈 鍮꾨뵒??鍮꾪뻾?곗씠???숆린 ?ㅼ젙???댁젣?⑸땲?? 怨꾩냽?섏떆寃좎뒿?덇퉴?', ...
-                    '?숆린 ?댁젣 ?뺤씤', ...
-                    'Options', {'怨꾩냽', '痍⑥냼'}, 'DefaultOption', 1, 'CancelOption', 2);
-                if strcmp(sel, '痍⑥냼'), ok = false; return; end
+                    'Loading new video will reset existing video-flight sync. Continue?', ...
+                    'Confirm Sync Reset', ...
+                    'Options', {'Continue', 'Cancel'}, 'DefaultOption', 1, 'CancelOption', 2);
+                if strcmp(sel, 'Cancel'), ok = false; return; end
                 app.resetVideoSync(fIdx);
             end
         end
@@ -1294,11 +1294,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.SyncMdl(fIdx).clear();
                     try
                         if isfield(app.UI(fIdx), 'vidSyncBtn') && isvalid(app.UI(fIdx).vidSyncBtn)
-                            app.UI(fIdx).vidSyncBtn.Text = '?숆린';
+                            app.UI(fIdx).vidSyncBtn.Text = 'Sync';
                             app.UI(fIdx).vidSyncBtn.BackgroundColor = [0.58 0.0 0.83];
                         end
                         if isfield(app.UI(fIdx), 'vidSyncStatus') && isvalid(app.UI(fIdx).vidSyncStatus)
-                            app.UI(fIdx).vidSyncStatus.Text = '?숆린 誘몄꽕??;
+                            app.UI(fIdx).vidSyncStatus.Text = 'Sync pending';
                             app.UI(fIdx).vidSyncStatus.FontColor = [0.5 0.5 0.5];
                         end
                     catch ME_ui
@@ -1644,7 +1644,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     fprintf('[Video] load failed: %s\n  %s\n', fullPath, e.message);
                 end
                 app.logCaught(e, 'Video:open');
-                errordlg(['?곸긽 濡쒕뱶 ?ㅽ뙣: ', e.message], '?ㅻ쪟');
+                errordlg(['Video load failed: ', e.message], 'Error');
                 app.VideoFilePath{fIdx} = '';
                 vr = [];
             end
@@ -2283,11 +2283,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.VideoSyncState(fIdx).AnchorTime = 0;
             try
                 if isfield(app.UI(fIdx), 'vidSyncBtn') && isvalid(app.UI(fIdx).vidSyncBtn)
-                    app.UI(fIdx).vidSyncBtn.Text = '?숆린';
+                    app.UI(fIdx).vidSyncBtn.Text = 'Sync';
                     app.UI(fIdx).vidSyncBtn.BackgroundColor = [0.58 0.0 0.83];
                 end
                 if isfield(app.UI(fIdx), 'vidSyncStatus') && isvalid(app.UI(fIdx).vidSyncStatus)
-                    app.UI(fIdx).vidSyncStatus.Text = '?숆린 誘몄꽕??;
+                    app.UI(fIdx).vidSyncStatus.Text = 'Sync pending';
                     app.UI(fIdx).vidSyncStatus.FontColor = [0.5 0.5 0.5];
                 end
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
@@ -2303,10 +2303,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             % 1. ?곸긽/?곗씠??濡쒕뱶 寃利?
             if isempty(app.VideoState(fIdx).videoReader)
-                errordlg('癒쇱? AVI ?뚯씪??濡쒕뱶?섏꽭??', '?숆린 ?ㅻ쪟'); return;
+                errordlg('Load AVI file first.', 'Sync Error'); return;
             end
             if isempty(app.Models(fIdx).rawData)
-                errordlg('癒쇱? 鍮꾪뻾?곗씠??CSV)瑜?濡쒕뱶?섏꽭??', '?숆린 ?ㅻ쪟'); return;
+                errordlg('Load flight data (CSV) first.', 'Sync Error'); return;
             end
 
             % 2. ?낅젰媛?異붿텧
@@ -2319,17 +2319,17 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             times = app.Models(fIdx).rawData.(timeCol);
 
             if frameNo < 1 || frameNo > totalFrames
-                errordlg(sprintf('Frame No??1 ~ %d 踰붿쐞?ъ빞 ?⑸땲??', totalFrames), '踰붿쐞 ?ㅻ쪟'); return;
+                errordlg(sprintf('Frame No must be in range 1 ~ %d', totalFrames), 'Range Error'); return;
             end
             if timeVal < times(1) || timeVal > times(end)
-                errordlg(sprintf('Time(s)??%.3f ~ %.3f 踰붿쐞?ъ빞 ?⑸땲??', times(1), times(end)), '踰붿쐞 ?ㅻ쪟'); return;
+                errordlg(sprintf('Time(s) must be in range %.3f ~ %.3f', times(1), times(end)), 'Range Error'); return;
             end
 
             % 4. Hz 媛?媛깆떊
             vfpsUI = app.UI(fIdx).vidVideoFpsInput.Value;
             dfps = app.UI(fIdx).vidDataFpsInput.Value;
             if vfpsUI < 1 || dfps < 1
-                errordlg('Hz 媛믪? 1 ?댁긽?댁뼱???⑸땲??', '?낅젰 ?ㅻ쪟'); return;
+                errordlg('Hz value must be at least 1.', 'Input Error'); return;
             end
 
             % [?섏젙 3] ?뚯닔???뺣????좎떎 諛⑹? 濡쒖쭅
@@ -2356,10 +2356,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.VideoSyncState(fIdx).AnchorTime   = timeVal;
 
             % 6. UI ?쇰뱶諛?
-            app.UI(fIdx).vidSyncBtn.Text = '?숆린 ?댁젣';
+            app.UI(fIdx).vidSyncBtn.Text = 'Reset Sync';
             app.UI(fIdx).vidSyncBtn.Text = 'Sync Off';
             app.UI(fIdx).vidSyncBtn.BackgroundColor = [0.8 0.2 0.2];
-            app.UI(fIdx).vidSyncStatus.Text = sprintf('?숆린 ?꾨즺 (F%d ??%.3fs)', frameNo, timeVal);
+            app.UI(fIdx).vidSyncStatus.Text = sprintf('Sync OK (F%d -> %.3fs)', frameNo, timeVal);
             app.UI(fIdx).vidSyncStatus.FontColor = [0.06 0.65 0.50];
 
             % [V3.14 ??ぉ 4 / REFACTOR Step 1] ?숆린 ?ъ꽕????罹먯떆 臾댄슚??- ?섑띁 ?ъ슜
@@ -3904,7 +3904,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             modelState = app.DataLoader.generateMockFlightData(fIdx, app.Models(fIdx).bounds);
             app.applyFlightDataState(fIdx, modelState);
             app.setupDataUI(fIdx);
-            app.UI(fIdx).fileNameLabel.Text = '紐⑥쓽 ?곗씠??(Auto)';
+            app.UI(fIdx).fileNameLabel.Text = 'No data loaded (Auto)';
         end
 
         function calculateBounds(app, fIdx)
