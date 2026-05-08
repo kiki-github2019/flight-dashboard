@@ -419,6 +419,23 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     end
 
     methods (Access = public)
+        % [PATCH / REFACTOR Step 0] DebugMode 게이팅 catch 로깅 헬퍼 - util.ErrorLog 위임
+        % - 모든 호출처는 그대로 동작 (호환성 100%)
+        % [RESTORED] commit 4631c65 리팩토링 중 누락된 메서드. 136곳에서 호출되므로 필수.
+        function logCaught(app, ME, tag)
+            flightdash.util.ErrorLog.log(ME, tag, app.DebugMode);
+        end
+
+        % [V3.22 #1 / REFACTOR Step 0] 사후 조사용: 누적된 에러 로그 콘솔 출력
+        % 사용 예: app.dumpErrorLog()         → 전체 출력
+        %         app.dumpErrorLog(20)        → 최근 20건
+        %         app.dumpErrorLog(20, 'Async') → 최근 20건 중 'Async' 포함 태그만
+        function dumpErrorLog(app, n, filterTag) %#ok<INUSD>
+            if nargin < 2, n = []; end
+            if nargin < 3, filterTag = ''; end
+            flightdash.util.ErrorLog.dump(n, filterTag);
+        end
+
         function resetIsUpdating(app, fIdx)
             % [FIX] applyTimeChange??IsUpdating ?뚮옒洹?由ъ뀑 (onCleanup 肄쒕갚)
             try
