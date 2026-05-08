@@ -43,10 +43,29 @@ classdef ResponsiveLayoutManager < handle
         end
 
         function [figW, figH] = currentFigureSizePx(~, app)
+            % [PHASE 3b/3c] In embedded mode, the dashboard occupies the
+            % parent uitab/uipanel — NOT the whole Studio figure. Using
+            % the figure size here would size every channel panel to the
+            % Studio's full width, pushing plot/map panels off the right
+            % edge of the tab. Measure the RootContainer instead.
             figW = NaN;
             figH = NaN;
+
+            target = [];
             try
-                pos = getpixelposition(app.UIFigure);
+                if isprop(app, 'IsEmbedded') && app.IsEmbedded ...
+                        && isprop(app, 'RootContainer') ...
+                        && ~isempty(app.RootContainer) && isvalid(app.RootContainer)
+                    target = app.RootContainer;
+                end
+            catch
+            end
+            if isempty(target)
+                target = app.UIFigure;
+            end
+
+            try
+                pos = getpixelposition(target);
                 if numel(pos) >= 4 && all(isfinite(pos(3:4))) && pos(3) > 0 && pos(4) > 0
                     figW = pos(3);
                     figH = pos(4);

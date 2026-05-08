@@ -94,9 +94,9 @@ classdef WorkspaceManager < handle
         end
 
         function closeActiveTab(obj)
-            % [PHASE 3c] Close the currently selected workspace tab.
-            % The Welcome tab is preserved (it's the placeholder when
-            % no sessions are open).
+            % [PHASE 3c] Close the currently selected workspace tab AND
+            % drop the matching session from the project model so
+            % Project Explorer no longer lists it.
             try
                 if isempty(obj.TabGroup) || ~isvalid(obj.TabGroup), return; end
                 activeTab = obj.TabGroup.SelectedTab;
@@ -105,8 +105,8 @@ classdef WorkspaceManager < handle
                     return;  % don't close the welcome placeholder
                 end
                 sessionId = obj.tabSessionId(activeTab);
-                if ~isempty(sessionId)
-                    obj.removeDashboardTab(sessionId);
+                if ~isempty(sessionId) && ~isempty(obj.App) && isvalid(obj.App)
+                    obj.App.removeSession(sessionId);  % cascades: project + tab + explorer
                 else
                     try, delete(activeTab); catch, end
                     obj.onTabChanged();
@@ -116,12 +116,11 @@ classdef WorkspaceManager < handle
         end
 
         function closeAllTabs(obj)
-            % [PHASE 3c] Close every dashboard tab. Welcome stays.
+            % [PHASE 3c] Close every dashboard tab, dropping every
+            % matching session from the project model.
             try
-                if isempty(obj.DashboardEntries), return; end
-                ids = obj.DashboardEntries.keys;
-                for k = 1:numel(ids)
-                    obj.removeDashboardTab(ids{k});
+                if ~isempty(obj.App) && isvalid(obj.App)
+                    obj.App.removeAllSessions();
                 end
             catch
             end

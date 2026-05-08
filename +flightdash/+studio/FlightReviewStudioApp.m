@@ -135,6 +135,57 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
         end
 
+        function removeSession(app, sessionId)
+            % [PHASE 3c] Remove a session everywhere it lives:
+            %   1) ProjectModel (so cascades drop dependent results too)
+            %   2) Workspace (deletes embedded dashboard + uitab)
+            %   3) Project Explorer tree
+            sessionId = char(sessionId);
+            try
+                app.Project = app.Project.removeSession(sessionId);
+            catch ME
+                try, app.logCaught(ME, 'Studio:removeSession:project'); catch, end
+            end
+            try
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    app.Workspace.removeDashboardTab(sessionId);
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:removeSession:workspace'); catch, end
+            end
+            app.refreshExplorer();
+            if ~isempty(app.StatusBar)
+                app.StatusBar.setMessage(sprintf('Removed session: %s', sessionId));
+            end
+        end
+
+        function removeAllSessions(app)
+            % [PHASE 3c] Bulk remove every session.
+            try
+                if ~isempty(app.Project) && ~isempty(app.Project.Sessions)
+                    ids = arrayfun(@(s) s.SessionId, app.Project.Sessions, ...
+                        'UniformOutput', false);
+                    for k = 1:numel(ids)
+                        app.removeSession(ids{k});
+                    end
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:removeAllSessions'); catch, end
+            end
+        end
+
+        function logCaught(app, ME, tag)
+            % Studio-level error logging facade (mirrors the dashboard's
+            % flightdash.util.ErrorLog.log convention so manager classes
+            % can report errors uniformly regardless of which app they
+            % belong to).
+            try
+                flightdash.util.ErrorLog.log(ME, tag, false);
+            catch
+                fprintf('[Studio:%s] %s\n', tag, ME.message);
+            end
+        end
+
         function delete(app)
             if app.IsDeleting, return; end
             app.IsDeleting = true;
