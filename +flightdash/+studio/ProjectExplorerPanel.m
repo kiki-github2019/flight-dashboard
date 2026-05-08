@@ -23,6 +23,47 @@ classdef ProjectExplorerPanel < handle
 
         function delete(~)
         end
+
+        function refreshFromProject(obj, project)
+            % Rebuild the tree from a flightdash.project.ProjectModel.
+            % Phase 2: rebuilds Sessions/Themes children only; other root
+            % nodes (Graphs/Reports/etc.) stay placeholders until Phase 3+.
+            try
+                if isempty(obj.Tree) || ~isvalid(obj.Tree), return; end
+                if isempty(obj.Roots) || ~isfield(obj.Roots, 'Project'), return; end
+
+                % Update root label
+                if ~isempty(project) && ~isempty(project.ProjectName)
+                    obj.Roots.Project.Text = project.ProjectName;
+                end
+
+                % --- Sessions ---
+                obj.replaceChildren(obj.Roots.Sessions);
+                if ~isempty(project) && ~isempty(project.Sessions)
+                    for k = 1:numel(project.Sessions)
+                        s = project.Sessions(k);
+                        node = uitreenode(obj.Roots.Sessions, ...
+                            'Text', sprintf('%s (%s)', s.DisplayName, s.SessionId), ...
+                            'NodeData', struct('SessionId', s.SessionId, 'Kind', 'session'));
+                    end
+                end
+
+                % --- Analysis Themes ---
+                obj.replaceChildren(obj.Roots.Themes);
+                if ~isempty(project) && ~isempty(project.AnalysisThemes)
+                    for k = 1:numel(project.AnalysisThemes)
+                        t = project.AnalysisThemes(k);
+                        uitreenode(obj.Roots.Themes, ...
+                            'Text', t.ThemeName, ...
+                            'NodeData', struct('ThemeId', t.ThemeId, 'Kind', 'theme'));
+                    end
+                end
+
+                try, expand(obj.Roots.Project); catch, end
+                try, expand(obj.Roots.Sessions); catch, end
+            catch
+            end
+        end
     end
 
     methods (Access = private)
@@ -79,6 +120,19 @@ classdef ProjectExplorerPanel < handle
 
         function n = makeNode(~, parent, label)
             n = uitreenode(parent, 'Text', label);
+        end
+
+        function replaceChildren(~, parentNode)
+            % Remove existing children of a tree node so refresh can
+            % re-create them from the current ProjectModel state.
+            try
+                if isempty(parentNode) || ~isvalid(parentNode), return; end
+                kids = parentNode.Children;
+                for i = numel(kids):-1:1
+                    try, delete(kids(i)); catch, end
+                end
+            catch
+            end
         end
 
         function onSearch(obj, query)

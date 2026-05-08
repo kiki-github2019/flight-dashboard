@@ -29,16 +29,25 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         RightDock             % flightdash.studio.RightDockManager
         StatusBar             % flightdash.studio.StatusBarManager
 
-        % Studio-level state (placeholders for Phase 2/3)
-        ProjectName           char    = 'Untitled'
+        % Studio-level state
+        % Phase 2: Project model holds Sessions/Figures/Results/Themes.
+        Project               % flightdash.project.ProjectModel (value class)
         ProjectFolder         char    = ''
         ActiveSessionId       char    = ''
         IsDeleting            logical = false
     end
 
+    properties (Dependent)
+        % Convenience accessor — pulled from app.Project so the title bar
+        % and status bar can read it without referencing Project directly.
+        ProjectName
+    end
+
     methods (Access = public)
         function app = FlightReviewStudioApp()
             try
+                % Initialize an empty project before any UI accesses it.
+                app.Project = flightdash.project.ProjectModel('Untitled');
                 app.buildShell();
                 app.refreshTitle();
             catch ME
@@ -47,6 +56,41 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     delete(app.UIFigure);
                 end
                 rethrow(ME);
+            end
+        end
+
+        function name = get.ProjectName(app)
+            if isempty(app.Project)
+                name = 'Untitled';
+            else
+                name = app.Project.ProjectName;
+            end
+        end
+
+        function sessionId = addSession(app, displayName)
+            % Phase 2 entry point used by Menu > Project > Add Review Session.
+            % Returns the new session id so callers can route follow-up
+            % actions (e.g. Phase 3 will spawn an embedded dashboard tab).
+            if nargin < 2 || isempty(displayName)
+                displayName = sprintf('Session %d', app.Project.sessionCount() + 1);
+            end
+            sess = flightdash.project.SessionModel(displayName);
+            app.Project = app.Project.addSession(sess);
+            sessionId = sess.SessionId;
+            app.refreshExplorer();
+            app.refreshTitle();
+            if ~isempty(app.StatusBar)
+                app.StatusBar.setMessage(sprintf('Added session: %s (%s)', ...
+                    sess.DisplayName, sessionId));
+            end
+        end
+
+        function refreshExplorer(app)
+            try
+                if ~isempty(app.ProjectExplorer) && isvalid(app.ProjectExplorer)
+                    app.ProjectExplorer.refreshFromProject(app.Project);
+                end
+            catch
             end
         end
 

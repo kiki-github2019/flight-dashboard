@@ -149,12 +149,21 @@ classdef MenuManager < handle
         end
 
         function dispatch(obj, cmdId)
-            % Phase 1: placeholder. Phase 6 wires actual commands.
+            % Route well-known commands; everything else shows
+            % "(not implemented yet)" until Phase 6 wires real handlers.
             try
+                switch cmdId
+                    case 'Project:AddSession'
+                        obj.App.addSession();
+                        return;
+                end
                 if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
                     obj.App.StatusBar.setMessage(sprintf('Menu: %s (not implemented yet)', cmdId));
                 end
-            catch
+            catch ME
+                if ~isempty(obj.App.StatusBar)
+                    obj.App.StatusBar.setMessage(sprintf('Menu %s failed: %s', cmdId, ME.message));
+                end
             end
         end
     end
