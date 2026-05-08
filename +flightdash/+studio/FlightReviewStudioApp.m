@@ -43,6 +43,18 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         ProjectName
     end
 
+    methods
+        % Dependent property accessors must live in an attribute-free
+        % methods block per MATLAB classdef rules.
+        function name = get.ProjectName(app)
+            if isempty(app.Project)
+                name = 'Untitled';
+            else
+                name = app.Project.ProjectName;
+            end
+        end
+    end
+
     methods (Access = public)
         function app = FlightReviewStudioApp()
             try
@@ -56,14 +68,6 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     delete(app.UIFigure);
                 end
                 rethrow(ME);
-            end
-        end
-
-        function name = get.ProjectName(app)
-            if isempty(app.Project)
-                name = 'Untitled';
-            else
-                name = app.Project.ProjectName;
             end
         end
 
