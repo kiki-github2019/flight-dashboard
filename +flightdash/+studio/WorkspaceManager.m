@@ -90,6 +90,52 @@ classdef WorkspaceManager < handle
                 end
             catch, end
             obj.DashboardEntries.remove(sessionId);
+            try, obj.onTabChanged(); catch, end
+        end
+
+        function closeActiveTab(obj)
+            % [PHASE 3c] Close the currently selected workspace tab.
+            % The Welcome tab is preserved (it's the placeholder when
+            % no sessions are open).
+            try
+                if isempty(obj.TabGroup) || ~isvalid(obj.TabGroup), return; end
+                activeTab = obj.TabGroup.SelectedTab;
+                if isempty(activeTab), return; end
+                if ~isempty(obj.WelcomeTab) && isequal(activeTab, obj.WelcomeTab)
+                    return;  % don't close the welcome placeholder
+                end
+                sessionId = obj.tabSessionId(activeTab);
+                if ~isempty(sessionId)
+                    obj.removeDashboardTab(sessionId);
+                else
+                    try, delete(activeTab); catch, end
+                    obj.onTabChanged();
+                end
+            catch
+            end
+        end
+
+        function closeAllTabs(obj)
+            % [PHASE 3c] Close every dashboard tab. Welcome stays.
+            try
+                if isempty(obj.DashboardEntries), return; end
+                ids = obj.DashboardEntries.keys;
+                for k = 1:numel(ids)
+                    obj.removeDashboardTab(ids{k});
+                end
+            catch
+            end
+        end
+
+        function id = tabSessionId(~, tab)
+            id = '';
+            try
+                if ~isempty(tab) && isvalid(tab) && isstruct(tab.UserData) ...
+                        && isfield(tab.UserData, 'SessionId')
+                    id = char(tab.UserData.SessionId);
+                end
+            catch
+            end
         end
 
         function id = activeSessionId(obj)

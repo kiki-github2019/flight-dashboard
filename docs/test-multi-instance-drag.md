@@ -296,6 +296,11 @@ addpath('D:\flightdashboard\5. 4th\root\.claude\worktrees\bold-brown-8651c4');
 
 검증 수행 후 아래 표를 채워 docs 폴더에 commit하면 Phase 3 진입 전 의사결정 자료가 됨.
 
+**Phase 3c 자동화:** TC-1~TC-3은 다음 명령으로 한 번에 실행 가능.
+```matlab
+results = flightdash.studio.diag.runMultiInstanceTests();
+```
+
 | TC | 실행일 | 결과 | 비고 |
 |---|---|---|---|
 | TC-1 | YYYY-MM-DD | Pass / Fail | |
@@ -321,5 +326,30 @@ addpath('D:\flightdashboard\5. 4th\root\.claude\worktrees\bold-brown-8651c4');
 | Pass | Pass | Fail | — | — | Phase 0.7 재검토 필요 — Throttle 접두 정책 보강 |
 | Pass | Fail | — | — | — | master dispatch 패턴 자체 부적합 — 컨트롤러 인스턴스 격리 강화 |
 | Fail | — | — | — | — | MATLAB 버전 또는 figure 동작 가정 재검증 필요 |
+
+---
+
+## 7. Phase 3c 완료 노트 (2026-05-08 시점)
+
+**Phase 3c가 다룬 범위:**
+- ✅ Window > Close Active Tab / Close All Tabs 메뉴 동작 (`WorkspaceManager.closeActiveTab/closeAllTabs`)
+- ✅ 탭 종료 시 임베드된 FlightDataDashboard `delete()` 명시적 호출 (Phase 3a의 `IsEmbedded` 가드 덕분에 Studio shell은 보존됨)
+- ✅ TC-1/TC-2/TC-3 자동화: `flightdash.studio.diag.runMultiInstanceTests()` — 단일 명령으로 세 시나리오 검증
+- ✅ Active 탭 추적 — 탭 변경 또는 닫기 시 `app.ActiveSessionId` 갱신, StatusBar 반영
+
+**Phase 3c가 다루지 않은 범위 (Phase 4 작업으로 이전):**
+- ❌ EventBus 이벤트 자체에 `SessionId` 페이로드 추가
+- ❌ 모든 listener 진입부에 `SessionId` 가드 (BaseSessionListener mixin)
+- ❌ Active session 외부 EventBus 이벤트 무시 정책
+
+**왜 Phase 4로 이전했는가:**
+다중 임베드 시 한 탭의 버튼 클릭(예: Add ROI)이 모든 탭의 RoiController에 전파되는 문제는 EventBus 라우팅 단계에서 해결해야 한다. 이는 100여 곳의 publish/subscribe 호출을 수정해야 하는 별도 작업이며, Phase 3c의 "탭 운영 인프라" 범위를 넘어선다. 단일 탭 또는 동일 세션의 action만 수행한다면 Phase 3c 결과로 충분히 안정적으로 동작한다.
+
+**Phase 4 진입 전 검증 권장:**
+1. `flightdash.studio.diag.runMultiInstanceTests()` 실행 → 3건 모두 PASS
+2. Studio에서 세션 1개 추가 → Flight 1 데이터 로드 → 정상 작동
+3. 두 번째 세션 추가 → 두 번째 탭에서도 Flight 1 데이터 로드 → 첫 번째 탭에 영향 없는지 확인
+4. **두 번째 탭의 Add ROI 버튼 클릭 → 첫 번째 탭의 ROI도 추가되는지 (예상: 됨, Phase 4 사유)**
+5. Window > Close Active Tab / Close All Tabs 동작 확인
 
 **가장 가능성 높은 시나리오:** 모두 Pass → 전략 1 (SessionId 게이트) 채택.

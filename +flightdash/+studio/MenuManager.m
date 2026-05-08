@@ -156,6 +156,18 @@ classdef MenuManager < handle
                     case 'Project:AddSession'
                         obj.App.addSession();
                         return;
+                    case 'Window:CloseActive'
+                        if ~isempty(obj.App.Workspace) && isvalid(obj.App.Workspace)
+                            obj.App.Workspace.closeActiveTab();
+                            obj.App.StatusBar.setMessage('Closed active tab');
+                        end
+                        return;
+                    case 'Window:CloseAll'
+                        if ~isempty(obj.App.Workspace) && isvalid(obj.App.Workspace)
+                            obj.App.Workspace.closeAllTabs();
+                            obj.App.StatusBar.setMessage('Closed all session tabs');
+                        end
+                        return;
                 end
                 if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
                     obj.App.StatusBar.setMessage(sprintf('Menu: %s (not implemented yet)', cmdId));
