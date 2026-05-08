@@ -162,12 +162,15 @@ classdef VideoPanel
             ui.videoRail.Layout.Column = 1;
         end
 
-        function publishSliderChanging(fIdx, val)
+        function publishSliderChanging(fIdx, val, sessionId)
             % [PERF] Throttle 선체크 헬퍼 - 통과한 경우에만 EventBus 발행
             % - View 단에서 잉여 드래그 모션 차단 → AppEventData 생성/notify 비용 절감
             % - 별도 슬롯('LastSliderPublish') 사용 - 본체의 'LastSliderUpdate'와 독립
             %   (controller의 throttle은 무거운 updateDashboard 보호용으로 유지)
-            if flightdash.util.Throttle.instance().hit('LastSliderPublish', fIdx, flightdash.util.AppConstants.SLIDER_THROTTLE_S)
+            % [PHASE 0.7] sessionId 접두로 다중 세션 throttle key 충돌 방지
+            if nargin < 3 || isempty(sessionId), sessionId = 'standalone'; end
+            scopedSlot = [sessionId ':LastSliderPublish'];
+            if flightdash.util.Throttle.instance().hit(scopedSlot, fIdx, flightdash.util.AppConstants.SLIDER_THROTTLE_S)
                 return;
             end
             flightdash.util.EventBus.publish('SliderChanging', flightdash.util.AppEventData(fIdx, val));

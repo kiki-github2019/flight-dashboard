@@ -33,11 +33,11 @@ classdef PannerController < handle
                 if isfield(app.UI(fIdx), 'PannerVisible'), curr = logical(app.UI(fIdx).PannerVisible); end
                 next = ~curr;
                 app.UI(fIdx).PannerVisible = next;
-                app.UI(fIdx).pannerPanel.Visible = app.visibleState(next);
+                app.UI(fIdx).pannerPanel.Visible = app.LayoutMgr.visibleState(next);
                 rh = app.UI(fIdx).plotShellGrid.RowHeight;
                 if next
                     rh{3} = flightdash.util.UIScale.px(58);
-                    app.refreshPanner(fIdx);
+                    if ~isempty(app.PannerView), app.PannerView.refresh(fIdx); end
                 else
                     rh{3} = 0;
                 end

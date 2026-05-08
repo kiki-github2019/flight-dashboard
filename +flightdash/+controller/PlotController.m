@@ -27,9 +27,21 @@ classdef PlotController < handle
             obj.Listeners{end+1} = EB('PlotDetailsToggled',     @(~,d) obj.onPlotDetailsToggled(d));
         end
 
-        function onPlotSelected(obj, d),   obj.App.plotSelectedVariable(d.ChannelIdx); end
-        function onAddTab(obj, d),         obj.App.addPlotTab(d.ChannelIdx); end
-        function onClearTab(obj, d),       obj.App.clearCurrentTab(d.ChannelIdx); end
+        function onPlotSelected(obj, d)
+            if obj.App.hasPlotView(d.ChannelIdx)
+                obj.App.PlotView(d.ChannelIdx).addSelectedVariable();
+            end
+        end
+        function onAddTab(obj, d)
+            if obj.App.hasPlotView(d.ChannelIdx)
+                obj.App.PlotView(d.ChannelIdx).addTab();
+            end
+        end
+        function onClearTab(obj, d)
+            if obj.App.hasPlotView(d.ChannelIdx)
+                obj.App.PlotView(d.ChannelIdx).clearCurrentTab();
+            end
+        end
         function onTabChanged(obj, d),     obj.App.updateTabTimeLines(d.ChannelIdx); end
         function onPlotVisibility(obj, d), obj.App.onPlotVisibilityChanged(d.ChannelIdx, d.Payload); end
         function onPlotManagerSelected(obj, d), obj.App.onPlotManagerSelected(d.ChannelIdx, d.Payload); end

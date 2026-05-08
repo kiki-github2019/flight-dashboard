@@ -105,7 +105,9 @@ classdef PlotView < handle
             app.UI(fIdx).selectedPlotIdx = 0;
 
             obj.addTab();
-            app.drawRoiBands(fIdx);
+            if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                app.RoiCtrl.drawBands(fIdx);
+            end
         end
 
         function addSelectedVariable(obj)
@@ -191,8 +193,8 @@ classdef PlotView < handle
             app.excludeFromLegend(mk);
             app.excludeFromLegend(valueLabel);
 
-            tl.ButtonDownFcn = @(src, event) app.startPlotMarkerDrag(fIdx, tabIdx, src, event);
-            mk.ButtonDownFcn = @(src, event) app.startPlotMarkerDrag(fIdx, tabIdx, src, event);
+            tl.ButtonDownFcn = @(src, event) app.MarkerDragCtrl.startPlotMarkerDrag(fIdx, tabIdx, src, event);
+            mk.ButtonDownFcn = @(src, event) app.MarkerDragCtrl.startPlotMarkerDrag(fIdx, tabIdx, src, event);
 
             app.UI(fIdx).plotAxes{tabIdx}{end + 1} = ax;
             app.UI(fIdx).timeLines{tabIdx}{end + 1} = tl;
@@ -294,7 +296,9 @@ classdef PlotView < handle
                 end
             end
             app.updatePannerViewport(fIdx);
-            app.refreshStatsFigure(fIdx);
+            if ~isempty(app.AuxWindowMgr) && isvalid(app.AuxWindowMgr)
+                app.AuxWindowMgr.refreshStatsFigure(app, fIdx);
+            end
         end
     end
 
@@ -304,7 +308,7 @@ classdef PlotView < handle
             fIdx = obj.FIdx;
             app.refreshPlotManager(fIdx);
             app.refreshPlotDetails(fIdx);
-            app.refreshPanner(fIdx);
+            if ~isempty(app.PannerView), app.PannerView.refresh(fIdx); end
         end
     end
 end

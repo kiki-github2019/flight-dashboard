@@ -33,9 +33,9 @@ classdef PlaybackController < handle
         function onSliderChanged(obj, d),  obj.App.onVdubSliderChanged(d.ChannelIdx, d.Payload); end
         function onNav(obj, d),            obj.App.onVdubNav(d.ChannelIdx, d.Payload); end
         function onSpinner(obj, d),        obj.App.handleSpinnerChange(d.ChannelIdx, d.Payload); end
-        function onTableSelect(obj, d),    obj.App.handleTableSelection(d.ChannelIdx, d.Payload); end
+        function onTableSelect(obj, d),    obj.App.InfoCtrl.handleTableSelection(d.ChannelIdx, d.Payload); end
         function onInfoFormat(obj, d),     obj.App.setInfoFormatMode(d.ChannelIdx, d.Payload); end
-        function onInfoOrderMove(obj, d),  obj.App.moveSelectedInfoRow(d.ChannelIdx, d.Payload); end
+        function onInfoOrderMove(obj, d),  obj.App.InfoCtrl.moveSelectedRow(d.ChannelIdx, d.Payload); end
         function onFlightPlay(obj, d),     obj.startFlightPlayback(d.ChannelIdx); end
         function onFlightStop(obj, d),     obj.stopFlightPlayback(d.ChannelIdx); end
         function onFlightPlayInterval(obj, d), obj.setFlightPlayInterval(d.ChannelIdx, d.Payload); end
@@ -45,7 +45,7 @@ classdef PlaybackController < handle
         function sliderChanged(obj, fIdx, src),    obj.App.onVdubSliderChanged(fIdx, src); end
         function nav(obj, fIdx, action),           obj.App.onVdubNav(fIdx, action); end
         function spinnerChange(obj, fIdx, value),  obj.App.handleSpinnerChange(fIdx, value); end
-        function tableSelect(obj, fIdx, event),    obj.App.handleTableSelection(fIdx, event); end
+        function tableSelect(obj, fIdx, event),    obj.App.InfoCtrl.handleTableSelection(fIdx, event); end
 
         function startFlightPlayback(obj, fIdx)
             try

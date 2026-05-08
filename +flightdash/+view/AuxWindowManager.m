@@ -58,7 +58,9 @@ classdef AuxWindowManager < handle
                 if isempty(fig), return; end
                 app.refreshPlotManager(fIdx);
                 app.refreshPlotDetails(fIdx);
-                app.refreshRoiTable(fIdx);
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.refreshTable(fIdx);
+                end
                 app.updateFlightModeBands(fIdx);
             catch ME
                 app.logCaught(ME, 'AuxFigure:detailsRefresh');
@@ -119,16 +121,16 @@ classdef AuxWindowManager < handle
                     grid.Padding = [8 8 8 8];
                     tbl = uitable(grid, 'Data', cell(0, 5), ...
                         'ColumnName', {'Start', 'End', 'Signal', 'Mean', 'RMSE/Std'}, ...
-                        'RowName', [], 'CellSelectionCallback', @(~,event) app.onRoiSelectionChanged(fIdx, event));
+                        'RowName', [], 'CellSelectionCallback', @(~,event) app.RoiCtrl.onSelectionChanged(fIdx, event));
                     tbl.Tag = 'RoiFigureTable';
                     btnGrid = uigridlayout(grid, [1 5]);
                     btnGrid.RowHeight = {'1x'};
                     btnGrid.ColumnWidth = {84, 120, 84, 92, '1x'};
                     btnGrid.Padding = [0 0 0 0];
-                    uibutton(btnGrid, 'Text', '+ ROI', 'ButtonPushedFcn', @(~,~) app.addCurrentRoi(fIdx));
-                    uibutton(btnGrid, 'Text', 'Delete Selected', 'ButtonPushedFcn', @(~,~) app.deleteSelectedRoi(fIdx));
-                    uibutton(btnGrid, 'Text', 'Clear', 'ButtonPushedFcn', @(~,~) app.clearRois(fIdx));
-                    uibutton(btnGrid, 'Text', 'Analyze', 'ButtonPushedFcn', @(~,~) app.computeRoiAnalysis(fIdx));
+                    uibutton(btnGrid, 'Text', '+ ROI', 'ButtonPushedFcn', @(~,~) app.RoiCtrl.addCurrentRoi(fIdx));
+                    uibutton(btnGrid, 'Text', 'Delete Selected', 'ButtonPushedFcn', @(~,~) app.RoiCtrl.deleteSelectedRoi(fIdx));
+                    uibutton(btnGrid, 'Text', 'Clear', 'ButtonPushedFcn', @(~,~) app.RoiCtrl.clearRois(fIdx));
+                    uibutton(btnGrid, 'Text', 'Analyze', 'ButtonPushedFcn', @(~,~) app.RoiCtrl.computeAnalysis(fIdx));
                     uilabel(btnGrid, 'Text', sprintf('Flight %d ROI ranges', fIdx), 'HorizontalAlignment', 'right');
                 end
                 obj.refreshRoiFigure(app, fIdx);
@@ -352,17 +354,17 @@ classdef AuxWindowManager < handle
                 'ColumnName', {'Start', 'End', 'Signal', 'Mean', 'RMSE/Std'}, ...
                 'RowName', [], ...
                 'FontSize', 10, ...
-                'CellSelectionCallback', @(~,event) app.onRoiSelectionChanged(fIdx, event));
+                'CellSelectionCallback', @(~,event) app.RoiCtrl.onSelectionChanged(fIdx, event));
             app.UI(fIdx).roiTable.Layout.Row = [9 10];
             app.UI(fIdx).roiTable.Layout.Column = [1 2];
 
             app.UI(fIdx).deleteRoiButton = uibutton(detailGrid, 'Text', 'Delete Selected', ...
-                'ButtonPushedFcn', @(~,~) app.deleteSelectedRoi(fIdx));
+                'ButtonPushedFcn', @(~,~) app.RoiCtrl.deleteSelectedRoi(fIdx));
             app.UI(fIdx).deleteRoiButton.Layout.Row = 11;
             app.UI(fIdx).deleteRoiButton.Layout.Column = 1;
 
             app.UI(fIdx).clearRoiButton = uibutton(detailGrid, 'Text', 'Clear All', ...
-                'ButtonPushedFcn', @(~,~) app.clearRois(fIdx));
+                'ButtonPushedFcn', @(~,~) app.RoiCtrl.clearRois(fIdx));
             app.UI(fIdx).clearRoiButton.Layout.Row = 11;
             app.UI(fIdx).clearRoiButton.Layout.Column = 2;
 

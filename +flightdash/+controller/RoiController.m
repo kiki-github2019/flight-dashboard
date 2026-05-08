@@ -44,7 +44,7 @@ classdef RoiController < handle
                 app.UI(fIdx).selectedRoiIdx = size(app.UI(fIdx).roiRows, 1);
                 obj.refreshTable(fIdx);
                 obj.drawBands(fIdx);
-                app.openRoiFigure(fIdx);
+                app.AuxWindowMgr.openRoiFigure(app, fIdx);
             catch ME
                 app.logCaught(ME, 'ROI:add');
             end
@@ -75,7 +75,7 @@ classdef RoiController < handle
                 app.UI(fIdx).selectedRoiIdx = min(row, size(app.UI(fIdx).roiRows, 1));
                 obj.refreshTable(fIdx);
                 obj.drawBands(fIdx);
-                app.refreshRoiFigure(fIdx);
+                app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
             catch ME
                 app.logCaught(ME, 'ROI:deleteSelected');
             end
@@ -88,7 +88,7 @@ classdef RoiController < handle
                 app.UI(fIdx).roiRows = cell(0, 5);
                 app.UI(fIdx).selectedRoiIdx = 0;
                 obj.refreshTable(fIdx);
-                app.refreshRoiFigure(fIdx);
+                app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
             catch ME
                 app.logCaught(ME, 'ROI:clear');
             end
@@ -100,7 +100,7 @@ classdef RoiController < handle
                 if isfield(app.UI(fIdx), 'roiTable') && ~isempty(app.UI(fIdx).roiTable) && isvalid(app.UI(fIdx).roiTable)
                     app.UI(fIdx).roiTable.Data = app.UI(fIdx).roiRows;
                 end
-                app.refreshRoiFigure(fIdx);
+                app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
             catch ME
                 app.logCaught(ME, 'ROI:refreshTable');
             end
@@ -110,40 +110,17 @@ classdef RoiController < handle
             app = obj.App;
             try
                 if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows)
-                    app.openStatsFigure(fIdx);
+                    app.AuxWindowMgr.openStatsFigure(app, fIdx);
                     return;
                 end
                 timeCol = app.Models(fIdx).mappedCols.Time;
                 times = app.Models(fIdx).rawData.(timeCol);
                 rows = app.UI(fIdx).roiRows;
-                for r = 1:size(rows, 1)
-                    signalName = rows{r, 3};
-                    if ~ismember(signalName, app.Models(fIdx).rawData.Properties.VariableNames)
-                        rows{r, 4} = '--';
-                        rows{r, 5} = '--';
-                        continue;
-                    end
-                    idx = times >= rows{r, 1} & times <= rows{r, 2};
-                    y = app.Models(fIdx).rawData.(signalName);
-                    if ~any(idx)
-                        rows{r, 4} = '--';
-                        rows{r, 5} = '--';
-                        continue;
-                    end
-                    rows{r, 4} = sprintf('%.5g', mean(y(idx), 'omitnan'));
-                    targetCol = obj.matchTargetColumn(fIdx, signalName);
-                    if ~isempty(targetCol)
-                        target = app.Models(fIdx).rawData.(targetCol);
-                        err = y(idx) - target(idx);
-                        rows{r, 5} = sprintf('RMSE %.5g', sqrt(mean(err.^2, 'omitnan')));
-                    else
-                        rows{r, 5} = sprintf('STD %.5g', std(y(idx), 'omitnan'));
-                    end
-                end
+                rows = flightdash.model.RoiAnalyzer.computeStats(times, app.Models(fIdx).rawData, rows);
                 app.UI(fIdx).roiRows = rows;
                 obj.refreshTable(fIdx);
                 obj.drawBands(fIdx);
-                app.openStatsFigure(fIdx);
+                app.AuxWindowMgr.openStatsFigure(app, fIdx);
             catch ME
                 app.logCaught(ME, 'ROI:analysis');
             end
@@ -151,23 +128,8 @@ classdef RoiController < handle
 
         function targetCol = matchTargetColumn(obj, fIdx, signalName)
             app = obj.App;
-            targetCol = '';
             vars = app.Models(fIdx).rawData.Properties.VariableNames;
-            candidates = {[signalName 'Target'], [signalName '_Target']};
-            switch char(signalName)
-                case {'Roll', 'roll'}
-                    candidates{end+1} = 'RollTarget';
-                case {'Pitch', 'pitch'}
-                    candidates{end+1} = 'PitchTarget';
-                case {'Yaw', 'Heading', 'hdg_deg'}
-                    candidates{end+1} = 'YawTarget';
-            end
-            for k = 1:numel(candidates)
-                if ismember(candidates{k}, vars)
-                    targetCol = candidates{k};
-                    return;
-                end
-            end
+            targetCol = flightdash.model.RoiAnalyzer.matchTargetColumn(vars, signalName);
         end
 
         function drawBands(obj, fIdx)

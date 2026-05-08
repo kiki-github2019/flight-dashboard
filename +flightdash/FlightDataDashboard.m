@@ -62,19 +62,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
     properties (Access = private)
         IsUpdating          = [false, false] % ?ш? 諛⑹? ?뚮옒洹?
-        IsDraggingMarker    = false         % 留덉빱 ?쒕옒洹??곹깭 ?뚮옒洹?
-        DraggedMarker       = []            % ?꾩옱 ?쒕옒洹?以묒씤 洹몃옒??媛앹껜 ?몃뱾
         IsProgrammaticXLim  = [false, false] % [V3.11 A] 梨낆옣 ?섍린湲????꾨줈洹몃옒諛?XLim 蹂寃???由ъ뒪??李⑤떒
         IsDraggingPanner    = false         % compact range bar handle drag state
         PannerDragFIdx      = 0             % compact range bar drag channel
         PannerDragSide      = ''            % 'left' or 'right'
-        IsDraggingInfoRow   = false         % best-effort current-info table row drag reorder
-        InfoDragFIdx        = 0             % current-info row drag channel
-        InfoDragSourceRow   = 0             % current-info row being dragged
-        DraggedFIdx         = 0             % [V3.11 B] ?쒕옒洹?以묒씤 fIdx
-        DraggedFromVideo    = false         % [V3.12] 鍮꾨뵒??Frame 留덉빱?먯꽌 ?쒕옒洹??쒖옉 ?щ?
-        VideoThrottleDyn    = 0.05          % [V3.12] (V3.13?먯꽌 誘몄궗?? 蹂댁〈)
-        LastDragTime        = {uint64(0), uint64(0)}  % [PATCH] 梨꾨꼸蹂?tic ?몃뱾
         LastDisplayedFrame  = [0, 0]        % [PATCH] ?숈씪 ?꾨젅??議곌린 諛섑솚??
         HISplitterFIdx      = 0             % [PATCH UX-3] H/I 寃쎄퀎 ?쒕옒洹?以묒씤 梨꾨꼸
         IsDraggingSplitter  = false         % [PATCH UX-3b] splitter ?쒕옒洹??곹깭 ?뚮옒洹?
@@ -96,6 +87,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         PannerCtrl          = []
         PanelCtrl           = []
         DragCtrl            = []
+        MarkerDragCtrl      = []
+        InfoCtrl            = []
         ConfigMgr           = []
         AuxWindowMgr        = []
         PlotView            = []
@@ -131,6 +124,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         FlightFilePath      = {'', ''}        % session config: loaded flight data paths
         InfoFormatModes     = {struct(), struct()} % per-channel value display modes keyed by normalized header
         ChannelViewMode     = 'both'          % both|flight1|flight2
+        % [PHASE 0.8] Session/Studio integration prototype
+        % - standalone: 단독 실행 시 'standalone'
+        % - embedded:   Studio가 부모 컨테이너에 embed 시 'S001', 'S002' 등 SessionId 부여
+        % 모든 SessionId-aware 코드(throttle, drag controller, EventBus)는 이 값을 참조
+        ActiveSessionId     = 'standalone'    % [PHASE 0.8] active session id (Studio 통합 prep)
+        IsEmbedded          = false           % [PHASE 0.8] standalone vs embedded mode
         % [REFACTOR Step 0] ErrorLog??flightdash.util.ErrorLog ?깃??ㅼ쑝濡??꾩엫
         % - 湲곗〈 ErrorLog/ErrorLogCapacity ?띿꽦? ???댁긽 ?ъ슜?섏? ?딆쑝???명솚???꾪빐 ?좎??섏? ?딄퀬 ?쒓굅
     end
@@ -189,10 +188,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             close(findobj('Type', 'figure', 'Name', '鍮꾪뻾 ?곗씠??由щ럭 ??쒕낫??(Dual)'));
             % [FIX] AutoResizeChildren='on' ??SizeChangedFcn??臾댁떆?섎뒗 寃쎄퀬 李⑤떒
             % - uigridlayout???먯떇 由ъ궗?댁쫰瑜??대떦?섎?濡?AutoResizeChildren? 遺덊븘??
-            initialPos = app.initialFigurePosition();
+            initialPos = app.LayoutMgr.initialFigurePosition(app);
             app.UIFigure = uifigure('Name', '鍮꾪뻾 ?곗씠??由щ럭 ??쒕낫??(Dual)', ...
                                     'Units', 'pixels', ...
-                                    'Position', app.initialFigurePosition(), ...
+                                    'Position', app.LayoutMgr.initialFigurePosition(app), ...
                                     'Color', [0.94 0.94 0.96]);
             app.NormalFigurePosition = app.UIFigure.Position;
             try
@@ -212,6 +211,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.PannerCtrl    = flightdash.controller.PannerController(app);
             app.PanelCtrl     = flightdash.controller.PanelToggleController(app);
             app.DragCtrl      = flightdash.controller.DragController(app);
+            app.MarkerDragCtrl = flightdash.controller.MarkerDragController(app);
+            app.InfoCtrl      = flightdash.controller.InfoController(app);
 
             app.createLayout();
             app.PlotView = flightdash.view.PlotView(app, 1);
@@ -219,7 +220,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.PannerView = flightdash.view.PannerView(app);
 
             for i = 1:2
-                app.addPlotTab(i);
+                if app.hasPlotView(i), app.PlotView(i).addTab(); end
                 app.VideoState(i).vidImageHandle = app.UI(i).vidImageHandle;
                 % [REFACTOR Step 2-B] VideoModel?먮룄 ?몃뱾 set
                 app.VideoMdl(i).ImageHandle = app.UI(i).vidImageHandle;
@@ -229,7 +230,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     addlistener(app.VideoMdl(i), 'VideoCleared', @(~,~)   app.onVideoCleared(i)) };
             end
             try
-                app.applyResponsiveLayout('startup');
+                app.LayoutMgr.applyLayout(app, 'startup');
             catch ME
                 app.logCaught(ME, 'Layout:startup');
             end
@@ -303,6 +304,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 try, delete(app.PannerCtrl);    catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.PanelCtrl);     catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.DragCtrl);      catch ME, app.logCaught(ME, 'silent'); end
+                try, delete(app.MarkerDragCtrl); catch ME, app.logCaught(ME, 'silent'); end
+                try, delete(app.InfoCtrl);      catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.PlotView);      catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.PannerView);    catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.AuxWindowMgr);  catch ME, app.logCaught(ME, 'silent'); end
@@ -314,6 +317,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.PannerCtrl    = [];
                 app.PanelCtrl     = [];
                 app.DragCtrl      = [];
+                app.MarkerDragCtrl = [];
+                app.InfoCtrl      = [];
                 app.ConfigMgr     = [];
                 app.AuxWindowMgr  = [];
                 app.PlotView      = [];
@@ -424,6 +429,28 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 if isvalid(app), app.InCascade = false; end
             catch
+            end
+        end
+
+        function tf = throttleHit(app, slotName, fIdx, limitS)
+            % [PHASE 0.7] SessionId-prefixed throttle hit
+            % - 모든 throttle key에 ActiveSessionId 접두 → 다중 세션 충돌 방지
+            % - 기존 호출 시그니처 호환 (slotName/fIdx/limitS 동일)
+            sessionId = app.ActiveSessionId;
+            if isempty(sessionId), sessionId = 'standalone'; end
+            scopedSlot = [sessionId ':' slotName];
+            tf = flightdash.util.Throttle.instance().hit(scopedSlot, fIdx, limitS);
+        end
+
+        function throttleReset(app, slotName, fIdx)
+            % [PHASE 0.7] SessionId-prefixed throttle reset
+            sessionId = app.ActiveSessionId;
+            if isempty(sessionId), sessionId = 'standalone'; end
+            scopedSlot = [sessionId ':' slotName];
+            if nargin < 3
+                flightdash.util.Throttle.instance().reset(scopedSlot);
+            else
+                flightdash.util.Throttle.instance().reset(scopedSlot, fIdx);
             end
         end
         function tf = hasPlaybackState(app, fIdx)
@@ -678,31 +705,6 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function handleTableSelection(app, fIdx, event)
-            try
-                if isempty(event) || isempty(event.Indices), return; end
-                row = event.Indices(1, 1);
-                app.Models(fIdx).selectedRow = row;
-
-                if app.IsDraggingInfoRow && app.InfoDragFIdx == fIdx
-                    if row ~= app.InfoDragSourceRow && app.InfoDragSourceRow >= 1
-                        app.moveInfoRowTo(fIdx, app.InfoDragSourceRow, row);
-                        app.InfoDragSourceRow = row;
-                    end
-                    return;
-                end
-
-                app.IsDraggingInfoRow = true;
-                app.InfoDragFIdx = fIdx;
-                app.InfoDragSourceRow = row;
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    app.UIFigure.WindowButtonUpFcn = @(~,~) app.stopInfoRowDrag();
-                end
-            catch ME
-                app.logCaught(ME, 'InfoDrag:select');
-            end
-        end
-
         function setInfoFormatMode(app, fIdx, mode)
             try
                 if isempty(app.Models(fIdx).displayMeta), return; end
@@ -718,66 +720,6 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function moveSelectedInfoRow(app, fIdx, direction)
-            try
-                meta = app.Models(fIdx).displayMeta;
-                if isempty(meta), return; end
-                row = app.Models(fIdx).selectedRow;
-                if isempty(row) || row < 1 || row > numel(meta), return; end
-                if strcmpi(char(direction), 'up')
-                    target = row - 1;
-                else
-                    target = row + 1;
-                end
-                if target < 1 || target > numel(meta), return; end
-                app.moveInfoRowTo(fIdx, row, target);
-            catch ME
-                app.logCaught(ME, 'InfoOrder:move');
-            end
-        end
-
-        function moveInfoRowTo(app, fIdx, fromRow, toRow)
-            try
-                meta = app.Models(fIdx).displayMeta;
-                if isempty(meta), return; end
-                n = numel(meta);
-                fromRow = round(double(fromRow));
-                toRow = round(double(toRow));
-                if fromRow < 1 || fromRow > n || toRow < 1 || toRow > n || fromRow == toRow
-                    return;
-                end
-
-                moved = meta(fromRow);
-                meta(fromRow) = [];
-                insertBefore = toRow;
-                meta = [meta(1:insertBefore-1), moved, meta(insertBefore:end)];
-                for k = 1:numel(meta)
-                    if isfield(meta(k), 'order'), meta(k).order = k; end
-                end
-                app.Models(fIdx).displayMeta = meta;
-                app.Models(fIdx).selectedRow = toRow;
-                app.updateCurrentInfoTable(fIdx, app.Models(fIdx).currentIndex);
-                try
-                    app.UI(fIdx).dataTable.Selection = [toRow 1];
-                catch
-                end
-            catch ME
-                app.logCaught(ME, 'InfoOrder:moveTo');
-            end
-        end
-
-        function stopInfoRowDrag(app)
-            try
-                app.IsDraggingInfoRow = false;
-                app.InfoDragFIdx = 0;
-                app.InfoDragSourceRow = 0;
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    app.UIFigure.WindowButtonUpFcn = '';
-                end
-            catch ME
-                app.logCaught(ME, 'InfoDrag:stop');
-            end
-        end
 
         function UIFigureCloseRequest(app, ~, ~)
             try
@@ -789,8 +731,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.IsDraggingSplitter = false;
                 app.IsDraggingPanelSplitter = false;
                 app.IsDraggingPanner   = false;
-                app.IsDraggingInfoRow  = false;
-                app.DraggedMarker      = [];
+                if ~isempty(app.InfoCtrl) && isvalid(app.InfoCtrl), app.InfoCtrl.clearState(); end
+                app.MarkerDragCtrl.clearDraggedMarker();
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
             try
                 app.autoSaveConfigOnClose();
@@ -842,7 +784,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.UI(fIdx).btnVid.Text = '鍮꾨뵒????;
                 end
             end
-            app.applyResponsiveLayout('togglePanel');
+            app.LayoutMgr.applyLayout(app, 'togglePanel');
         end
 
         function setChannelViewMode(app, mode)
@@ -852,7 +794,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     mode = 'both';
                 end
                 app.ChannelViewMode = mode;
-                app.applyResponsiveLayout('channelView');
+                app.LayoutMgr.applyLayout(app, 'channelView');
                 try
                     h = app.LayoutHandles.header;
                     if isfield(h, 'ChannelViewDropDown') && isvalid(h.ChannelViewDropDown)
@@ -945,7 +887,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if isempty(vr), return; end
             app.VideoState(fIdx).videoStartTime = startTime;
             app.VideoState(fIdx).videoReader.CurrentTime = 0;
-            flightdash.util.Throttle.instance().reset('LastVideoUpdate', fIdx);
+            app.throttleReset('LastVideoUpdate', fIdx);
             app.applyVideoLoadedUI(fIdx, vr);
             if app.VideoSyncState(fIdx).TotalFrames < 1
                 app.cleanupVideoResources(fIdx);
@@ -1056,7 +998,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if isempty(vr), return; end
                 app.VideoState(fIdx).videoStartTime = startTime;
                 app.VideoState(fIdx).videoReader.CurrentTime = 0;
-                flightdash.util.Throttle.instance().reset('LastVideoUpdate', fIdx);
+                app.throttleReset('LastVideoUpdate', fIdx);
                 app.applyVideoLoadedUI(fIdx, vr);
                 if app.VideoSyncState(fIdx).TotalFrames < 1
                     app.cleanupVideoResources(fIdx);
@@ -1162,11 +1104,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function restorePlotsFromConfig(app, fIdx, ch)
             if ~isfield(ch, 'Tabs') || isempty(ch.Tabs), return; end
             try
-                app.clearAllTabs(fIdx);
+                if app.hasPlotView(fIdx), app.PlotView(fIdx).clearAllTabs(); end
                 tabs = ch.Tabs;
                 for tabIdx = 1:numel(tabs)
                     if tabIdx > 1
-                        app.addPlotTab(fIdx);
+                        if app.hasPlotView(fIdx), app.PlotView(fIdx).addTab(); end
                     end
                     if tabIdx <= numel(app.UI(fIdx).plotTabs)
                         tabObj = app.UI(fIdx).plotTabs(tabIdx);
@@ -1184,7 +1126,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
                 app.refreshPlotManager(fIdx);
                 app.refreshPlotDetails(fIdx);
-                app.refreshPanner(fIdx);
+                app.PannerView.refresh(fIdx);
             catch ME
                 app.logCaught(ME, 'Config:restorePlots');
             end
@@ -1198,7 +1140,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 row = app.findDisplayMetaRow(fIdx, yColumn);
                 if isempty(row), continue; end
                 app.Models(fIdx).selectedRow = row;
-                app.plotSelectedVariable(fIdx);
+                if app.hasPlotView(fIdx), app.PlotView(fIdx).addSelectedVariable(); end
                 tabIdx = app.currentPlotTabIndex(fIdx);
                 if isempty(tabIdx), continue; end
                 plotIdx = numel(app.UI(fIdx).plotMeta{tabIdx});
@@ -1235,7 +1177,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if isfield(info, 'MainLine') && ~isempty(info.MainLine) && isvalid(info.MainLine)
                     info.MainLine.DisplayName = info.Name;
                 end
-                vis = app.visibleState(info.Visible);
+                vis = app.LayoutMgr.visibleState(info.Visible);
                 handles = {app.UI(fIdx).plotAxes{tabIdx}{plotIdx}, ...
                     app.UI(fIdx).timeLines{tabIdx}{plotIdx}, app.UI(fIdx).timeMarkers{tabIdx}{plotIdx}};
                 if isfield(app.UI(fIdx), 'plotValueLabels') && plotIdx <= numel(app.UI(fIdx).plotValueLabels{tabIdx})
@@ -1283,9 +1225,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if size(rows, 2) < 5, return; end
                 app.UI(fIdx).roiRows = rows(:, 1:5);
                 app.UI(fIdx).selectedRoiIdx = 0;
-                app.refreshRoiTable(fIdx);
-                app.drawRoiBands(fIdx);
-                app.refreshRoiFigure(fIdx);
+                app.RoiCtrl.refreshTable(fIdx);
+                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
+                    app.RoiCtrl.drawBands(fIdx);
+                end
+                if ~isempty(app.AuxWindowMgr) && isvalid(app.AuxWindowMgr)
+                    app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
+                end
             catch ME
                 app.logCaught(ME, 'Config:restoreRois');
             end
@@ -1831,7 +1777,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 targetWidth = max(UIScale.px(400), min(targetWidth, UIScale.px(900)));  % ?덉쟾 踰붿쐞 ?쒗븳
 
                 app.PreferredVideoWidth(fIdx) = targetWidth;
-                app.applyResponsiveLayout('videoWidth');
+                app.LayoutMgr.applyLayout(app, 'videoWidth');
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
@@ -1899,7 +1845,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function fitWindowToScreen(app)
             try
                 if isempty(app.UIFigure) || ~isvalid(app.UIFigure), return; end
-                pos = app.fitFigurePosition();
+                pos = app.LayoutMgr.fitFigurePosition(app);
                 oldUnits = app.UIFigure.Units;
                 try
                     if isprop(app.UIFigure, 'WindowState')
@@ -1911,7 +1857,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.UIFigure.Position = pos;
                 app.UIFigure.Units = oldUnits;
                 drawnow limitrate;
-                app.applyResponsiveLayout('fitScreen');
+                app.LayoutMgr.applyLayout(app, 'fitScreen');
             catch ME
                 app.logCaught(ME, 'Layout:fitScreen');
             end
@@ -1928,7 +1874,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         if isprop(app.UIFigure, 'WindowState')
                             app.UIFigure.WindowState = 'maximized';
                             drawnow limitrate;
-                            app.applyResponsiveLayout('windowMaximized');
+                            app.LayoutMgr.applyLayout(app, 'windowMaximized');
                             app.updateMaximizeButtonState();
                             return;
                         end
@@ -1977,7 +1923,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if ~isempty(app.CacheModel) && fIdx <= numel(app.CacheModel)
                     app.CacheModel(fIdx).invalidate();
                 end
-                app.applyResponsiveLayout('videoCleared');
+                app.LayoutMgr.applyLayout(app, 'videoCleared');
             catch ME, app.logCaught(ME, 'silent'); end
         end
 
@@ -2010,7 +1956,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 hms = flightdash.util.TimeFormat.frameToHMSms(frameNo, fps);
                 app.UI(fIdx).vidVdubLabel.Text = sprintf('Frame %d / %d  (%s)', ...
                     frameNo, total, hms);
-                app.updatePanelRailSummaries(fIdx);
+                app.LayoutMgr.updatePanelRailSummaries(app, fIdx);
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
@@ -2091,7 +2037,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     idx = app.findClosestIndexByTime(times, targetTime);
 
                     if ~isequal(app.Models(fIdx).currentIndex, idx)
-                        app.DraggedFromVideo = true;
+                        app.MarkerDragCtrl.setDraggedFromVideo(true);
                         try
                             if strcmp(mode, 'drag')
                                 app.updateMarkersOnly(fIdx, idx);
@@ -2105,7 +2051,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         catch e
                             app.logCaught(e, 'goToFrame:dashboard');
                         end
-                        app.DraggedFromVideo = false;
+                        app.MarkerDragCtrl.setDraggedFromVideo(false);
                     end
                 catch ME_silent, app.logCaught(ME_silent, 'silent'); end
             end
@@ -2647,182 +2593,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % ---------------------------------------------------------------------
-        % 留덉빱 ?대┃ & ?쒕옒洹??대깽???꾩슜 ?몃뱾??(?ㅽ꽦 諛⑹뼱 媛뺥솕)
-        % ---------------------------------------------------------------------
-        function startPlotMarkerDrag(app, fIdx, ~, src, event)
-            % 留덉슦???쇱そ 踰꾪듉 ?대┃ ?쒖뿉留??ㅽ뻾 (?고겢由????쒖쇅)
-            if event.Button ~= 1, return; end
-            if isempty(app.Models(fIdx).rawData), return; end
-            if app.SyncState.IsSynced && fIdx == 2, return; end
-
-            % ?쒕옒洹??곹깭 ?쒖꽦??諛?媛앹껜 HitTest ?꾧린
-            app.IsDraggingMarker = true;
-            app.DraggedMarker = src;
-            app.DraggedFIdx = fIdx;   % [V3.11 B] ?쒕옒洹?醫낅즺 ???꾩껜 ?숆린?붿슜
-            app.DraggedFromVideo = false;   % [V3.12] 鍮꾪뻾?곗씠??痢≪뿉???쒖옉
-            app.VideoThrottleDyn = 0.05;    % [V3.12] ?숈쟻 throttle 珥덇린媛?20fps
-            app.LastDragTime{fIdx} = tic;
-            try
-                throttle = flightdash.util.Throttle.instance();
-                throttle.reset('MapPathDragUpdate', fIdx);
-                throttle.reset('PlotDragTimelineUpdate', fIdx);
-            catch ME, app.logCaught(ME, 'silent'); end
-            app.State = 'DRAGGING';   % [V3.17 (8)]
-            src.HitTest = 'off';
-
-            % ?쒕옒洹?以?Axes??湲곕낯 議곗옉(Pan/Zoom) ?꾧린 (留덉슦?????뱁옒 諛⑹?)
-            try
-                ax = src.Parent;
-                if isvalid(ax) && isprop(ax, 'Interactions')
-                    app.DraggedMarker.UserData = ax.Interactions; % 湲곗〈 ?ㅼ젙 諛깆뾽
-                    ax.Interactions = []; % ?쒕옒洹?以??댁옣 Pan 鍮꾪솢?깊솕
-                end
-            catch ME, app.logCaught(ME, 'silent'); end
-
-            % [V3.11 B] ?쒕옒洹?以?XLim 由ъ뒪???쇱떆 以묐떒
-            app.setXLimListenersEnabled(fIdx, false);
-
-            % [V3.11 C] ?쒕옒洹?以?xline??遺덊닾紐?Alpha=1)?쇰줈 ?꾪솚 ???뚮뜑留?媛??
-            try
-                for tIdx = 1:length(app.UI(fIdx).timeLines)
-                    tlArr = app.UI(fIdx).timeLines{tIdx};
-                    for k = 1:length(tlArr)
-                        if ~isempty(tlArr{k}) && isvalid(tlArr{k})
-                            tlArr{k}.Alpha = 1.0;
-                        end
-                    end
-                end
-                if isfield(app.UI(fIdx), 'timeLine') && ~isempty(app.UI(fIdx).timeLine) && isvalid(app.UI(fIdx).timeLine)
-                    app.UI(fIdx).timeLine.Alpha = 1.0;
-                end
-            catch ME, app.logCaught(ME, 'silent'); end
-
-            app.UIFigure.WindowButtonMotionFcn = @(~,~) app.plotMarkerDragMotion(fIdx);
-            app.UIFigure.WindowButtonUpFcn = @(~,~) app.stopPlotMarkerDrag();
-        end
-
-        % [V3.12 2.2.2] 鍮꾨뵒??Frame 留덉빱 ?쒕옒洹??쒖옉 ?몃뱾??
-        function startVideoFrameDrag(app, fIdx, src, event)
-            if event.Button ~= 1, return; end
-            if isempty(app.VideoState(fIdx).videoReader), return; end
-
-            app.IsDraggingMarker = true;
-            app.DraggedMarker = src;
-            app.DraggedFIdx = fIdx;
-            app.DraggedFromVideo = true;   % 狩?鍮꾨뵒??痢≪뿉???쒕옒洹??쒖옉
-            app.VideoThrottleDyn = 0.05;
-            app.LastDragTime{fIdx} = tic;
-            app.State = 'DRAGGING';   % [V3.17 (8)]
-            src.HitTest = 'off';
-
-            try
-                ax = src.Parent;
-                if isvalid(ax) && isprop(ax, 'Interactions')
-                    app.DraggedMarker.UserData = ax.Interactions;
-                    ax.Interactions = [];
-                end
-            catch ME, app.logCaught(ME, 'silent'); end
-
-            % XLim 由ъ뒪??以묐떒 (鍮꾪뻾?곗씠?곗? ?숈씪 ?뺤콉)
-            app.setXLimListenersEnabled(fIdx, false);
-
-            app.UIFigure.WindowButtonMotionFcn = @(~,~) app.videoFrameDragMotion(fIdx);
-            app.UIFigure.WindowButtonUpFcn = @(~,~) app.stopPlotMarkerDrag();
-        end
-
-        function plotMarkerDragMotion(app, fIdx)
-            if ~app.IsDraggingMarker, return; end
-            try
-                if isempty(app.DraggedMarker) || ~isvalid(app.DraggedMarker), return; end
-
-                ax = app.DraggedMarker.Parent;
-                if isempty(ax) || ~isvalid(ax), return; end
-
-                pt = ax.CurrentPoint;
-                if isempty(pt) || any(isnan(pt(:))) || any(~isfinite(pt(:)))
-                    return;
-                end
-
-                % [V3.13] V3.12 ?숈쟻 throttle ?몄텧 ?쒓굅 - source 湲곕컲 ?덉땐 throttle ?ъ슜
-
-                % [V3.11 C] ?쒕옒洹?以묒뿉??寃쎈웾 寃쎈줈濡쒕쭔 ?낅뜲?댄듃
-                targetTime = pt(1,1);
-                timeCol = app.Models(fIdx).mappedCols.Time;
-                times = app.Models(fIdx).rawData.(timeCol);
-                if isempty(times), return; end
-
-                targetTime = max(min(targetTime, times(end)), times(1));
-                idx = app.findClosestIndexByTime(times, targetTime);
-
-                if isequal(app.Models(fIdx).currentIndex, idx), return; end
-                app.updateMarkersOnly(fIdx, idx);
-            catch ME_silent, app.logCaught(ME_silent, 'silent'); end
-        end
-
-        % [V3.12 2.2.2] 鍮꾨뵒??Frame 留덉빱 ?쒕옒洹?紐⑥뀡 ?몃뱾??
-        % [V3.12 2.2.2] 鍮꾨뵒??Frame 留덉빱 蹂꾪몴 ?쒕옒洹?紐⑥뀡 ?몃뱾??
-        % [V3.15 ??ぉ 2] goToFrame ?⑥씪 吏꾩엯???ъ슜?쇰줈 由ы뙥?좊쭅
-        function videoFrameDragMotion(app, fIdx)
-            if ~app.IsDraggingMarker, return; end
-            try
-                if isempty(app.DraggedMarker) || ~isvalid(app.DraggedMarker), return; end
-
-                ax = app.DraggedMarker.Parent;
-                if isempty(ax) || ~isvalid(ax), return; end
-
-                pt = ax.CurrentPoint;
-                if isempty(pt) || any(isnan(pt(:))) || any(~isfinite(pt(:)))
-                    return;
-                end
-
-                targetFrame = round(pt(1,1));
-                totalFrames = app.VideoSyncState(fIdx).TotalFrames;
-                if totalFrames < 1, return; end
-
-                % [V3.19 (2)] ?쒕옒洹??띾룄 痢≪젙 (adaptive prefetch??
-                app.updateDragVelocity(fIdx, targetFrame);
-
-                % [V3.15 ??ぉ 2] ?⑥씪 吏꾩엯???듦낵 - 'drag' 紐⑤뱶濡?寃쎈웾 媛깆떊
-                app.goToFrame(fIdx, targetFrame, 'drag');
-                drawnow limitrate;
-            catch ME_silent, app.logCaught(ME_silent, 'silent'); end
-        end
-
-        % [V3.12 ?곸긽 ?숈쟻 throttle 怨꾩궛]
-        % - ?쒕옒洹??대룞??鍮좊Ⅴ硫?throttle 媛꾧꺽???섎젮 ?곸긽 媛깆떊 鍮덈룄瑜?以꾩엫 (5fps源뚯?)
-        % - ?먮━硫?媛꾧꺽??以꾩뿬 ?곸긽??遺?쒕읇寃??곕씪?ㅺ쾶 ??(20fps源뚯?)
-        function computeDynamicVideoThrottle(app)
-            try
-                fIdx = app.DraggedFIdx;
-                if fIdx < 1 || fIdx > 2, return; end
-                if app.LastDragTime{fIdx} == 0, app.LastDragTime{fIdx} = tic; return; end
-                dt = toc(app.LastDragTime{fIdx});
-                app.LastDragTime{fIdx} = tic;
-
-                if dt <= 0, return; end
-
-                % ?대룞 鍮덈룄媛 60fps??媛源뚯슱?섎줉(dt ?묒쓣?섎줉) ?곸긽? ?곴쾶 媛깆떊
-                % dt=0.016(60fps) ??throttle 0.20 (5fps)
-                % dt=0.05 (20fps) ??throttle 0.10 (10fps)
-                % dt=0.1+(10fps ?댄븯) ??throttle 0.05 (20fps)
-                if dt < 0.025
-                    target = 0.20;
-                elseif dt < 0.06
-                    target = 0.10;
-                else
-                    target = 0.05;
-                end
-
-                % 遺?쒕윭???꾩씠 (吏??媛以??대룞?됯퇏)
-                app.VideoThrottleDyn = 0.7 * app.VideoThrottleDyn + 0.3 * target;
-            catch ME_silent, app.logCaught(ME_silent, 'silent'); end
-        end
 
         function startPanelSplitterDrag(app, fIdx, kind)
             try
-                if app.isSplitterRestricted()
-                    app.applyResponsiveLayout('panelSplitterRestricted');
+                if app.LayoutMgr.isSplitterRestricted(app)
+                    app.LayoutMgr.applyLayout(app, 'panelSplitterRestricted');
                     return;
                 end
                 if fIdx < 1 || fIdx > numel(app.UI), return; end
@@ -2844,11 +2619,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 fIdx = app.PanelSplitterFIdx;
                 if fIdx < 1 || fIdx > numel(app.UI), return; end
-                [figW, figH] = app.currentFigureSizePx();
+                [figW, figH] = app.LayoutMgr.currentFigureSizePx(app);
                 profile = flightdash.util.UIScale.profileForSize(figW, figH);
                 app.LayoutProfile = profile;
-                if app.isSplitterRestrictedForProfile(profile)
-                    app.applyResponsiveChannelLayout(fIdx, profile);
+                if app.LayoutMgr.isSplitterRestrictedForProfile(profile)
+                    app.LayoutMgr.applyResponsiveChannelLayout(app, fIdx, profile);
                     return;
                 end
 
@@ -2878,9 +2653,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         return;
                 end
 
-                app.setManualPanelWidth(fIdx, panelName, newW, profile, gridW);
+                app.LayoutMgr.setManualPanelWidth(app, fIdx, panelName, newW, profile, gridW);
                 app.VideoUserResized(fIdx) = true;
-                app.applyResponsiveChannelLayout(fIdx, profile);
+                app.LayoutMgr.applyResponsiveChannelLayout(app, fIdx, profile);
                 drawnow limitrate;
             catch ME
                 app.logCaught(ME, 'PanelSplitter:motion');
@@ -2895,7 +2670,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.IsDraggingPanelSplitter = false;
                 app.PanelSplitterFIdx = 0;
                 app.PanelSplitterKind = '';
-                app.applyResponsiveLayout('panelSplitterStop');
+                app.LayoutMgr.applyLayout(app, 'panelSplitterStop');
                 drawnow limitrate;
             catch ME
                 app.logCaught(ME, 'PanelSplitter:stop');
@@ -2922,46 +2697,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function setManualPanelWidth(app, fIdx, panelName, widthVal, profile, gridW)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.setManualPanelWidth(app, fIdx, panelName, widthVal, profile, gridW);
-                end
-            catch ME
-                app.logCaught(ME, 'PanelSplitter:setManualWrapper');
-            end
-        end
-
-        function widthVal = resolveManualPanelWidth(app, fIdx, panelName, defaultW, profile)
-            widthVal = defaultW;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    widthVal = app.LayoutMgr.resolveManualPanelWidth(app, fIdx, panelName, defaultW, profile);
-                end
-            catch ME
-                app.logCaught(ME, 'PanelSplitter:resolveManualWrapper');
-            end
-        end
-
-        function minW = minimumPanelWidth(app, panelName, profile)
-            minW = 80;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    minW = app.LayoutMgr.minimumPanelWidth(panelName, profile);
-                end
-            catch ME
-                app.logCaught(ME, 'PanelSplitter:minWidthWrapper');
-            end
-        end
 
         function startHISplitterDrag(app, fIdx)
             try
-                if app.isSplitterRestricted()
-                    app.applyResponsiveLayout('splitterRestricted');
+                if app.LayoutMgr.isSplitterRestricted(app)
+                    app.LayoutMgr.applyLayout(app, 'splitterRestricted');
                     return;
                 end
                 if fIdx < 1 || fIdx > numel(app.UI) || ...
-                        ~app.isPanelVisibleForLayout(fIdx, 'video')
+                        ~app.LayoutMgr.isPanelVisibleForLayout(app, fIdx, 'video')
                     return;
                 end
                 app.HISplitterFIdx = fIdx;
@@ -2977,11 +2721,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 fIdx = app.HISplitterFIdx;
                 if fIdx < 1 || fIdx > 2, return; end
-                [figW, figH] = app.currentFigureSizePx();
+                [figW, figH] = app.LayoutMgr.currentFigureSizePx(app);
                 profile = flightdash.util.UIScale.profileForSize(figW, figH);
                 app.LayoutProfile = profile;
-                if app.isSplitterRestrictedForProfile(profile)
-                    app.applyResponsiveChannelLayout(fIdx, profile);
+                if app.LayoutMgr.isSplitterRestrictedForProfile(profile)
+                    app.LayoutMgr.applyResponsiveChannelLayout(app, fIdx, profile);
                     return;
                 end
                 dg = app.UI(fIdx).dataGrid;
@@ -2997,7 +2741,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
                 % [FIX] ?ъ슜?먭? splitter 議곗옉 ???먮룞 由ъ궗?댁쫰 李⑤떒 ?뚮옒洹?
                 app.VideoUserResized(fIdx) = true;
-                app.applyResponsiveChannelLayout(fIdx, profile);
+                app.LayoutMgr.applyResponsiveChannelLayout(app, fIdx, profile);
                 drawnow limitrate;
             catch ME, app.logCaught(ME, 'HISplitter:motion'); end
         end
@@ -3008,82 +2752,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.UIFigure.WindowButtonUpFcn    = '';
                 if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'arrow'; end
                 app.IsDraggingSplitter = false;
-                app.applyResponsiveLayout('splitterStop');
+                app.LayoutMgr.applyLayout(app, 'splitterStop');
                 app.HISplitterFIdx = 0;
                 drawnow limitrate;
             catch ME, app.logCaught(ME, 'HISplitter:stop'); end
         end
 
-        function stopPlotMarkerDrag(app)
-            % 肄쒕갚 諛??쒕옒洹??곹깭 ?꾨꼍 珥덇린??
-            wasDraggingFIdx = app.DraggedFIdx;
-            app.IsDraggingMarker = false;
-            app.State = 'IDLE';   % [V3.17 (8)] ?쒕옒洹?醫낅즺 ??IDLE 蹂듭썝
-
-            try
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    app.UIFigure.WindowButtonMotionFcn = '';
-                    app.UIFigure.WindowButtonUpFcn = '';
-                end
-            catch ME, app.logCaught(ME, 'silent'); end
-
-            try
-                if ~isempty(app.DraggedMarker) && isvalid(app.DraggedMarker)
-                    app.DraggedMarker.HitTest = 'on';
-                    % 湲곗〈 Axes ?곹샇?묒슜(Pan/Zoom) 蹂듭썝
-                    ax = app.DraggedMarker.Parent;
-                    if isvalid(ax) && isprop(ax, 'Interactions') && ~isempty(app.DraggedMarker.UserData)
-                        ax.Interactions = app.DraggedMarker.UserData;
-                    end
-                end
-            catch ME, app.logCaught(ME, 'silent'); end
-
-            app.DraggedMarker = [];
-            app.DraggedFIdx = 0;
-            app.DraggedFromVideo = false;   % [V3.12] 鍮꾨뵒???쒕옒洹??뚮옒洹?由ъ뀑
-            app.VideoThrottleDyn = 0.05;    % [V3.12] throttle 湲곕낯媛?蹂듭썝
-
-            % [V3.11 C] xline Alpha瑜?0.5濡?蹂듭썝
-            for fIdx = 1:2
-                try
-                    for tIdx = 1:length(app.UI(fIdx).timeLines)
-                        tlArr = app.UI(fIdx).timeLines{tIdx};
-                        for k = 1:length(tlArr)
-                            if ~isempty(tlArr{k}) && isvalid(tlArr{k})
-                                tlArr{k}.Alpha = 0.5;
-                            end
-                        end
-                    end
-                    if isfield(app.UI(fIdx), 'timeLine') && ~isempty(app.UI(fIdx).timeLine) && isvalid(app.UI(fIdx).timeLine)
-                        app.UI(fIdx).timeLine.Alpha = 0.5;
-                    end
-                catch ME, app.logCaught(ME, 'silent'); end
-            end
-
-            % [V3.11 B] XLim 由ъ뒪??蹂듭썝 (?쒕옒洹??쒖옉 ??以묐떒?덈뜕 由ъ뒪??蹂듦뎄)
-            if wasDraggingFIdx >= 1 && wasDraggingFIdx <= 2
-                app.setXLimListenersEnabled(wasDraggingFIdx, true);
-            end
-
-            % [V3.11 C] ?쒕옒洹?醫낅즺 ???꾩껜 ??쒕낫??1???숆린??
-            % (?쒕옒洹?以?寃쎈웾 寃쎈줈濡쒕쭔 媛깆떊?덈뜕 ?뚯씠釉?寃뚯씠吏/留?鍮꾨뵒??理쒖쥌 諛섏쁺)
-            for fIdx = 1:2
-                if ~isempty(app.Models(fIdx).rawData)
-                    idx = app.Models(fIdx).currentIndex;
-                    % [FIX] IsUpdating onCleanup 蹂댁옣 + warning ??ErrorLog
-                    app.setStateUpdating(fIdx, true);
-                    cleanup_ = onCleanup(@() resetIsUpdating(app, fIdx)); %#ok<NASGU>
-                    try
-                        app.updateDashboard(fIdx, idx);
-                    catch e
-                        app.logCaught(e, 'stopPlotMarkerDrag:sync');
-                    end
-                    clear cleanup_;
-                    % [V3.18 (4)] ?쒕옒洹?醫낅즺 ???몄젒 frame ?뚮컢??(idle CPU ?쒖슜)
-                    app.prefetchAdjacentFrames(fIdx);
-                end
-            end
-        end
 
         % ---------------------------------------------------------------------
         % [V3.11 B] XLim 由ъ뒪???쇨큵 ?쒖뼱 (?쒕옒洹?以?以묐떒/蹂듭썝)
@@ -3164,7 +2838,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 pathLon = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lon);
                 pathLat = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lat);
 
-                updateFullPath = ~app.IsDraggingMarker || ...
+                updateFullPath = ~app.MarkerDragCtrl.IsDraggingMarker || ...
                     ~app.throttleHit('MapPathDragUpdate', fIdx, flightdash.util.AppConstants.MAP_PATH_DRAG_THROTTLE_S);
                 if updateFullPath && isfield(app.UI(fIdx), 'hMapPath') && isvalid(app.UI(fIdx).hMapPath)
                     set(app.UI(fIdx).hMapPath, 'XData', pathLon(1:idx), 'YData', pathLat(1:idx));
@@ -3184,7 +2858,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME, app.logCaught(ME, 'silent'); end
 
             % H ?⑤꼸 梨낆옣 ?섍린湲?+ 留덉빱 媛깆떊 (媛쒖꽑??A??IsProgrammaticXLim 媛???묐룞)
-            if ~app.IsDraggingMarker || ...
+            if ~app.MarkerDragCtrl.IsDraggingMarker || ...
                     ~app.throttleHit('PlotDragTimelineUpdate', fIdx, flightdash.util.AppConstants.PLOT_DRAG_THROTTLE_S)
                 app.updatePlotTimeLines(fIdx, idx, currTime);
             end
@@ -3192,7 +2866,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % [V3.12 2.2.3] 鍮꾨뵒???숆린 ?ㅼ젙 ??Frame 留덉빱 + ?곸긽 ?꾨젅??媛깆떊
             % (?? 鍮꾨뵒??痢≪뿉???쒖옉???쒕옒洹멸? ?꾨땺 ?뚮쭔 - 臾댄븳 猷⑦봽 諛⑹?)
             % [PATCH UX-1] Sync 紐낆떆 ?쒖꽦??+ 鍮꾨뵒??ready ?숈떆 異⑹” ?쒖뿉留?媛깆떊
-            if app.VideoSyncState(fIdx).IsSynced && ~app.DraggedFromVideo ...
+            if app.VideoSyncState(fIdx).IsSynced && ~app.MarkerDragCtrl.DraggedFromVideo ...
                     && app.isVideoReady(fIdx) && app.VideoSyncState(fIdx).AnchorFrame > 0
                 try
                     targetFrame = app.timeToFrame(fIdx, currTime);
@@ -3222,7 +2896,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             end
 
-            try, app.updatePanelRailSummaries(fIdx); catch, end
+            try, app.LayoutMgr.updatePanelRailSummaries(app, fIdx); catch, end
 
             % [V3.17 (5)] cascade ?몃? + goToFrame 誘멸꼍???쒖뿉留?drawnow
             % goToFrame? ?먯껜 醫낅즺 ??drawnow ?몄텧?섎?濡?以묐났 諛⑹?
@@ -3291,8 +2965,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.updatePlotTimeLines(fIdx, currIdx, currTime);
             app.refreshPlotManager(fIdx);
             app.refreshPlotDetails(fIdx);
-            app.refreshPanner(fIdx);
-            app.drawRoiBands(fIdx);
+            app.PannerView.refresh(fIdx);
+            app.RoiCtrl.drawBands(fIdx);
         end
 
         function updatePlotTimeLines(app, fIdx, currIdx, currTime)
@@ -3375,7 +3049,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     data{k, 3} = info.YColumn;
                 end
                 app.UI(fIdx).plotManagerTable.Data = data;
-                app.refreshPlotManagerFigure(fIdx);
+                app.AuxWindowMgr.refreshPlotManagerFigure(app, fIdx);
                 if nPlots == 0
                     app.UI(fIdx).selectedPlotIdx = 0;
                 elseif ~isfield(app.UI(fIdx), 'selectedPlotIdx') || app.UI(fIdx).selectedPlotIdx < 1 || app.UI(fIdx).selectedPlotIdx > nPlots
@@ -3503,7 +3177,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if row < 1 || row > numel(app.UI(fIdx).plotAxes{tabIdx}), return; end
                 app.UI(fIdx).selectedPlotIdx = row;
                 app.refreshPlotDetails(fIdx);
-                app.refreshPanner(fIdx);
+                app.PannerView.refresh(fIdx);
             catch ME
                 app.logCaught(ME, 'PlotManager:select');
             end
@@ -3519,7 +3193,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 tabIdx = app.currentPlotTabIndex(fIdx);
                 if isempty(tabIdx) || row < 1 || row > numel(app.UI(fIdx).plotAxes{tabIdx}), return; end
 
-                vis = app.visibleState(isVisible);
+                vis = app.LayoutMgr.visibleState(isVisible);
                 handles = {app.UI(fIdx).plotAxes{tabIdx}{row}, app.UI(fIdx).timeLines{tabIdx}{row}, app.UI(fIdx).timeMarkers{tabIdx}{row}};
                 if isfield(app.UI(fIdx), 'plotValueLabels') && row <= numel(app.UI(fIdx).plotValueLabels{tabIdx})
                     handles{end+1} = app.UI(fIdx).plotValueLabels{tabIdx}{row};
@@ -3545,19 +3219,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
                 app.refreshPlotManager(fIdx);
                 app.refreshPlotDetails(fIdx);
-                app.refreshPanner(fIdx);
+                app.PannerView.refresh(fIdx);
             catch ME
                 app.logCaught(ME, 'PlotManager:visibility');
             end
         end
 
-        function state = visibleState(~, tf)
-            if tf
-                state = 'on';
-            else
-                state = 'off';
-            end
-        end
 
         function applyMainLineLegend(app, ax, info)
             try
@@ -3689,7 +3356,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.applyPlotAxisSettings(ax, info);
                 app.UI(fIdx).plotMeta{tabIdx}{plotIdx} = info;
                 app.refreshPlotDetails(fIdx);
-                app.refreshPanner(fIdx);
+                app.PannerView.refresh(fIdx);
             catch ME
                 app.logCaught(ME, 'PlotAxis:changed');
             end
@@ -3743,24 +3410,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function togglePlotManager(app, fIdx)
-            app.openPlotManagerFigure(fIdx);
+            app.AuxWindowMgr.openPlotManagerFigure(app, fIdx);
             if isfield(app.UI(fIdx), 'PlotManagerVisible') && logical(app.UI(fIdx).PlotManagerVisible)
                 app.togglePlotSidePanel(fIdx, 'plotManagerPanel', 1, 160, 'PlotManagerVisible');
             end
         end
 
         function togglePlotDetails(app, fIdx)
-            app.openDetailsFigure(fIdx);
-        end
-
-        function togglePanner(app, fIdx)
-            try
-                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
-                    app.PannerCtrl.togglePanner(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'Panner:toggleWrapper');
-            end
+            app.AuxWindowMgr.openDetailsFigure(app, fIdx);
         end
 
         function togglePlotSidePanel(app, fIdx, panelField, colIdx, designWidth, stateField)
@@ -3771,7 +3428,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if isfield(app.UI(fIdx), stateField), curr = logical(app.UI(fIdx).(stateField)); end
                 next = ~curr;
                 app.UI(fIdx).(stateField) = next;
-                app.UI(fIdx).(panelField).Visible = app.visibleState(next);
+                app.UI(fIdx).(panelField).Visible = app.LayoutMgr.visibleState(next);
                 cw = app.UI(fIdx).plotShellGrid.ColumnWidth;
                 if next
                     cw{colIdx} = flightdash.util.UIScale.px(designWidth);
@@ -3781,26 +3438,6 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.UI(fIdx).plotShellGrid.ColumnWidth = cw;
             catch ME
                 app.logCaught(ME, 'PlotSidePanel:toggle');
-            end
-        end
-
-        function refreshPanner(app, fIdx)
-            try
-                if ~isempty(app.PannerView) && isvalid(app.PannerView)
-                    app.PannerView.refresh(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'Panner:refreshWrapper');
-            end
-        end
-
-        function drawPannerModeBands(app, fIdx, ax, times)
-            try
-                if ~isempty(app.PannerView) && isvalid(app.PannerView)
-                    app.PannerView.drawModeBands(fIdx, ax, times);
-                end
-            catch ME
-                app.logCaught(ME, 'Panner:modeBandsWrapper');
             end
         end
 
@@ -4018,38 +3655,6 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function openPlotManagerFigure(app, fIdx)
-            app.AuxWindowMgr.openPlotManagerFigure(app, fIdx);
-        end
-
-        function refreshPlotManagerFigure(app, fIdx)
-            app.AuxWindowMgr.refreshPlotManagerFigure(app, fIdx);
-        end
-
-        function openRoiFigure(app, fIdx)
-            app.AuxWindowMgr.openRoiFigure(app, fIdx);
-        end
-
-        function refreshRoiFigure(app, fIdx)
-            app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
-        end
-
-        function openStatsFigure(app, fIdx)
-            app.AuxWindowMgr.openStatsFigure(app, fIdx);
-        end
-
-        function refreshStatsFigure(app, fIdx)
-            app.AuxWindowMgr.refreshStatsFigure(app, fIdx);
-        end
-
-        function openDetailsFigure(app, fIdx)
-            app.AuxWindowMgr.openDetailsFigure(app, fIdx);
-        end
-
-        function refreshDetailsFigure(app, fIdx)
-            app.AuxWindowMgr.refreshDetailsFigure(app, fIdx);
-        end
-
         function rows = statsRowsForCurrentRange(app, fIdx)
             rows = cell(0, 8);
             try
@@ -4088,111 +3693,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function addCurrentRoi(app, fIdx)
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    app.RoiCtrl.addCurrentRoi(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:addWrapper');
-            end
-        end
-
-        function onRoiSelectionChanged(app, fIdx, event)
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    app.RoiCtrl.onSelectionChanged(fIdx, event);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:selectWrapper');
-            end
-        end
-
-        function deleteSelectedRoi(app, fIdx)
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    app.RoiCtrl.deleteSelectedRoi(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:deleteSelectedWrapper');
-            end
-        end
-
-        function clearRois(app, fIdx)
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    app.RoiCtrl.clearRois(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:clearWrapper');
-            end
-        end
-
-        function refreshRoiTable(app, fIdx)
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    app.RoiCtrl.refreshTable(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:refreshTableWrapper');
-            end
-        end
-
-        function computeRoiAnalysis(app, fIdx)
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    app.RoiCtrl.computeAnalysis(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:analysisWrapper');
-            end
-        end
-
-        function targetCol = matchTargetColumn(app, fIdx, signalName)
-            targetCol = '';
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    targetCol = app.RoiCtrl.matchTargetColumn(fIdx, signalName);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:matchTargetWrapper');
-            end
-        end
-
-        function drawRoiBands(app, fIdx)
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    app.RoiCtrl.drawBands(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:drawWrapper');
-            end
-        end
-
-        function deleteRoiGraphics(app, fIdx)
-            try
-                if ~isempty(app.RoiCtrl) && isvalid(app.RoiCtrl)
-                    app.RoiCtrl.deleteGraphics(fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'ROI:deleteGraphicsWrapper');
-            end
-        end
-
         % ---------------------------------------------------------------------
         % H ?곸뿭 ??諛??ㅼ쨷 ?뚮’ 愿由?
         % ---------------------------------------------------------------------
-        function addPlotTab(app, fIdx)
-            if app.hasPlotView(fIdx)
-                app.PlotView(fIdx).addTab();
-            end
-        end
-
         % [FIX] ???붾㈃ 理쒕? 3媛?蹂댁옣: tabGroup 媛???믪씠瑜?3?깅텇??RowHeight ?숈쟻 媛깆떊
         % - throttle 0.05s濡?由ъ궗?댁쫰 以??ㅻ컻 ?몄텧 李⑤떒
         % - 紐⑤뱺 ??쓽 紐⑤뱺 row瑜??숈씪 ?믪씠濡??듭씪 (4媛??댁긽 ???먮룞 ?ㅽ겕濡?
         function updatePlotRowHeights(app, fIdx)
-            if flightdash.util.Throttle.instance().hit('PlotRowResize', fIdx, 0.05), return; end
+            if app.throttleHit('PlotRowResize', fIdx, 0.05), return; end
             try
                 if ~isfield(app.UI(fIdx), 'tabGroup') || ~isvalid(app.UI(fIdx).tabGroup), return; end
                 pos = getpixelposition(app.UI(fIdx).tabGroup, true);
@@ -4210,48 +3718,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % [FIX] UIFigure 由ъ궗?댁쫰 ????梨꾨꼸 plot row ?숈떆 媛깆떊
         function onUIFigureResized(app)
             if app.IsDeleting, return; end
-            app.applyResponsiveLayout('resize');
+            app.LayoutMgr.applyLayout(app, 'resize');
         end
 
-        function applyResponsiveLayout(app, reason)
-            if nargin < 2, reason = ''; end
-            try
-                if isempty(app.LayoutMgr) || ~isvalid(app.LayoutMgr), return; end
-                app.LayoutMgr.applyLayout(app, reason);
-            catch ME
-                app.logCaught(ME, 'Layout:responsiveWrapper');
-            end
-        end
-
-        function finishResponsiveLayout(app)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.finishResponsiveLayout(app);
-                else
-                    app.InResponsiveLayout = false;
-                end
-            catch
-                app.InResponsiveLayout = false;
-            end
-        end
-
-        function pos = initialFigurePosition(app)
-            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                pos = app.LayoutMgr.initialFigurePosition(app);
-            else
-                mon = app.primaryMonitorRect();
-                pos = app.figurePositionForMonitor(mon, false);
-            end
-        end
-
-        function pos = fitFigurePosition(app)
-            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                pos = app.LayoutMgr.fitFigurePosition(app);
-            else
-                mon = app.currentMonitorRect();
-                pos = app.figurePositionForMonitor(mon, true);
-            end
-        end
 
         function captureNormalFigurePosition(app)
             try
@@ -4284,7 +3753,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.UIFigure.Units = oldUnits;
                 end
                 drawnow limitrate;
-                app.applyResponsiveLayout('windowRestored');
+                app.LayoutMgr.applyLayout(app, 'windowRestored');
             catch ME
                 app.logCaught(ME, 'Layout:restoreWindow');
             end
@@ -4302,7 +3771,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.UIFigure.Units = 'pixels';
                 pos = app.UIFigure.Position;
                 app.UIFigure.Units = oldUnits;
-                fitPos = app.fitFigurePosition();
+                fitPos = app.LayoutMgr.fitFigurePosition(app);
                 tf = numel(pos) >= 4 && numel(fitPos) >= 4 && ...
                     abs(pos(3) - fitPos(3)) <= 8 && abs(pos(4) - fitPos(4)) <= 8;
             catch
@@ -4323,269 +3792,6 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     h.FitScreenButton.Tooltip = 'Maximize';
                 end
             catch
-            end
-        end
-
-        function mon = primaryMonitorRect(app)
-            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                mon = app.LayoutMgr.primaryMonitorRect();
-            else
-                [screenW, screenH] = flightdash.util.UIScale.screenSize();
-                mon = [1, 1, screenW, screenH];
-            end
-        end
-
-        function mon = currentMonitorRect(app)
-            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                mon = app.LayoutMgr.currentMonitorRect(app);
-            else
-                mon = app.primaryMonitorRect();
-            end
-        end
-
-        function pos = figurePositionForMonitor(app, mon, fitToScreen)
-            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                pos = app.LayoutMgr.figurePositionForMonitor(mon, fitToScreen);
-            else
-                pos = [mon(1), mon(2), max(360, mon(3)), max(360, mon(4))];
-            end
-        end
-
-        function [figW, figH] = currentFigureSizePx(app)
-            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                [figW, figH] = app.LayoutMgr.currentFigureSizePx(app);
-            else
-                [figW, figH] = flightdash.util.UIScale.screenSize();
-            end
-        end
-
-        function applyResponsiveShellLayout(app, profile, figH)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.applyResponsiveShellLayout(app, profile, figH);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:shellWrapper');
-            end
-        end
-
-        function applyResponsiveHeaderLayout(app, profile)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.applyResponsiveHeaderLayout(app, profile);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:headerWrapper');
-            end
-        end
-
-        function applyResponsiveBodyLayout(app, profile, figH)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.applyResponsiveBodyLayout(app, profile, figH);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:bodyWrapper');
-            end
-        end
-
-        function setChannelRootVisible(app, fIdx, tf)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.setChannelRootVisible(app, fIdx, tf);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:channelVisibleWrapper');
-            end
-        end
-
-        function rowH = channelMinHeightForProfile(app, profile)
-            rowH = flightdash.util.AppConstants.LAYOUT_CHANNEL_MIN_H_WIDE;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    rowH = app.LayoutMgr.channelMinHeightForProfile(profile);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:channelMinHeightWrapper');
-            end
-        end
-
-        function placeGridItem(app, h, row, col)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.placeGridItem(h, row, col);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:placeGridItemWrapper');
-            end
-        end
-
-        function applyResponsiveChannelLayout(app, fIdx, profile)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.applyResponsiveChannelLayout(app, fIdx, profile);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:channelWrapper');
-            end
-        end
-
-        function widths = computeResponsiveColumnWidths(app, fIdx, profile, gridW, dg)
-            widths = {};
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    widths = app.LayoutMgr.computeResponsiveColumnWidths(app, fIdx, profile, gridW, dg);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:widthsWrapper');
-            end
-        end
-
-        function [attD, mapD, infoD, videoD, hMinD] = layoutDesignWidths(app, profile)
-            if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                [attD, mapD, infoD, videoD, hMinD] = app.LayoutMgr.layoutDesignWidths(profile);
-            else
-                attD = 0; mapD = 0; infoD = 0; videoD = 0; hMinD = 0;
-            end
-        end
-
-        function videoW = resolvePreferredVideoWidth(app, fIdx, profile, videoW, dg)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    videoW = app.LayoutMgr.resolvePreferredVideoWidth(app, fIdx, profile, videoW, dg);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:videoWidthWrapper');
-            end
-        end
-
-        function tf = isSplitterRestricted(app)
-            tf = false;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    tf = app.LayoutMgr.isSplitterRestricted(app);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:splitterRestrictedWrapper');
-            end
-        end
-
-        function tf = isSplitterRestrictedForProfile(app, profile)
-            tf = false;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    tf = app.LayoutMgr.isSplitterRestrictedForProfile(profile);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:splitterProfileWrapper');
-            end
-        end
-
-        function tf = isPanelVisibleForLayout(app, fIdx, pnlName)
-            tf = true;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    tf = app.LayoutMgr.isPanelVisibleForLayout(app, fIdx, pnlName);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:panelVisibleWrapper');
-            end
-        end
-
-        function [val, deficit] = shrinkWidth(app, val, minVal, deficit)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    [val, deficit] = app.LayoutMgr.shrinkWidth(val, minVal, deficit);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:shrinkWrapper');
-            end
-        end
-
-        function setHandleVisible(app, h, isVisible)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.setHandleVisible(h, isVisible);
-                elseif ~isempty(h) && all(isvalid(h))
-                    h.Visible = app.visibleState(isVisible);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:visibleWrapper');
-            end
-        end
-
-        function applyResponsiveRailStates(app, fIdx, widths, profile)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.applyResponsiveRailStates(app, fIdx, widths, profile);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:railStateWrapper');
-            end
-        end
-
-        function tf = isRailColumn(app, widthVal, railDesignWidth, profile)
-            tf = false;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    tf = app.LayoutMgr.isRailColumn(widthVal, railDesignWidth, profile);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:isRailWrapper');
-            end
-        end
-
-        function setContentRailMode(app, fIdx, contentField, railField, useRail)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.setContentRailMode(app, fIdx, contentField, railField, useRail);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:railModeWrapper');
-            end
-        end
-
-        function updatePanelRailSummaries(app, fIdx)
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    app.LayoutMgr.updatePanelRailSummaries(app, fIdx);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:railSummaryWrapper');
-            end
-        end
-
-        function val = modelValueAt(app, fIdx, keyName, idx, defaultVal)
-            val = defaultVal;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    val = app.LayoutMgr.modelValueAt(app, fIdx, keyName, idx, defaultVal);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:modelValueWrapper');
-            end
-        end
-
-        function txt = formatRailNumber(app, fmt, val, fallback)
-            txt = fallback;
-            try
-                if ~isempty(app.LayoutMgr) && isvalid(app.LayoutMgr)
-                    txt = app.LayoutMgr.formatRailNumber(fmt, val, fallback);
-                end
-            catch ME
-                app.logCaught(ME, 'Layout:formatRailWrapper');
-            end
-        end
-
-        function clearCurrentTab(app, fIdx)
-            if app.hasPlotView(fIdx)
-                app.PlotView(fIdx).clearCurrentTab();
-            end
-        end
-
-        function clearAllTabs(app, fIdx)
-            if app.hasPlotView(fIdx)
-                app.PlotView(fIdx).clearAllTabs();
             end
         end
 
@@ -4635,8 +3841,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             % [踰꾧렇 ?꾨꼍 ?섏젙] 以????깆뿉 ?섑빐 X異?踰붿쐞媛 蹂寃쎈릺?덉쓣 ??
             % ?뱀떆 ?⑥븘?덉쓣吏 紐⑤Ⅴ???쒕옒洹??곹깭瑜??덉쟾?섍쾶 媛뺤젣 珥덇린??
-            if app.IsDraggingMarker
-                app.stopPlotMarkerDrag();
+            if app.MarkerDragCtrl.IsDraggingMarker
+                app.MarkerDragCtrl.stopDrag();
             end
 
             % [以??숆린???듭떖] ?뺣?/?대룞 諛쒖깮 ??以묒븰 ?쒓컙 ?띾뱷 ????쒕낫???숆린??
@@ -4660,12 +3866,6 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             if isequal(app.Models(fIdx).currentIndex, idx), return; end
             app.applyTimeChange(fIdx, idx);
-        end
-
-        function plotSelectedVariable(app, fIdx)
-            if app.hasPlotView(fIdx)
-                app.PlotView(fIdx).addSelectedVariable();
-            end
         end
     end
 
@@ -4738,8 +3938,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.updateFlightModeBands(fIdx);
                 app.refreshPlotManager(fIdx);
                 app.refreshPlotDetails(fIdx);
-                app.refreshPanner(fIdx);
-                app.refreshRoiTable(fIdx);
+                app.PannerView.refresh(fIdx);
+                app.RoiCtrl.refreshTable(fIdx);
                 app.updateDashboard(fIdx, 1);
             end
         end
@@ -4810,8 +4010,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.UI(fIdx).hAltMarker = plot(axAlt, times(1), alts(1), 'p', 'MarkerFaceColor', [0.98 0.75 0.14], 'MarkerEdgeColor', [0.71 0.33 0.04], 'MarkerSize', 14, 'HitTest', 'on');
             app.UI(fIdx).timeLine = xline(axAlt, times(1), 'r', 'LineWidth', 3.0, 'Alpha', 0.5, 'HitTest', 'on');
 
-            app.UI(fIdx).hAltMarker.ButtonDownFcn = @(src, event) app.startPlotMarkerDrag(fIdx, 0, src, event);
-            app.UI(fIdx).timeLine.ButtonDownFcn = @(src, event) app.startPlotMarkerDrag(fIdx, 0, src, event);
+            app.UI(fIdx).hAltMarker.ButtonDownFcn = @(src, event) app.MarkerDragCtrl.startPlotMarkerDrag(fIdx, 0, src, event);
+            app.UI(fIdx).timeLine.ButtonDownFcn = @(src, event) app.MarkerDragCtrl.startPlotMarkerDrag(fIdx, 0, src, event);
 
             % Altitude ?⑤꼸??Zoom/Pan ???숆린??由ъ뒪??異붽?
             app.UI(fIdx).altXLimListener = addlistener(axAlt, 'XLim', 'PostSet', @(~,~) app.handlePlotXLimChange(fIdx, axAlt));
@@ -5098,7 +4298,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 % app.updateVideoFrame(fIdx, currTime);  % <--- ??以꾩쓣 二쇱꽍 泥섎━?섏뿬 ?꾩쟾 遺꾨━
             end
             app.updatePlotTimeLines(fIdx, index, currTime);
-            app.updatePanelRailSummaries(fIdx);
+            app.LayoutMgr.updatePanelRailSummaries(app, fIdx);
 
             drawnow limitrate;
         end
@@ -5150,7 +4350,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             % [V3.22 #5] UI ?됰㈃ struct瑜?洹몃９?붾맂 view濡?alias (?명솚 ?좎?)
             app.buildUIGroups();
-            app.applyResponsiveLayout('createLayout');
+            app.LayoutMgr.applyLayout(app, 'createLayout');
         end
 
         % [V3.22 #5] ?됰㈃ UI struct瑜?洹몃９?붾맂 view(struct)濡?臾띠뼱 蹂꾨룄 ?띿꽦?????

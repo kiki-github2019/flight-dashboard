@@ -68,6 +68,9 @@ function_catalog_slides.md  # 자동 생성 슬라이드
 .env.local
 config.local.*
 
+# --- Claude Code 세션 상태 ---
+.claude/
+
 # --- 화이트리스트 (예외) ---
 !.gitignore
 !.gitattributes
