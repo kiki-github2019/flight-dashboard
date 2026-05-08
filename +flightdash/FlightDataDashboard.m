@@ -725,34 +725,45 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
 
         function UIFigureCloseRequest(app, ~, ~)
+            % [PHASE 0] Defensive close: capture UIFigure handle first so we
+            % can guarantee figure deletion even if subsequent steps throw.
+            figHandle = [];
             try
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    figHandle = app.UIFigure;
                     app.UIFigure.WindowButtonMotionFcn = '';
                     app.UIFigure.WindowButtonUpFcn = '';
                 end
-                % [FIX] drag/splitter ?곹깭 紐낆떆 ?대━??(close 以?stale callback 李⑤떒)
                 app.IsDraggingSplitter = false;
                 app.IsDraggingPanelSplitter = false;
                 app.IsDraggingPanner   = false;
-                if ~isempty(app.InfoCtrl) && isvalid(app.InfoCtrl), app.InfoCtrl.clearState(); end
-                app.MarkerDragCtrl.clearDraggedMarker();
-            catch ME_silent, app.logCaught(ME_silent, 'silent'); end
+                if ~isempty(app.InfoCtrl) && isvalid(app.InfoCtrl)
+                    app.InfoCtrl.clearState();
+                end
+                if ~isempty(app.MarkerDragCtrl) && isvalid(app.MarkerDragCtrl)
+                    app.MarkerDragCtrl.clearDraggedMarker();
+                end
+            catch ME_silent
+                try, app.logCaught(ME_silent, 'silent'); catch, end
+            end
             try
                 app.autoSaveConfigOnClose();
             catch ME_cfg
-                app.logCaught(ME_cfg, 'Config:autoSaveOnClose');
+                try, app.logCaught(ME_cfg, 'Config:autoSaveOnClose'); catch, end
             end
             try
                 delete(app);
             catch ME
-                app.logCaught(ME, 'CloseRequest:delete');
-                try
-                    if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                        delete(app.UIFigure);
-                    end
-                catch ME_ui
-                    app.logCaught(ME_ui, 'CloseRequest:forceFigureDelete');
+                try, app.logCaught(ME, 'CloseRequest:delete'); catch, end
+            end
+            % [PHASE 0] Final guarantee: figure MUST be removed regardless of
+            % what failed above. MATLAB Online keeps the window open if the
+            % CloseRequestFcn returns without deleting the figure.
+            try
+                if ~isempty(figHandle) && isvalid(figHandle)
+                    delete(figHandle);
                 end
+            catch
             end
         end
 
