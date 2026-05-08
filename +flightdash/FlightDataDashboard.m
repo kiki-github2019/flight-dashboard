@@ -148,29 +148,27 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % ?앹꽦??諛?珥덇린??
         % ---------------------------------------------------------------------
         function app = FlightDataDashboard(parentContainer, sessionId)
-            % [PHASE 3a] Constructor accepts optional embedding parameters.
+            % [PHASE 3a/3b] Constructor accepts optional embedding parameters.
             %   FlightDataDashboard()                         -> standalone (legacy)
             %   FlightDataDashboard(parentContainer, sessionId) -> embedded
             %
-            % Phase 3a: signature contract only. The actual embedded
-            % rendering pipeline lands in Phase 3b. For now, calling with
-            % a parentContainer raises a clear error so Studio code paths
-            % can be wired up without silently breaking.
-            if nargin >= 1 && ~isempty(parentContainer)
+            % Embedded mode reuses the host figure (e.g. Studio shell) so
+            % WindowButton callbacks still work, and renders the dashboard
+            % UI inside parentContainer (a uitab or uipanel).
+            embeddedMode = (nargin >= 1) && ~isempty(parentContainer) && isvalid(parentContainer);
+            if embeddedMode
                 if nargin < 2 || isempty(sessionId)
                     error('FlightDataDashboard:MissingSessionId', ...
                         'Embedded mode requires sessionId as the 2nd argument.');
                 end
-                error('FlightDataDashboard:EmbeddedNotImplemented', ...
-                    ['Embedded mode (Phase 3b) is not yet implemented. ' ...
-                     'Call FlightDataDashboard() with no arguments for ' ...
-                     'standalone use. parentContainer=%s, sessionId=%s'], ...
-                    class(parentContainer), char(sessionId));
+                app.IsEmbedded      = true;
+                app.ActiveSessionId = char(sessionId);
+                app.RootContainer   = parentContainer;
+            else
+                app.IsEmbedded      = false;
+                app.ActiveSessionId = 'standalone';
+                % RootContainer is set later, right after uifigure creation.
             end
-
-            % --- Standalone path (unchanged Phase 3a behavior) ---
-            app.IsEmbedded      = false;
-            app.ActiveSessionId = 'standalone';
 
             app.Models = [app.createEmptyModel(), app.createEmptyModel()];
             app.SyncState = struct('IsSynced', false, 'SyncT1', 0, 'SyncT2', 0);
@@ -218,22 +216,35 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             end
 
-            close(findobj('Type', 'figure', 'Name', 'Flight Data Review Dashboard (Dual)'));
-            % [FIX] AutoResizeChildren='on' 시 SizeChangedFcn이 무시되는 경고 차단
-            % - uigridlayout이 자식 리사이즈를 담당하므로 AutoResizeChildren은 불필요
-            initialPos = app.LayoutMgr.initialFigurePosition(app);
-            app.UIFigure = uifigure('Name', 'Flight Data Review Dashboard (Dual)', ...
-                                    'Units', 'pixels', ...
-                                    'Position', app.LayoutMgr.initialFigurePosition(app), ...
-                                    'Color', [0.94 0.94 0.96]);
-            app.NormalFigurePosition = app.UIFigure.Position;
-            % [PHASE 3a] In standalone mode the figure IS the layout root.
-            % Phase 3b will set RootContainer to a parent uitab/uipanel.
-            app.RootContainer = app.UIFigure;
-            try
-                app.UIFigure.AutoResizeChildren = 'off';
-            catch ME
-                app.logCaught(ME, 'UI:AutoResizeChildren');
+            % [PHASE 3b] Standalone owns its own uifigure; embedded mode
+            % reuses the host figure (Studio's UIFigure) so WindowButton
+            % callbacks attach to a single figure shared by all sessions.
+            if app.IsEmbedded
+                % RootContainer was set in the constructor to the parent
+                % uitab/uipanel. UIFigure climbs to the ancestor figure.
+                app.UIFigure = ancestor(app.RootContainer, 'figure');
+                app.NormalFigurePosition = app.UIFigure.Position;
+            else
+                close(findobj('Type', 'figure', 'Name', 'Flight Data Review Dashboard (Dual)'));
+                % [FIX] AutoResizeChildren='on' 시 SizeChangedFcn이 무시되는 경고 차단
+                % - uigridlayout이 자식 리사이즈를 담당하므로 AutoResizeChildren은 불필요
+                initialPos = app.LayoutMgr.initialFigurePosition(app);
+                app.UIFigure = uifigure('Name', 'Flight Data Review Dashboard (Dual)', ...
+                                        'Units', 'pixels', ...
+                                        'Position', app.LayoutMgr.initialFigurePosition(app), ...
+                                        'Color', [0.94 0.94 0.96]);
+                app.NormalFigurePosition = app.UIFigure.Position;
+                % In standalone, the figure IS the layout root.
+                app.RootContainer = app.UIFigure;
+            end
+            % AutoResizeChildren is a figure property; in embedded mode
+            % the Studio shell already configured it, so leave it alone.
+            if ~app.IsEmbedded
+                try
+                    app.UIFigure.AutoResizeChildren = 'off';
+                catch ME
+                    app.logCaught(ME, 'UI:AutoResizeChildren');
+                end
             end
             % [PHASE 3a] Figure-level callbacks only in standalone mode.
             % In embedded mode the Studio shell owns the figure, so wiring
@@ -4390,7 +4401,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % [REFACTOR Step 3] 메인 골격 + 채널별 빌드는 view 패키지로 위임
             % - 헤더: buildHeaderBar (기존 유지)
             % - 채널: flightdash.view.ChannelLayout.build (6컬럼 위임)
-            mainLayout = uigridlayout(app.UIFigure, [2 1]);
+            % [PHASE 3b] Layout parent is RootContainer:
+            %   standalone -> UIFigure
+            %   embedded   -> the parent uitab/uipanel from Studio
+            mainLayout = uigridlayout(app.RootContainer, [2 1]);
             app.LayoutHandles.mainLayout = mainLayout;
             mainLayout.RowHeight = {'fit', '1x'};
             mainLayout.Padding = [2 2 2 2];

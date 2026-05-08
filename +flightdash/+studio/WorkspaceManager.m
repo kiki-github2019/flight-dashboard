@@ -12,15 +12,86 @@ classdef WorkspaceManager < handle
         Panel        % uipanel
         TabGroup     % uitabgroup
         WelcomeTab   % uitab
+        % [PHASE 3b] Map of SessionId -> embedded FlightDataDashboard
+        % handle, plus the uitab that hosts it. Used to:
+        %   - bring tab to front when same session is selected again
+        %   - delete the dashboard when its tab is closed
+        DashboardEntries containers.Map = containers.Map.empty
     end
 
     methods
         function obj = WorkspaceManager(app, parentGrid)
             obj.App = app;
+            obj.DashboardEntries = containers.Map('KeyType', 'char', 'ValueType', 'any');
             obj.build(parentGrid);
         end
 
-        function delete(~)
+        function delete(obj)
+            % Tear down embedded dashboards before parent uitabs go away.
+            try
+                if ~isempty(obj.DashboardEntries) && isvalid(obj.DashboardEntries)
+                    keys_ = obj.DashboardEntries.keys;
+                    for k = 1:numel(keys_)
+                        entry = obj.DashboardEntries(keys_{k});
+                        try
+                            if ~isempty(entry.Dashboard) && isvalid(entry.Dashboard)
+                                delete(entry.Dashboard);
+                            end
+                        catch, end
+                    end
+                end
+            catch, end
+        end
+
+        function tab = addDashboardTab(obj, sessionId, displayName)
+            % [PHASE 3b] Create a workspace tab and embed a
+            % FlightDataDashboard inside it for the given session.
+            if obj.DashboardEntries.isKey(sessionId)
+                % Bring existing tab to front
+                entry = obj.DashboardEntries(sessionId);
+                if ~isempty(entry.Tab) && isvalid(entry.Tab)
+                    obj.TabGroup.SelectedTab = entry.Tab;
+                    tab = entry.Tab;
+                    return;
+                end
+            end
+
+            tab = uitab(obj.TabGroup, 'Title', displayName);
+            tab.UserData = struct('SessionId', sessionId);
+
+            try
+                % Create dashboard with this tab as parent. Constructor
+                % builds its full UI inside the tab.
+                dash = flightdash.FlightDataDashboard(tab, sessionId);
+
+                obj.DashboardEntries(sessionId) = struct( ...
+                    'SessionId', sessionId, ...
+                    'Tab',       tab, ...
+                    'Dashboard', dash);
+
+                obj.TabGroup.SelectedTab = tab;
+                obj.onTabChanged();
+            catch ME
+                % Roll back the empty tab if dashboard construction fails
+                try, delete(tab); catch, end
+                rethrow(ME);
+            end
+        end
+
+        function removeDashboardTab(obj, sessionId)
+            if ~obj.DashboardEntries.isKey(sessionId), return; end
+            entry = obj.DashboardEntries(sessionId);
+            try
+                if ~isempty(entry.Dashboard) && isvalid(entry.Dashboard)
+                    delete(entry.Dashboard);
+                end
+            catch, end
+            try
+                if ~isempty(entry.Tab) && isvalid(entry.Tab)
+                    delete(entry.Tab);
+                end
+            catch, end
+            obj.DashboardEntries.remove(sessionId);
         end
 
         function id = activeSessionId(obj)

@@ -72,9 +72,10 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function sessionId = addSession(app, displayName)
-            % Phase 2 entry point used by Menu > Project > Add Review Session.
-            % Returns the new session id so callers can route follow-up
-            % actions (e.g. Phase 3 will spawn an embedded dashboard tab).
+            % Phase 2/3b entry point: Menu > Project > Add Review Session.
+            % - Phase 2: appends a SessionModel to app.Project.
+            % - Phase 3b: embeds a FlightDataDashboard inside a new
+            %   workspace tab bound to that session.
             if nargin < 2 || isempty(displayName)
                 displayName = sprintf('Session %d', app.Project.sessionCount() + 1);
             end
@@ -83,9 +84,25 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             sessionId = sess.SessionId;
             app.refreshExplorer();
             app.refreshTitle();
+
+            % [PHASE 3b] Embed dashboard in a workspace tab
+            embedOk = false; embedErr = '';
+            try
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    app.Workspace.addDashboardTab(sessionId, sess.DisplayName);
+                    embedOk = true;
+                end
+            catch ME
+                embedErr = ME.message;
+            end
+
             if ~isempty(app.StatusBar)
-                app.StatusBar.setMessage(sprintf('Added session: %s (%s)', ...
-                    sess.DisplayName, sessionId));
+                if embedOk
+                    msg = sprintf('Added session: %s (%s)', sess.DisplayName, sessionId);
+                else
+                    msg = sprintf('Added session metadata only — embed failed: %s', embedErr);
+                end
+                app.StatusBar.setMessage(msg);
             end
         end
 
