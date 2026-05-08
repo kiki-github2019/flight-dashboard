@@ -146,6 +146,8 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function pos = initialFigurePosition(~)
+            % Conservative size that fits MATLAB Online browser viewports
+            % AND most desktop monitors. Avoids "exceeds monitor range".
             try
                 monitors = get(groot, 'MonitorPositions');
                 if ~isempty(monitors) && size(monitors, 2) >= 4
@@ -156,10 +158,15 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             catch
                 mon = [1 1 1280 800];
             end
-            margin = 60;
-            w = max(960, mon(3) - 2 * margin);
-            h = max(640, mon(4) - 2 * margin);
-            pos = [mon(1) + margin, mon(2) + margin, w, h];
+            % Cap at a friendly size; never larger than 90% of monitor.
+            maxW = 1280;  maxH = 800;
+            w = min(maxW, floor(mon(3) * 0.9));
+            h = min(maxH, floor(mon(4) * 0.9));
+            w = max(960, w);
+            h = max(600, h);
+            x = mon(1) + max(10, floor((mon(3) - w) / 2));
+            y = mon(2) + max(10, floor((mon(4) - h) / 2));
+            pos = [x, y, w, h];
         end
 
         function out = shortenPath(~, p, maxLen)
