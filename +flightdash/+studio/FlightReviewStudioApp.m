@@ -86,23 +86,43 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.refreshTitle();
 
             % [PHASE 3b] Embed dashboard in a workspace tab
-            embedOk = false; embedErr = '';
+            embedOk = false; embedME = [];
             try
                 if ~isempty(app.Workspace) && isvalid(app.Workspace)
                     app.Workspace.addDashboardTab(sessionId, sess.DisplayName);
                     embedOk = true;
+                else
+                    embedME = MException('FlightReviewStudio:NoWorkspace', ...
+                        'Workspace manager is not available.');
                 end
             catch ME
-                embedErr = ME.message;
+                embedME = ME;
             end
 
-            if ~isempty(app.StatusBar)
-                if embedOk
-                    msg = sprintf('Added session: %s (%s)', sess.DisplayName, sessionId);
-                else
-                    msg = sprintf('Added session metadata only — embed failed: %s', embedErr);
+            if embedOk
+                msg = sprintf('Added session: %s (%s)', sess.DisplayName, sessionId);
+                if ~isempty(app.StatusBar), app.StatusBar.setMessage(msg); end
+            else
+                % Surface the failure prominently so the user can see *why*
+                % the new tab did not appear. Status bar alone is too
+                % discreet for a multi-step pipeline failure.
+                shortMsg = sprintf('Embed failed: %s', embedME.message);
+                if ~isempty(app.StatusBar), app.StatusBar.setMessage(shortMsg); end
+                try
+                    detail = sprintf(['The session was added to the project, but the\n' ...
+                        'FlightDataDashboard could not be embedded in a workspace tab.\n\n' ...
+                        'Identifier: %s\n' ...
+                        'Message:    %s\n\n' ...
+                        'Top stack frame:\n  %s'], ...
+                        embedME.identifier, embedME.message, ...
+                        flightdash.studio.FlightReviewStudioApp.formatTopStackFrame(embedME));
+                    if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                        uialert(app.UIFigure, detail, 'Embed FlightDataDashboard failed');
+                    end
+                catch
+                    % Fallback: warn to console.
+                    warning('FlightReviewStudio:EmbedFailed', '%s', embedME.message);
                 end
-                app.StatusBar.setMessage(msg);
             end
         end
 
@@ -241,6 +261,18 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 head = floor(maxLen / 3);
                 tail = maxLen - head - 3;
                 out = [p(1:head), '...', p(end-tail+1:end)];
+            end
+        end
+    end
+
+    methods (Static)
+        function s = formatTopStackFrame(ME)
+            s = '(no stack info)';
+            try
+                if isempty(ME.stack), return; end
+                f = ME.stack(1);
+                s = sprintf('%s (line %d)', f.name, f.line);
+            catch
             end
         end
     end

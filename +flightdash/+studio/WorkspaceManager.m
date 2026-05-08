@@ -13,10 +13,8 @@ classdef WorkspaceManager < handle
         TabGroup     % uitabgroup
         WelcomeTab   % uitab
         % [PHASE 3b] Map of SessionId -> embedded FlightDataDashboard
-        % handle, plus the uitab that hosts it. Used to:
-        %   - bring tab to front when same session is selected again
-        %   - delete the dashboard when its tab is closed
-        DashboardEntries containers.Map = containers.Map.empty
+        % handle, plus the uitab that hosts it.
+        DashboardEntries  % containers.Map (created in ctor)
     end
 
     methods
