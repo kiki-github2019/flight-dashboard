@@ -569,14 +569,36 @@ classdef ResponsiveLayoutManager < handle
             try
                 if isempty(widths) || numel(widths) < 9, return; end
 
-                obj.setContentRailMode(app, fIdx, 'attitudeContent', 'attitudeRail', ...
-                    obj.isRailColumn(widths{1}, flightdash.util.AppConstants.LAYOUT_ATT_RAIL, profile));
-                obj.setContentRailMode(app, fIdx, 'mapAltContent', 'mapAltRail', ...
-                    obj.isRailColumn(widths{3}, flightdash.util.AppConstants.LAYOUT_MAP_RAIL, profile));
-                obj.setContentRailMode(app, fIdx, 'infoContent', 'infoRail', ...
-                    obj.isRailColumn(widths{5}, flightdash.util.AppConstants.LAYOUT_INFO_RAIL, profile));
-                obj.setContentRailMode(app, fIdx, 'videoContent', 'videoRail', ...
-                    obj.isRailColumn(widths{9}, flightdash.util.AppConstants.LAYOUT_VIDEO_RAIL, profile));
+                % [PHASE 3c] When the dashboard is embedded inside a
+                % Studio workspace tab the measured width can fall
+                % below the rail thresholds even though the user wants
+                % full content. Rails would replace map / info / video
+                % with single-line text summaries. Force rails OFF in
+                % embedded mode so the panels keep their full UI.
+                forceFullPanels = false;
+                try
+                    if isprop(app, 'IsEmbedded') && app.IsEmbedded
+                        forceFullPanels = true;
+                    end
+                catch
+                end
+
+                if forceFullPanels
+                    attRail   = false;
+                    mapRail   = false;
+                    infoRail  = false;
+                    videoRail = false;
+                else
+                    attRail   = obj.isRailColumn(widths{1}, flightdash.util.AppConstants.LAYOUT_ATT_RAIL,   profile);
+                    mapRail   = obj.isRailColumn(widths{3}, flightdash.util.AppConstants.LAYOUT_MAP_RAIL,   profile);
+                    infoRail  = obj.isRailColumn(widths{5}, flightdash.util.AppConstants.LAYOUT_INFO_RAIL,  profile);
+                    videoRail = obj.isRailColumn(widths{9}, flightdash.util.AppConstants.LAYOUT_VIDEO_RAIL, profile);
+                end
+
+                obj.setContentRailMode(app, fIdx, 'attitudeContent', 'attitudeRail', attRail);
+                obj.setContentRailMode(app, fIdx, 'mapAltContent',   'mapAltRail',   mapRail);
+                obj.setContentRailMode(app, fIdx, 'infoContent',     'infoRail',     infoRail);
+                obj.setContentRailMode(app, fIdx, 'videoContent',    'videoRail',    videoRail);
             catch ME
                 app.logCaught(ME, 'Layout:railState');
             end

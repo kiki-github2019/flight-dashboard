@@ -642,6 +642,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     % =========================================================================
     methods (Access = public)
         function handleFlightFile(app, fIdx)
+            % [PHASE 3c] Cross-instance reentry guard.
+            % In multi-session Studio embeds the EventBus broadcast still
+            % reaches every dashboard's FileController if HeaderBar
+            % wasn't refreshed (cached old version). Without a guard the
+            % file dialog opens once per dashboard. We use setappdata on
+            % the root graphics object so the flag is shared across all
+            % dashboard instances regardless of class caching.
+            if getappdata(0, 'FlightDashFileDialogActive')
+                return;
+            end
+            setappdata(0, 'FlightDashFileDialogActive', true);
+            cleanup_ = onCleanup(@() setappdata(0, 'FlightDashFileDialogActive', false)); %#ok<NASGU>
+
             [filename, pathname] = uigetfile({'*.dat;*.csv;*.txt', 'Flight data (*.dat, *.csv, *.txt)'}, ...
                 sprintf('Select Flight %d Data File', fIdx));
             if isequal(filename, 0), return; end
@@ -727,6 +740,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function handleCoastFile(app)
+            if getappdata(0, 'FlightDashFileDialogActive'), return; end
+            setappdata(0, 'FlightDashFileDialogActive', true);
+            cleanup_ = onCleanup(@() setappdata(0, 'FlightDashFileDialogActive', false)); %#ok<NASGU>
+
             [filename, pathname] = uigetfile('*.csv', 'Select Coastline File');
             if isequal(filename, 0), return; end
             try
@@ -956,6 +973,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % Long-GOP 영상은 임의 위치로 seek 시 가장 가까운 키프레임(I-Frame)부터
         % ?ㅼ떆 ?붿퐫?⑺빐???섎?濡? ?щ씪?대뜑 ?쒕옒洹???吏?곗씠 ?ы빐吏????덉쓬.
         function loadAviFile(app, fIdx)
+            if getappdata(0, 'FlightDashFileDialogActive'), return; end
+            setappdata(0, 'FlightDashFileDialogActive', true);
+            cleanup_ = onCleanup(@() setappdata(0, 'FlightDashFileDialogActive', false)); %#ok<NASGU>
+
             [fname, pname] = uigetfile({'*.avi;*.mp4;*.mkv', 'Video Files (*.avi, *.mp4)'}, sprintf('Select Video %d', fIdx));
             if isequal(fname, 0), return; end
             fullPath = fullfile(pname, fname);
