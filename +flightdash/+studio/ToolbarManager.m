@@ -8,7 +8,7 @@ classdef ToolbarManager < handle
 
     properties (Access = public)
         App
-        Panel    matlab.ui.container.Panel
+        Panel    % uipanel
         Buttons  struct = struct()
     end
 

@@ -9,9 +9,9 @@ classdef WorkspaceManager < handle
 
     properties (Access = public)
         App
-        Panel        matlab.ui.container.Panel
-        TabGroup     matlab.ui.container.TabGroup
-        WelcomeTab   matlab.ui.container.Tab
+        Panel        % uipanel
+        TabGroup     % uitabgroup
+        WelcomeTab   % uitab
     end
 
     methods

@@ -12,25 +12,25 @@ classdef RightDockManager < handle
 
     properties (Access = public)
         App
-        Panel              matlab.ui.container.Panel
-        TabGroup           matlab.ui.container.TabGroup
-        InspectorTab       matlab.ui.container.Tab
-        ObjectManagerTab   matlab.ui.container.Tab
-        LogsTab            matlab.ui.container.Tab
-        AppsTab            matlab.ui.container.Tab
+        Panel              % uipanel
+        TabGroup           % uitabgroup
+        InspectorTab       % uitab
+        ObjectManagerTab   % uitab
+        LogsTab            % uitab
+        AppsTab            % uitab
 
         % Inspector content (Phase 6c: quick action row goes here)
-        InspectorQuickRow  matlab.ui.container.GridLayout
-        InspectorBody      matlab.ui.container.GridLayout
+        InspectorQuickRow  % uigridlayout
+        InspectorBody      % uigridlayout
 
         % Object Manager
-        ObjectTree         matlab.ui.container.Tree
+        ObjectTree         % uitree
 
         % Logs (3 sub-tabs)
-        LogTabGroup        matlab.ui.container.TabGroup
-        MessageLogTable    matlab.ui.control.Table
-        ErrorLogTable      matlab.ui.control.Table
-        ResultLogTable     matlab.ui.control.Table
+        LogTabGroup        % uitabgroup
+        MessageLogTable    % uitable
+        ErrorLogTable      % uitable
+        ResultLogTable     % uitable
     end
 
     methods

@@ -16,18 +16,18 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
     %     by this id (see docs/test-multi-instance-drag.md).
 
     properties (Access = public)
-        UIFigure              matlab.ui.Figure
-        BodyGrid              matlab.ui.container.GridLayout
-        HeaderPanel           matlab.ui.container.Panel
-        StatusBarPanel        matlab.ui.container.Panel
+        UIFigure              % uifigure
+        BodyGrid              % uigridlayout
+        HeaderPanel           % uipanel
+        StatusBarPanel        % uipanel
 
         % Region managers (Phase 1: shells only)
-        MenuMgr               flightdash.studio.MenuManager
-        ToolbarMgr            flightdash.studio.ToolbarManager
-        ProjectExplorer       flightdash.studio.ProjectExplorerPanel
-        Workspace             flightdash.studio.WorkspaceManager
-        RightDock             flightdash.studio.RightDockManager
-        StatusBar             flightdash.studio.StatusBarManager
+        MenuMgr               % flightdash.studio.MenuManager
+        ToolbarMgr            % flightdash.studio.ToolbarManager
+        ProjectExplorer       % flightdash.studio.ProjectExplorerPanel
+        Workspace             % flightdash.studio.WorkspaceManager
+        RightDock             % flightdash.studio.RightDockManager
+        StatusBar             % flightdash.studio.StatusBarManager
 
         % Studio-level state (placeholders for Phase 2/3)
         ProjectName           char    = 'Untitled'

@@ -9,9 +9,9 @@ classdef ProjectExplorerPanel < handle
 
     properties (Access = public)
         App
-        Panel       matlab.ui.container.Panel
-        Tree        matlab.ui.container.CheckBoxTree   % unused in Phase 1
-        SearchField matlab.ui.control.EditField
+        Panel       % uipanel
+        Tree        % uitree (matlab.ui.container.Tree)
+        SearchField % uieditfield
         Roots       struct = struct()
     end
 

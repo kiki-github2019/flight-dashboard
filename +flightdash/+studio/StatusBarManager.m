@@ -11,18 +11,18 @@ classdef StatusBarManager < handle
 
     properties (Access = public)
         App
-        ProjectLabel        matlab.ui.control.Label
-        SessionLabel        matlab.ui.control.Label
-        ChannelLabel        matlab.ui.control.Label
-        TimeLabel           matlab.ui.control.Label
-        FrameLabel          matlab.ui.control.Label
-        VideoSyncLabel      matlab.ui.control.Label
-        FlightSyncLabel     matlab.ui.control.Label
-        AutoUpdateLabel     matlab.ui.control.Label
-        RoiSummaryLabel     matlab.ui.control.Label
-        DecodeQueueLabel    matlab.ui.control.Label
-        ErrorCountLabel     matlab.ui.control.Label
-        MessageLabel        matlab.ui.control.Label
+        ProjectLabel        % uilabel
+        SessionLabel        % uilabel
+        ChannelLabel        % uilabel
+        TimeLabel           % uilabel
+        FrameLabel          % uilabel
+        VideoSyncLabel      % uilabel
+        FlightSyncLabel     % uilabel
+        AutoUpdateLabel     % uilabel
+        RoiSummaryLabel     % uilabel
+        DecodeQueueLabel    % uilabel
+        ErrorCountLabel     % uilabel
+        MessageLabel        % uilabel
     end
 
     methods
