@@ -60,7 +60,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         UseAsyncDecode    = false   % [V3.19 (1)] 鍮꾨룞湲??붿퐫???쒖꽦??(Parallel Toolbox ?꾩슂)
     end
 
-    properties (Access = private)
+    % [PHASE 0 / Studio prep] Manager classes (LayoutMgr, AuxWindowMgr, controllers)
+    % access app state directly. Keep these public so cross-class reads/writes
+    % work identically in MATLAB Online (which strictly enforces private access).
+    properties (Access = public)
         IsUpdating          = [false, false] % ?ш? 諛⑹? ?뚮옒洹?
         IsProgrammaticXLim  = [false, false] % [V3.11 A] 梨낆옣 ?섍린湲????꾨줈洹몃옒諛?XLim 蹂寃???由ъ뒪??李⑤떒
         IsDraggingPanner    = false         % compact range bar handle drag state
@@ -415,7 +418,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
     end
 
-    methods (Access = private)
+    methods (Access = public)
         function resetIsUpdating(app, fIdx)
             % [FIX] applyTimeChange??IsUpdating ?뚮옒洹?由ъ뀑 (onCleanup 肄쒕갚)
             try
@@ -3872,7 +3875,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     % =========================================================================
     % ?곗씠???뚯꽌 諛??쒓컖???낅뜲?댄듃
     % =========================================================================
-    methods (Access = private)
+    methods (Access = public)
         function parseFlightData(app, fIdx, filepath)
             modelState = app.DataLoader.parseFlightData(fIdx, filepath);
             app.applyFlightDataState(fIdx, modelState);
@@ -4307,7 +4310,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     % =========================================================================
     % UI ?덉씠?꾩썐 ?앹꽦 ?⑺넗由?(Create Layout)
     % =========================================================================
-    methods (Access = private)
+    methods (Access = public)
         function createLayout(app)
             % [REFACTOR Step 3] 硫붿씤 怨④꺽 + 梨꾨꼸蹂?鍮뚮뱶??view ?⑦궎吏濡??꾩엫
             % - ?ㅻ뜑: buildHeaderBar (湲곗〈 ?좎?)
