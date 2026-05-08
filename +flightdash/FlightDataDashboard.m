@@ -133,6 +133,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % 모든 SessionId-aware 코드(throttle, drag controller, EventBus)는 이 값을 참조
         ActiveSessionId     = 'standalone'    % [PHASE 0.8] active session id (Studio 통합 prep)
         IsEmbedded          = false           % [PHASE 0.8] standalone vs embedded mode
+
+        % [PHASE 3a] 임베드 인터페이스 자리 표시
+        % - standalone: RootContainer = UIFigure (생성자가 자동 설정)
+        % - embedded:   RootContainer = Studio가 넘긴 부모 컨테이너 (uitab/uipanel)
+        % createLayout 등 향후 Phase 3b에서 RootContainer를 layout parent로 사용
+        RootContainer       = []              % [PHASE 3a] uifigure or parent container
         % [REFACTOR Step 0] ErrorLog??flightdash.util.ErrorLog ?깃??ㅼ쑝濡??꾩엫
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
@@ -141,7 +147,31 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % ---------------------------------------------------------------------
         % ?앹꽦??諛?珥덇린??
         % ---------------------------------------------------------------------
-        function app = FlightDataDashboard()
+        function app = FlightDataDashboard(parentContainer, sessionId)
+            % [PHASE 3a] Constructor accepts optional embedding parameters.
+            %   FlightDataDashboard()                         -> standalone (legacy)
+            %   FlightDataDashboard(parentContainer, sessionId) -> embedded
+            %
+            % Phase 3a: signature contract only. The actual embedded
+            % rendering pipeline lands in Phase 3b. For now, calling with
+            % a parentContainer raises a clear error so Studio code paths
+            % can be wired up without silently breaking.
+            if nargin >= 1 && ~isempty(parentContainer)
+                if nargin < 2 || isempty(sessionId)
+                    error('FlightDataDashboard:MissingSessionId', ...
+                        'Embedded mode requires sessionId as the 2nd argument.');
+                end
+                error('FlightDataDashboard:EmbeddedNotImplemented', ...
+                    ['Embedded mode (Phase 3b) is not yet implemented. ' ...
+                     'Call FlightDataDashboard() with no arguments for ' ...
+                     'standalone use. parentContainer=%s, sessionId=%s'], ...
+                    class(parentContainer), char(sessionId));
+            end
+
+            % --- Standalone path (unchanged Phase 3a behavior) ---
+            app.IsEmbedded      = false;
+            app.ActiveSessionId = 'standalone';
+
             app.Models = [app.createEmptyModel(), app.createEmptyModel()];
             app.SyncState = struct('IsSynced', false, 'SyncT1', 0, 'SyncT2', 0);
             app.VideoState = struct('videoReader', {[], []}, 'videoStartTime', {0, 0}, 'vidImageHandle', {[], []});
@@ -197,13 +227,24 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                                     'Position', app.LayoutMgr.initialFigurePosition(app), ...
                                     'Color', [0.94 0.94 0.96]);
             app.NormalFigurePosition = app.UIFigure.Position;
+            % [PHASE 3a] In standalone mode the figure IS the layout root.
+            % Phase 3b will set RootContainer to a parent uitab/uipanel.
+            app.RootContainer = app.UIFigure;
             try
                 app.UIFigure.AutoResizeChildren = 'off';
             catch ME
                 app.logCaught(ME, 'UI:AutoResizeChildren');
             end
-            app.UIFigure.CloseRequestFcn = @app.UIFigureCloseRequest;
-            app.UIFigure.SizeChangedFcn = @(~,~) app.onUIFigureResized();
+            % [PHASE 3a] Figure-level callbacks only in standalone mode.
+            % In embedded mode the Studio shell owns the figure, so wiring
+            % CloseRequestFcn here would override Studio's close handling
+            % and SizeChangedFcn would fire for the whole Studio (not
+            % just this dashboard tab). Phase 3b will register a
+            % per-tab resize listener via the parent container instead.
+            if ~app.IsEmbedded
+                app.UIFigure.CloseRequestFcn = @app.UIFigureCloseRequest;
+                app.UIFigure.SizeChangedFcn = @(~,~) app.onUIFigureResized();
+            end
 
             % [REFACTOR Step 4] 컨트롤러 인스턴스 (createLayout 전 필수)
             app.FileCtrl      = flightdash.controller.FileController(app);
@@ -360,11 +401,17 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.closeAllAuxFigures();
             catch ME, app.logCaught(ME, 'silent'); end
 
-            try
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    delete(app.UIFigure);
-                end
-            catch ME, app.logCaught(ME, 'silent'); end
+            % [PHASE 3a] Only the standalone path owns the uifigure.
+            % In embedded mode (Phase 3b+) Studio owns it: deleting the
+            % figure here would tear down the Studio shell. Studio is
+            % responsible for closing or removing the parent uitab/uipanel.
+            if ~app.IsEmbedded
+                try
+                    if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                        delete(app.UIFigure);
+                    end
+                catch ME, app.logCaught(ME, 'silent'); end
+            end
         end
 
         function model = createEmptyModel(~)
