@@ -1,13 +1,13 @@
 classdef FlightDataDashboard < matlab.apps.AppBase
     % =========================================================================
-    % 鍮꾪뻾 ?곗씠??由щ럭 ??쒕낫??- V3.22 (由ы뙥?좊쭅: 紐⑤뱢 遺꾪빐 + 罹먯떆 ?먮즺援ъ“ 媛쒖꽑)
+    % 비행 데이터 리뷰 대시보드 - V3.22 (리팩토링: 모듈 분해 + 캐시 자료구조 개선)
     % ?ㅻ챸:
-    %   [V3.22 蹂寃쎌궗??
-    %   - #1 ErrorLog ring buffer (silent catch???ы썑 議곗궗 媛??
-    %        + dumpErrorLog(n, filterTag) ?ы띁 硫붿꽌??
+    %   [V3.22 변경사항]
+    %   - #1 ErrorLog ring buffer (silent catch도 사후 조사 가능)
+    %        + dumpErrorLog(n, filterTag) 헬퍼 메서드
     %   - #2 cacheGetFrame??lastUse 移댁슫??湲곕컲 O(1) lookup?쇰줈 ?꾪솚
-    %        (cell 諛곗뿴 reference shuffle ?쒓굅 ?????꾨젅??lookup ??GC ?뺣젰 媛먯냼)
-    %        cacheStoreFrame? in-place 媛깆떊 + lastUse ?숆린 愿由?
+    %        (cell 배열 reference shuffle 제거 → 큰 프레임 lookup 시 GC 압력 감소)
+    %        cacheStoreFrame은 in-place 갱신 + lastUse 동기 관리
     %        evictByScore??lastUse ?몄옄 異붽? ??score = (hits * recency) / bytes
     %   - #3 loadAviFile??6媛??ы띁濡?遺꾪빐:
     %        confirmVideoReplace / invalidateFrameCache / computeStartTimeFromFlightData
@@ -18,24 +18,24 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     %   - #5 UIGroup alias: ?됰㈃ UI struct瑜?attitude/map/video/plots/controls/data
     %        濡?洹몃９?? 湲곗〈 ?됰㈃ ?꾨뱶??洹몃?濡??좎?(100% ?명솚), ?좉퇋 肄붾뱶??洹몃９ ?ъ슜
     %   - #6 Static wrapper: workerDecodeFrame / workerCleanupCache
-    %        ???ν썑 +flightdash ?⑦궎吏 留덉씠洹몃젅?댁뀡 ?듭뀡 ?뺣낫
-    %   - #7 createLayout 遺꾪빐: buildHeaderBar 異붿텧 + 鍮꾪뻾寃쎈줈 猷⑦봽 ?뱀뀡 媛?대뱶 異붽?
+    %        → 향후 +flightdash 패키지 마이그레이션 옵션 확보
+    %   - #7 createLayout 분해: buildHeaderBar 추출 + 비행경로 루프 섹션 가이드 추가
     %
-    %   [V3.21 #1-A] Generation counter (AsyncGen): 留?startAsyncDecode ?몄텧 ??
+    %   [V3.21 #1-A] Generation counter (AsyncGen): 매 startAsyncDecode 호출 시
     %     利앷?, future??myGen 罹≪쿂 ??onAsyncDecodeComplete?먯꽌 鍮꾧탳?섏뿬 stale
     %     寃곌낵 ?먭린. 媛숈? frame?대씪??generation mismatch硫?臾댁떆 ??race 李⑤떒.
-    %   [V3.21 #3-A] 3怨꾩링 遺꾨━:
-    %     Layer 1 requestFrame: 吏꾩엯??+ 罹먯떆 lookup + sync/async ?꾨왂 ?좏깮
-    %     Layer 2 decodeFrameSync / startAsyncDecode: ?붿퐫??(?꾨왂 ?⑦꽩)
-    %     Layer 3 displayFrame: ?쒖떆 + 罹먯떆 store (write-through ?⑥씪 異쒓뎄)
+    %   [V3.21 #3-A] 3계층 분리:
+    %     Layer 1 requestFrame: 진입점 + 캐시 lookup + sync/async 전략 선택
+    %     Layer 2 decodeFrameSync / startAsyncDecode: 디코딩 (전략 패턴)
+    %     Layer 3 displayFrame: 표시 + 캐시 store (write-through 단일 출구)
     %     湲곗〈 updateVideoFrameByFrameNo??requestFrame濡??꾩엫 (?명솚).
     %   [V3.21 #2-A] persistent VideoReader in worker:
-    %     asyncDecodeFramePersistent ?몃? ?⑥닔?먯꽌 persistent 蹂?섎줈 VR ?ъ궗??
+    %     asyncDecodeFramePersistent 외부 함수에서 persistent 변수로 VR 재사용
     %     ???몄텧??~50ms??ms濡??⑥텞. ?뚯씪 蹂寃??쒖뿉留?VR ?ъ깮??
-    %   [V3.20 ?좎?] 紐낆떆??由ъ냼???뺣━, ?숆린??濡쒓렇 prefix ?쒖???
+    %   [V3.20 유지] 명시적 리소스 정리, 동기화 로그 prefix 표준화.
     %   [V3.19 ?좎?] 鍮꾨룞湲??붿퐫?? adaptive prefetch, 媛以?LRU.
-    %   [V3.18 ?좎?] cache lookup clamp, Pending ?꾩쟾 ?뚯쭊, hard limit 1.0.
-    %   [V3.17 ?좎?] InGoToFrame coalescing, IsDecoding 媛??
+    %   [V3.18 유지] cache lookup clamp, Pending 완전 소진, hard limit 1.0.
+    %   [V3.17 유지] InGoToFrame coalescing, IsDecoding 가드.
     % =========================================================================
 
     % Shared constants live in flightdash.util.AppConstants.
@@ -55,33 +55,33 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         CoastlineData
         FixedAreaBounds
 
-        DebugMode         = false   % [V3.14 ??ぉ 6] true ??zoom/pan off ??濡쒓렇 異쒕젰
+        DebugMode         = false   % [V3.14 항목 6] true 시 zoom/pan off 등 로그 출력
         State             = 'IDLE'  % [V3.17 (8)] 'IDLE' | 'DRAGGING' | 'UPDATING' | 'DECODING'
-        UseAsyncDecode    = false   % [V3.19 (1)] 鍮꾨룞湲??붿퐫???쒖꽦??(Parallel Toolbox ?꾩슂)
+        UseAsyncDecode    = false   % [V3.19 (1)] 비동기 디코딩 활성화 (Parallel Toolbox 필요)
     end
 
     % [PHASE 0 / Studio prep] Manager classes (LayoutMgr, AuxWindowMgr, controllers)
     % access app state directly. Keep these public so cross-class reads/writes
     % work identically in MATLAB Online (which strictly enforces private access).
     properties (Access = public)
-        IsUpdating          = [false, false] % ?ш? 諛⑹? ?뚮옒洹?
-        IsProgrammaticXLim  = [false, false] % [V3.11 A] 梨낆옣 ?섍린湲????꾨줈洹몃옒諛?XLim 蹂寃???由ъ뒪??李⑤떒
+        IsUpdating          = [false, false] % 재귀 방지 플래그
+        IsProgrammaticXLim  = [false, false] % [V3.11 A] 책장 넘기기 등 프로그래밍 XLim 변경 시 리스너 차단
         IsDraggingPanner    = false         % compact range bar handle drag state
         PannerDragFIdx      = 0             % compact range bar drag channel
         PannerDragSide      = ''            % 'left' or 'right'
-        LastDisplayedFrame  = [0, 0]        % [PATCH] ?숈씪 ?꾨젅??議곌린 諛섑솚??
-        HISplitterFIdx      = 0             % [PATCH UX-3] H/I 寃쎄퀎 ?쒕옒洹?以묒씤 梨꾨꼸
-        IsDraggingSplitter  = false         % [PATCH UX-3b] splitter ?쒕옒洹??곹깭 ?뚮옒洹?
-        VideoUserResized    = [false, false] % [FIX] ?ъ슜?먭? splitter濡?議곗옉?덈뒗吏 (?먮룞 由ъ궗?댁쫰 李⑤떒)
-        % [REFACTOR Step 1] 罹먯떆??蹂꾨룄 紐⑤뜽 媛앹껜濡??꾩엫. 湲곗〈 8媛??띿꽦 ??1媛쒕줈 ?⑥씪??
-        % - flightdash.model.FrameCacheModel 諛곗뿴 [1x2]
-        % - 湲곗〈 cacheGetFrame/cacheStoreFrame ?깆? ?명솚???꾪빐 thin wrapper濡??붾쪟
-        CacheModel          = []              % [REFACTOR] flightdash.model.FrameCacheModel 諛곗뿴
-        VideoMdl            = []              % [REFACTOR Step 2] flightdash.model.VideoModel 諛곗뿴 [1x2]
-        SyncMdl             = []              % [REFACTOR Step 2] flightdash.model.SyncModel 諛곗뿴 [1x2]
+        LastDisplayedFrame  = [0, 0]        % [PATCH] 동일 프레임 조기 반환용
+        HISplitterFIdx      = 0             % [PATCH UX-3] H/I 경계 드래그 중인 채널
+        IsDraggingSplitter  = false         % [PATCH UX-3b] splitter 드래그 상태 플래그
+        VideoUserResized    = [false, false] % [FIX] 사용자가 splitter로 조작했는지 (자동 리사이즈 차단)
+        % [REFACTOR Step 1] 캐시는 별도 모델 객체로 위임. 기존 8개 속성 → 1개로 단일화
+        % - flightdash.model.FrameCacheModel 배열 [1x2]
+        % - 기존 cacheGetFrame/cacheStoreFrame 등은 호환을 위해 thin wrapper로 잔류
+        CacheModel          = []              % [REFACTOR] flightdash.model.FrameCacheModel 배열
+        VideoMdl            = []              % [REFACTOR Step 2] flightdash.model.VideoModel 배열 [1x2]
+        SyncMdl             = []              % [REFACTOR Step 2] flightdash.model.SyncModel 배열 [1x2]
         PlaybackState       = []              % [REFACTOR] per-channel guard/pending state model [1x2]
-        VideoListeners      = {[], []}        % [REFACTOR Step 2-C] event.listener ?몃뱾 蹂닿? (GC 諛⑹?)
-        % [REFACTOR Step 4] 肄쒕갚 吏꾩엯??而⑦듃濡ㅻ윭
+        VideoListeners      = {[], []}        % [REFACTOR Step 2-C] event.listener 핸들 보관 (GC 방지)
+        % [REFACTOR Step 4] 콜백 진입점 컨트롤러
         FileCtrl            = []
         VideoSyncCtrl       = []
         PlaybackCtrl        = []
@@ -98,21 +98,21 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         PannerView          = []
         DataLoader          = []
         LayoutMgr           = []
-        CacheBudgetMB       = 30              % [V3.14 ??ぉ 3] ?명솚 ?좎?: setCacheBudget 吏꾩엯?먯씠 ?ъ슜
+        CacheBudgetMB       = 30              % [V3.14 항목 3] 호환 유지: setCacheBudget 진입점이 사용
         % --- 鍮?罹먯떆 ?띿꽦 (洹몃?濡??좎?) ---
-        InGoToFrame         = [false, false] % [V3.16] goToFrame ?ъ쭊??李⑤떒 ?뚮옒洹?
-        PendingFrame        = [NaN, NaN]     % [V3.17 (1)(9)] 泥섎━ 以??ㅼ뼱??理쒖떊 frame ?붿껌
-        PendingMode         = {'', ''}        % [V3.17 (1)(9)] 泥섎━ 以??ㅼ뼱??理쒖떊 mode
-        InCascade           = false          % [V3.17 (4)(11)] cascade ?ш? 媛??(?몄뒪?댁뒪 ?띿꽦)
-        IsDeleting          = false          % [FIX] delete(app) 以묐났 ?몄텧 諛⑹뼱 ?뚮옒洹?
-        IsDecoding          = [false, false] % [V3.17 (7)] ?붿퐫??吏꾪뻾 以?媛??
-        AsyncPool           = []              % [V3.19 (1)] parallel pool ?몃뱾
-        AsyncFutures        = {[], []}        % [V3.19 (1)] 吏꾪뻾 以?parfeval future
-        AsyncTargetFrame    = [NaN, NaN]      % [V3.19 (1)] 鍮꾨룞湲??붿퐫??以묒씤 frame No
-        AsyncGen            = [0, 0]          % [V3.21 #1-A] generation counter (race 李⑤떒)
-        VideoFilePath       = {'', ''}        % [V3.19 (1)] worker媛 ?먯껜 VideoReader ?앹꽦??
-        DragVelocity        = [0, 0]          % [V3.19 (2)] frames/sec (遺?? 諛⑺뼢)
-        DragVelocitySamples = {[], []}        % [V3.19 (2)] 理쒓렐 ?섑뵆 (?대룞?됯퇏??
+        InGoToFrame         = [false, false] % [V3.16] goToFrame 재진입 차단 플래그
+        PendingFrame        = [NaN, NaN]     % [V3.17 (1)(9)] 처리 중 들어온 최신 frame 요청
+        PendingMode         = {'', ''}        % [V3.17 (1)(9)] 처리 중 들어온 최신 mode
+        InCascade           = false          % [V3.17 (4)(11)] cascade 재귀 가드 (인스턴스 속성)
+        IsDeleting          = false          % [FIX] delete(app) 중복 호출 방어 플래그
+        IsDecoding          = [false, false] % [V3.17 (7)] 디코딩 진행 중 가드
+        AsyncPool           = []              % [V3.19 (1)] parallel pool 핸들
+        AsyncFutures        = {[], []}        % [V3.19 (1)] 진행 중 parfeval future
+        AsyncTargetFrame    = [NaN, NaN]      % [V3.19 (1)] 비동기 디코딩 중인 frame No
+        AsyncGen            = [0, 0]          % [V3.21 #1-A] generation counter (race 차단)
+        VideoFilePath       = {'', ''}        % [V3.19 (1)] worker가 자체 VideoReader 생성용
+        DragVelocity        = [0, 0]          % [V3.19 (2)] frames/sec (부호: 방향)
+        DragVelocitySamples = {[], []}        % [V3.19 (2)] 최근 샘플 (이동평균용)
         LayoutProfile       = 'wide'          % [RESPONSIVE] wide|medium|compact|narrow
         LastLayoutSize      = [NaN, NaN]      % [RESPONSIVE] last measured figure size in px
         InResponsiveLayout  = false           % [RESPONSIVE] resize/layout re-entry guard
@@ -134,7 +134,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         ActiveSessionId     = 'standalone'    % [PHASE 0.8] active session id (Studio 통합 prep)
         IsEmbedded          = false           % [PHASE 0.8] standalone vs embedded mode
         % [REFACTOR Step 0] ErrorLog??flightdash.util.ErrorLog ?깃??ㅼ쑝濡??꾩엫
-        % - 湲곗〈 ErrorLog/ErrorLogCapacity ?띿꽦? ???댁긽 ?ъ슜?섏? ?딆쑝???명솚???꾪빐 ?좎??섏? ?딄퀬 ?쒓굅
+        % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
 
     methods (Access = public)
@@ -145,16 +145,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.Models = [app.createEmptyModel(), app.createEmptyModel()];
             app.SyncState = struct('IsSynced', false, 'SyncT1', 0, 'SyncT2', 0);
             app.VideoState = struct('videoReader', {[], []}, 'videoStartTime', {0, 0}, 'vidImageHandle', {[], []});
-            % [V3.12] VideoSyncState 珥덇린?? ??鍮꾪뻾寃쎈줈蹂??숆린???뺣낫
+            % [V3.12] VideoSyncState 초기화: 두 비행경로별 동기화 정보
             app.VideoSyncState = struct( ...
-                'IsSynced',     {false, false}, ...     % ?숆린 ?ㅼ젙 ?꾨즺 ?щ?
-                'AnchorFrame',  {0, 0}, ...             % ?숆린 湲곗? ?꾨젅??踰덊샇 (?뺤닔)
-                'AnchorOffset', {0, 0}, ...             % [V3.23] sub-frame 蹂댁젙 [-0.5, 0.5]
-                'AnchorTime',   {0, 0}, ...             % ?숆린 湲곗? 鍮꾪뻾?쒓컙(珥?
-                'VideoFps',     {70, 70}, ...           % ?곸긽 Hz (湲곕낯 70)
-                'DataFps',      {50, 50}, ...           % 鍮꾪뻾?곗씠??Hz (湲곕낯 50)
-                'TotalFrames',  {0, 0}, ...             % ?곸긽 珥??꾨젅????
-                'CurrentFrame', {1, 1});                % ?꾩옱 ?꾨젅???꾩튂
+                'IsSynced',     {false, false}, ...     % 동기 설정 완료 여부
+                'AnchorFrame',  {0, 0}, ...             % 동기 기준 프레임 번호 (정수)
+                'AnchorOffset', {0, 0}, ...             % [V3.23] sub-frame 보정 [-0.5, 0.5]
+                'AnchorTime',   {0, 0}, ...             % 동기 기준 비행시간(초)
+                'VideoFps',     {70, 70}, ...           % 영상 Hz (기본 70)
+                'DataFps',      {50, 50}, ...           % 비행데이터 Hz (기본 50)
+                'TotalFrames',  {0, 0}, ...             % 영상 총 프레임 수
+                'CurrentFrame', {1, 1});                % 현재 프레임 위치
 
             % [REFACTOR Step 1] FrameCacheModel ?몄뒪?댁뒪 ?앹꽦 (梨꾨꼸蹂?1媛쒖뵫)
             app.CacheModel = [flightdash.model.FrameCacheModel(app.CacheBudgetMB), ...
@@ -189,8 +189,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
 
             close(findobj('Type', 'figure', 'Name', 'Flight Data Review Dashboard (Dual)'));
-            % [FIX] AutoResizeChildren='on' ??SizeChangedFcn??臾댁떆?섎뒗 寃쎄퀬 李⑤떒
-            % - uigridlayout???먯떇 由ъ궗?댁쫰瑜??대떦?섎?濡?AutoResizeChildren? 遺덊븘??
+            % [FIX] AutoResizeChildren='on' 시 SizeChangedFcn이 무시되는 경고 차단
+            % - uigridlayout이 자식 리사이즈를 담당하므로 AutoResizeChildren은 불필요
             initialPos = app.LayoutMgr.initialFigurePosition(app);
             app.UIFigure = uifigure('Name', 'Flight Data Review Dashboard (Dual)', ...
                                     'Units', 'pixels', ...
@@ -205,7 +205,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.UIFigure.CloseRequestFcn = @app.UIFigureCloseRequest;
             app.UIFigure.SizeChangedFcn = @(~,~) app.onUIFigureResized();
 
-            % [REFACTOR Step 4] 而⑦듃濡ㅻ윭 ?몄뒪?댁뒪 (createLayout ???꾩닔)
+            % [REFACTOR Step 4] 컨트롤러 인스턴스 (createLayout 전 필수)
             app.FileCtrl      = flightdash.controller.FileController(app);
             app.VideoSyncCtrl = flightdash.controller.VideoSyncController(app);
             app.PlaybackCtrl  = flightdash.controller.PlaybackController(app);
@@ -225,9 +225,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             for i = 1:2
                 if app.hasPlotView(i), app.PlotView(i).addTab(); end
                 app.VideoState(i).vidImageHandle = app.UI(i).vidImageHandle;
-                % [REFACTOR Step 2-B] VideoModel?먮룄 ?몃뱾 set
+                % [REFACTOR Step 2-B] VideoModel에도 핸들 set
                 app.VideoMdl(i).ImageHandle = app.UI(i).vidImageHandle;
-                % [REFACTOR Step 2-C] ?대깽??援щ룆: VideoLoaded ??cache recompute, VideoCleared ??invalidate
+                % [REFACTOR Step 2-C] 이벤트 구독: VideoLoaded → cache recompute, VideoCleared → invalidate
                 app.VideoListeners{i} = { ...
                     addlistener(app.VideoMdl(i), 'VideoLoaded',  @(src,~) app.onVideoLoaded(i, src)), ...
                     addlistener(app.VideoMdl(i), 'VideoCleared', @(~,~)   app.onVideoCleared(i)) };
@@ -240,7 +240,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function delete(app)
-            % [FIX] 以묐났 吏꾩엯 諛⑹뼱 - CloseRequestFcn ??delete ???뚮㈇ 以??ы샇異?李⑤떒
+            % [FIX] 중복 진입 방어 - CloseRequestFcn → delete → 소멸 중 재호출 차단
             if app.IsDeleting, return; end
             app.IsDeleting = true;
             try
@@ -248,7 +248,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.PlaybackCtrl.stopAllFlightPlayback();
                 end
             catch ME, app.logCaught(ME, 'FlightPlay:delete'); end
-            % [V3.20 (5)] 紐낆떆??由ъ냼???뺣━: VideoReader, AsyncPool, futures
+            % [V3.20 (5)] 명시적 리소스 정리: VideoReader, AsyncPool, futures
             try
                 for fIdx = 1:2
                     % [FIX] Future cancel??VR delete蹂대떎 癒쇱? ??worker hang 諛⑹?
@@ -261,10 +261,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                             catch ME_wait
                                 app.logCaught(ME_wait, 'Async:cancelWait:delete');
                             end
-                            app.AsyncFutures{fIdx} = [];   % post-cancel 紐낆떆 ?대━??
+                            app.AsyncFutures{fIdx} = [];   % post-cancel 명시 클리어
                         end
                     catch ME, app.logCaught(ME, 'silent'); end
-                    % VideoReader ?뺣━ (worker媛 媛숈? ?뚯씪 ?↔퀬 ?덉쓣 媛?μ꽦 李⑤떒 ??
+                    % VideoReader 정리 (worker가 같은 파일 잡고 있을 가능성 차단 후)
                     try
                         if ~isempty(app.VideoState(fIdx).videoReader) && ...
                            isvalid(app.VideoState(fIdx).videoReader)
@@ -272,7 +272,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         end
                     catch ME, app.logCaught(ME, 'silent'); end
                 end
-                % 罹먯떆 鍮꾩슦湲?(硫붾え由?利됱떆 ?댁젣) - CacheModel ?꾩엫
+                % 캐시 비우기 (메모리 즉시 해제) - CacheModel 위임
                 if ~isempty(app.CacheModel)
                     for fIdx = 1:numel(app.CacheModel)
                         try
@@ -283,8 +283,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     end
                 end
                 app.AsyncGen = [0, 0];   % [V3.21 #1-A] generation reset
-                app.LastDisplayedFrame = [0, 0];   % [PATCH] 議곌린諛섑솚 ??由ъ뀑
-                % [REFACTOR Step 2-C] event listener 紐낆떆 ?댁젣
+                app.LastDisplayedFrame = [0, 0];   % [PATCH] 조기반환 키 리셋
+                % [REFACTOR Step 2-C] event listener 명시 해제
                 for fIdx = 1:numel(app.VideoListeners)
                     try
                         L = app.VideoListeners{fIdx};
@@ -295,10 +295,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
                 app.VideoListeners = {[], []};
 
-                % [FIX] ?쒗솚 李몄“ 李⑤떒 + EventBus listener 紐낆떆 ?댁젣
+                % [FIX] 순환 참조 차단 + EventBus listener 명시 해제
                 % - EventBus??persistent ?깃??ㅼ씠??listener媛 controller瑜??곴뎄 蹂댁쑀
-                % - delete(ctrl) ?몄텧 ??controller.delete() ??Listeners cell ?뺣━
-                % - ?⑥닚 [] ??낆? listener leak 諛쒖깮 ???ㅼ쓬 ?ㅽ뻾 ??醫鍮?controller crash
+                % - delete(ctrl) 호출 → controller.delete() → Listeners cell 정리
+                % - 단순 [] 대입은 listener leak 발생 → 다음 실행 시 좀비 controller crash
                 try, delete(app.FileCtrl);      catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.VideoSyncCtrl); catch ME, app.logCaught(ME, 'silent'); end
                 try, delete(app.PlaybackCtrl);  catch ME, app.logCaught(ME, 'silent'); end
@@ -330,7 +330,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.LayoutMgr     = [];
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [PATCH / V3.22 #6 / FIX] ?뚯빱 persistent VR 紐낆떆 ?댁젣 - 2s timeout?쇰줈 hang 李⑤떒
+            % [PATCH / V3.22 #6 / FIX] 워커 persistent VR 명시 해제 - 2s timeout으로 hang 차단
             try
                 if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
                     fCleanup = parfevalOnAll(app.AsyncPool, @cleanupAsyncDecodeCache, 0);
@@ -342,13 +342,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         app.logCaught(ME, 'Async:cleanupWait');
                     end
                     if ~cleanupOk
-                        % [FIX] timeout ??pending future cancel (worker hang 李⑤떒)
+                        % [FIX] timeout 시 pending future cancel (worker hang 차단)
                         try, cancel(fCleanup); catch, end
                     end
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [FIX] pool 紐낆떆 ??젣 - ?ㅼ쓬 ?ㅽ뻾?먯꽌 源⑤걮???섍꼍 蹂댁옣
+            % [FIX] pool 명시 삭제 - 다음 실행에서 깨끗한 환경 보장
             try
                 if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
                     delete(app.AsyncPool);
@@ -388,7 +388,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.Models(fIdx).currentIndex = index;
 
             % --- ?대떦 寃쎈줈 酉?媛깆떊 ---
-            % [FIX] IsUpdating ?뚮옒洹몃? onCleanup?쇰줈 蹂댁옣 - ?덉쇅/return/error 紐⑤몢 ?덉쟾
+            % [FIX] IsUpdating 플래그를 onCleanup으로 보장 - 예외/return/error 모두 안전
             app.setStateUpdating(fIdx, true);
             cleanup_ = onCleanup(@() resetIsUpdating(app, fIdx)); %#ok<NASGU>
             try
@@ -397,10 +397,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.UI(fIdx).spinner.Value = currTime;
                 end
             catch e
-                % [FIX] warning ???ErrorLog濡??ы썑 異붿쟻 媛?ν븯寃?
+                % [FIX] warning 대신 ErrorLog로 사후 추적 가능하게
                 app.logCaught(e, 'applyTimeChange');
             end
-            % cleanup_ 媛 IsUpdating=false 蹂댁옣 ???꾨옒 吏꾪뻾
+            % cleanup_ 가 IsUpdating=false 보장 후 아래 진행
             clear cleanup_;
 
             % --- ?숆린?? 寃쎈줈 1 蹂寃???寃쎈줈 2???곕룞 ---
@@ -563,7 +563,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     end
 
     % =========================================================================
-    % Controller/EventBus 吏꾩엯??諛?硫붿씤 UI 濡쒖쭅
+    % Controller/EventBus 진입점 및 메인 UI 로직
     % =========================================================================
     methods (Access = public)
         function handleFlightFile(app, fIdx)
@@ -600,7 +600,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.VideoState(fIdx).videoStartTime = app.Models(fIdx).rawData.(timeCol)(1);
                 end
 
-                % [V3.12] 鍮꾪뻾?곗씠??Hz ?먮룞 怨꾩궛 ???낅젰? 媛깆떊
+                % [V3.12] 비행데이터 Hz 자동 계산 후 입력란 갱신
                 try
                     times = app.Models(fIdx).rawData.(timeCol);
                     if length(times) > 1
@@ -620,7 +620,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
                 % [?섏젙 2] 鍮꾪뻾 ?곗씠???뚯떛 ?? ?대? ?곸긽???대젮?덈떎硫?Video FPS 媛뺤젣 ?ш퀎??
                 % [FIX Case 2] ?먮룞 ?숆린(IsSynced=true) ?쒓굅 - "?숆린" 踰꾪듉 ?대┃ ?쒖뿉留??쒖꽦??
-                %              FPS ?ш퀎?곕쭔 ?섑뻾?섏뿬 ?쇰꺼/?쒓컙 ?쒖떆???뺤긽 媛깆떊
+                %              FPS 재계산만 수행하여 라벨/시간 표시는 정상 갱신
                 if app.VideoSyncState(fIdx).TotalFrames > 0
                     times = app.Models(fIdx).rawData.(timeCol);
                     timeSpan = times(end) - times(1);
@@ -642,7 +642,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 try
                     if ~isempty(d) && isvalid(d), close(d); end
                 catch ME, app.logCaught(ME, 'silent'); end
-                % [V3.20 (3)] ?곸꽭 ?먮윭 濡쒓렇
+                % [V3.20 (3)] 상세 에러 로그
                 if app.DebugMode
                     fprintf('[Flight] parse failed: %s\n  %s\n  stack: %s\n', ...
                         filename, e.message, e.identifier);
@@ -768,7 +768,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function togglePanel(app, fIdx, pnlName)
-            % ?⑤꼸 ?쒖떆/?④? ?좉?. ?ㅼ젣 ??諛곕텇? responsive layout manager媛 ?대떦?쒕떎.
+            % 패널 표시/숨김 토글. 실제 폭 배분은 responsive layout manager가 담당한다.
             state = app.UI(fIdx).PanelVisible.(pnlName);
             newState = ~state;
             app.UI(fIdx).PanelVisible.(pnlName) = newState;
@@ -862,41 +862,41 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             idx1 = app.findClosestIndexByTime(app.Models(1).rawData.(timeCol1), t1);
             app.applyTimeChange(1, idx1);
 
-            % [V3.20 (2)] ?숆린???붾쾭洹?濡쒓렇 (SyncState - ??鍮꾪뻾?곗씠???쒓컙異?留ㅽ븨)
+            % [V3.20 (2)] 동기화 디버그 로그 (SyncState - 두 비행데이터 시간축 매핑)
             if app.DebugMode
                 fprintf('[FlightSync] enabled: T1=%.3fs ??T2=%.3fs (offset=%.3fs)\n', ...
                     t1, t2, t2 - t1);
             end
         end
 
-        % [V3.22 #3] loadAviFile 遺꾪빐 - ?ㅼ??ㅽ듃?덉씠??+ 6?④퀎 ?ы띁
-        % ?④퀎: 1) ?ъ슜???뺤씤 ??2) 罹먯떆 臾댄슚????3) 湲곗〈 ?먯썝 ?뺣━
-        %       4) VR ?앹꽦 ??5) TotalFrames + UI ?숆린????6) 泥??꾨젅??濡쒕뱶
+        % [V3.22 #3] loadAviFile 분해 - 오케스트레이터 + 6단계 헬퍼
+        % 단계: 1) 사용자 확인 → 2) 캐시 무효화 → 3) 기존 자원 정리
+        %       4) VR 생성 → 5) TotalFrames + UI 동기화 → 6) 첫 프레임 로드
         % 媛??④퀎???ㅽ뙣 ??紐낇솗??醫낅즺 議곌굔??媛吏硫?梨낆엫???쒖젙??
         %
         % [湲곗닠??沅뚯옣?ы빆] ?먰솢???ㅽ겕?щ튃(?щ씪?대뜑 ?꾩쓽 ?대룞) ?깅뒫???꾪빐
-        % All-Intra ?щ㎎ ?ъ슜 沅뚯옣:
-        %   - 沅뚯옣: AVI (Motion JPEG / Uncompressed), MP4 (All-Intra)
+        % All-Intra 포맷 사용 권장:
+        %   - 권장: AVI (Motion JPEG / Uncompressed), MP4 (All-Intra)
         %   - 鍮꾧텒?? H.264/H.265 Long-GOP MP4
-        % Long-GOP ?곸긽? ?꾩쓽 ?꾩튂濡?seek ??媛??媛源뚯슫 ?ㅽ봽?덉엫(I-Frame)遺??
+        % Long-GOP 영상은 임의 위치로 seek 시 가장 가까운 키프레임(I-Frame)부터
         % ?ㅼ떆 ?붿퐫?⑺빐???섎?濡? ?щ씪?대뜑 ?쒕옒洹???吏?곗씠 ?ы빐吏????덉쓬.
         function loadAviFile(app, fIdx)
             [fname, pname] = uigetfile({'*.avi;*.mp4;*.mkv', 'Video Files (*.avi, *.mp4)'}, sprintf('Select Video %d', fIdx));
             if isequal(fname, 0), return; end
             fullPath = fullfile(pname, fname);
 
-            % 1) ?ъ슜???뺤씤 (湲곗〈 ?숆린 ?ㅼ젙 ?댁젣)
+            % 1) 사용자 확인 (기존 동기 설정 해제)
             if ~app.confirmVideoReplace(fIdx), return; end
 
             % 2) ?꾨젅??罹먯떆 臾댄슚??
             app.invalidateFrameCache(fIdx);
 
-            % 3) 湲곗〈 VR/Future ?뺣━ + startTime ?곗텧
+            % 3) 기존 VR/Future 정리 + startTime 산출
             app.invalidateFrameCache(fIdx);
             startTime = app.computeStartTimeFromFlightData(fIdx);
             app.cleanupVideoResources(fIdx);
 
-            % 4) VideoReader ?앹꽦
+            % 4) VideoReader 생성
             vr = app.openVideoReader(fIdx, fullPath, fname);
             if isempty(vr), return; end
             app.VideoState(fIdx).videoStartTime = startTime;
@@ -909,16 +909,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
             app.loadFirstFrame(fIdx);
 
-            % 5) TotalFrames ?곗젙 + UI ?꾩젽 ?숆린??
+            % 5) TotalFrames 산정 + UI 위젯 동기화
             app.applyVideoLoadedUI(fIdx, vr);
 
-            % 6) 泥??꾨젅??濡쒕뱶 + ?쒖떆 + 罹먯떆 ???
+            % 6) 첫 프레임 로드 + 표시 + 캐시 저장
             app.loadFirstFrame(fIdx);
         end
 
-        % --------- loadAviFile ?ы띁??(V3.22 #3) ---------
+        % --------- loadAviFile 헬퍼들 (V3.22 #3) ---------
 
-        % [V3.22 #3-1] 湲곗〈 ?숆린 ?ㅼ젙???덉쓣 ???ъ슜???뺤씤 ?ㅼ씠?쇰줈洹?
+        % [V3.22 #3-1] 기존 동기 설정이 있을 때 사용자 확인 다이얼로그
         function ok = confirmVideoReplace(app, fIdx)
             ok = true;
             if app.VideoSyncState(fIdx).IsSynced
@@ -931,7 +931,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.22 #3-2 / REFACTOR Step 1] ?꾨젅??罹먯떆 鍮꾩슦湲?- CacheModel濡??꾩엫
+        % [V3.22 #3-2 / REFACTOR Step 1] 프레임 캐시 비우기 - CacheModel로 위임
         function exportConfigInteractive(app)
             app.ConfigMgr.exportConfigInteractive(app);
         end
@@ -1604,7 +1604,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.LastDisplayedFrame(fIdx) = 0;
         end
 
-        % [V3.22 #3-3] 鍮꾪뻾?곗씠??泥??쒓컙 異붿텧 (?쒖옉 ?ㅽ봽?뗭슜)
+        % [V3.22 #3-3] 비행데이터 첫 시간 추출 (시작 오프셋용)
         function startTime = computeStartTimeFromFlightData(app, fIdx)
             startTime = 0;
             if ~isempty(app.Models(fIdx).rawData) && isfield(app.Models(fIdx).mappedCols, 'Time')
@@ -1615,7 +1615,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.22 #3-4] 湲곗〈 VideoReader / 鍮꾨룞湲?future 紐낆떆???뺣━
+        % [V3.22 #3-4] 기존 VideoReader / 비동기 future 명시적 정리
         function cleanupVideoResources(app, fIdx)
             % Future瑜?癒쇱? 臾댄슚??痍⑥냼????reader瑜??レ븘 ?뚯씪?쎄낵 stale callback??以꾩씤??
             app.AsyncGen(fIdx) = app.AsyncGen(fIdx) + 1;
@@ -1632,7 +1632,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.AsyncFutures{fIdx} = [];
                 end
             catch ME, app.logCaught(ME, 'silent'); end
-            % [REFACTOR Step 2-B] VideoModel.cleanup ?꾩엫 + VideoState ?명솚 ?대━??
+            % [REFACTOR Step 2-B] VideoModel.cleanup 위임 + VideoState 호환 클리어
             try, app.VideoMdl(fIdx).cleanup(); catch ME, app.logCaught(ME, 'silent'); end
             try, app.VideoMdl(fIdx).cleanup(); catch ME, app.logCaught(ME, 'Video:cleanupModel'); end
             app.VideoState(fIdx).videoReader   = [];
@@ -1641,14 +1641,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.resetVideoWidthPreferences(fIdx);
         end
 
-        % [V3.22 #3-5] VideoReader ?앹꽦 (?ㅽ뙣 ??errordlg + [] 諛섑솚)
+        % [V3.22 #3-5] VideoReader 생성 (실패 시 errordlg + [] 반환)
         function vr = openVideoReader(app, fIdx, fullPath, fname)
             vr = [];
             try
                 vr = VideoReader(fullPath);
                 app.VideoState(fIdx).videoReader = vr;
                 app.VideoFilePath{fIdx} = fullPath;
-                % [REFACTOR Step 2-C] attachReader ??VideoLoaded notify (cache ?먮룞 recompute)
+                % [REFACTOR Step 2-C] attachReader → VideoLoaded notify (cache 자동 recompute)
                 app.VideoMdl(fIdx).attachReader(vr, fullPath, app.VideoState(fIdx).vidImageHandle);
                 if app.DebugMode
                     fprintf('[Video] loaded: %s (fIdx=%d)\n', fname, fIdx);
@@ -1664,9 +1664,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.22 #3-6] TotalFrames ?곗젙 + 愿??UI ?꾩젽/?ㅽ뵾???щ씪?대뜑 ?숆린??
+        % [V3.22 #3-6] TotalFrames 산정 + 관련 UI 위젯/스피너/슬라이더 동기화
         function applyVideoLoadedUI(app, fIdx, vr)
-            % [FIX] TotalFrames 怨꾩궛? ??긽 癒쇱?, UI 媛깆떊 3醫낆? ?낅┰ try濡??꾨떖 蹂댁옣
+            % [FIX] TotalFrames 계산은 항상 먼저, UI 갱신 3종은 독립 try로 도달 보장
             totalFrames = 0;
             try, totalFrames = app.computeTotalFrames(fIdx, vr); catch ME, app.logCaught(ME, 'applyVideoLoadedUI:total'); end
             if ~isfinite(totalFrames) || totalFrames < 1
@@ -1729,7 +1729,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.UI(fIdx).vidVideoFpsInput.Value = round(actualFps);
                 end
                 % [FIX Case 2] ?먮룞 ?숆린(IsSynced=true) ?쒓굅 - "?숆린" 踰꾪듉 ?대┃ ?쒖뿉留??쒖꽦??
-                %              FPS ?ш퀎?곗? ?좎? (Case 4 ?붽뎄?ы빆), anchor???ъ슜??紐낆떆 ?숆린 ???ㅼ젙
+                %              FPS 재계산은 유지 (Case 4 요구사항), anchor는 사용자 명시 동기 시 설정
             catch ME, app.logCaught(ME, 'applyVideoLoadedUI:fps'); end
 
             app.VideoSyncState(fIdx).CurrentFrame = 1;
@@ -1745,21 +1745,21 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME, app.logCaught(ME, 'applyVideoLoadedUI:syncSpinner'); end
 
-            % [FIX] ?듭떖: ?꾨옒 3媛쒕뒗 ?대뼡 寃쎌슦?먮룄 ?꾨떖?댁빞 ????媛곴컖 ?낅┰ try
+            % [FIX] 핵심: 아래 3개는 어떤 경우에도 도달해야 함 → 각각 독립 try
             try, app.updateVdubSliderRange(fIdx); catch ME, app.logCaught(ME, 'applyVideoLoadedUI:sliderRange'); end
             try, app.updateVdubFrameLabel(fIdx, 1); catch ME, app.logCaught(ME, 'applyVideoLoadedUI:label'); end
             try, app.adjustVideoPanelWidth(fIdx); catch ME, app.logCaught(ME, 'applyVideoLoadedUI:panelWidth'); end
         end
 
-        % [V3.22 #3-7] TotalFrames 怨꾩궛 (NumFrames ?곗꽑, ?대갚: Duration*FrameRate)
+        % [V3.22 #3-7] TotalFrames 계산 (NumFrames 우선, 폴백: Duration*FrameRate)
         function totalFrames = computeTotalFrames(app, fIdx, vr)
             % [REFACTOR Step 2] VideoModel ?꾩엫 - vr???명솚??override
             totalFrames = app.VideoMdl(fIdx).computeTotalFrames(app.DebugMode, vr);
         end
 
-        % [V3.22 #3-8] 泥??꾨젅?꾩쓣 ?뺥솗???붿퐫?⑺븯???쒖떆 + 罹먯떆 ???
+        % [V3.22 #3-8] 첫 프레임을 정확히 디코딩하여 표시 + 캐시 저장
         function loadFirstFrame(app, fIdx)
-            % [REFACTOR Step 2-B] VideoModel ?꾩엫 + axes 蹂댁젙/cache store??硫붿씤 ?붾쪟
+            % [REFACTOR Step 2-B] VideoModel 위임 + axes 보정/cache store는 메인 잔류
             firstFrame = app.VideoMdl(fIdx).loadFirstFrame();
             if isempty(firstFrame), return; end
 
@@ -1773,10 +1773,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.LastDisplayedFrame(fIdx) = 1;
         end
 
-        % [V3.12 2.1] ?곸긽 媛濡??몃줈 鍮꾩쑉???곕씪 鍮꾨뵒???⑤꼸 ?덈퉬 ?숈쟻 議곗젙
+        % [V3.12 2.1] 영상 가로:세로 비율에 따라 비디오 패널 너비 동적 조정
         function adjustVideoPanelWidth(app, fIdx)
             try
-                % [FIX] ?ъ슜?먭? splitter濡?議곗옉??寃쎌슦 ?먮룞 由ъ궗?댁쫰 李⑤떒 (異⑸룎 諛⑹?)
+                % [FIX] 사용자가 splitter로 조작한 경우 자동 리사이즈 차단 (충돌 방지)
                 if app.VideoUserResized(fIdx), return; end
                 if app.IsDraggingSplitter, return; end
                 if isempty(app.VideoState(fIdx).videoReader), return; end
@@ -1784,11 +1784,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if vr.Height <= 0, return; end
                 aspectRatio = vr.Width / vr.Height;
 
-                % ?⑤꼸 ?대? ?곸긽 ?곸뿭 ?믪씠 ??280px 媛??(96 DPI 湲곗? ?붿옄??媛?
-                % High-DPI ?섍꼍?먯꽌???숈씪 鍮꾩쑉???좎??섎룄濡?UIScale.px ?곸슜
+                % 패널 내부 영상 영역 높이 약 280px 가정 (96 DPI 기준 디자인 값)
+                % High-DPI 환경에서도 동일 비율을 유지하도록 UIScale.px 적용
                 UIScale = flightdash.util.UIScale;
                 targetWidth = UIScale.px(round(280 * aspectRatio) + 100);
-                targetWidth = max(UIScale.px(400), min(targetWidth, UIScale.px(900)));  % ?덉쟾 踰붿쐞 ?쒗븳
+                targetWidth = max(UIScale.px(400), min(targetWidth, UIScale.px(900)));  % 안전 범위 제한
 
                 app.PreferredVideoWidth(fIdx) = targetWidth;
                 app.LayoutMgr.applyLayout(app, 'videoWidth');
@@ -1804,7 +1804,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.VideoUserResized(fIdx) = false;
         end
 
-        % [V3.14 ??ぉ 3 / REFACTOR Step 1] ?숈쟻 罹먯떆 ?ш린 怨꾩궛: CacheModel.recomputeLimit?쇰줈 ?꾩엫
+        % [V3.14 항목 3 / REFACTOR Step 1] 동적 캐시 크기 계산: CacheModel.recomputeLimit으로 위임
         function adjustCacheSize(app, fIdx)
             try
                 if isempty(app.CacheModel) || fIdx > numel(app.CacheModel), return; end
@@ -1826,12 +1826,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.14 ??ぉ 3 / REFACTOR Step 1] ?ъ슜?먭? GUI?먯꽌 罹먯떆 ?덉궛 蹂寃????몄텧
+        % [V3.14 항목 3 / REFACTOR Step 1] 사용자가 GUI에서 캐시 예산 변경 시 호출
         function setCacheBudget(app, budgetMB)
             try
                 if budgetMB <= 0, return; end
                 app.CacheBudgetMB = budgetMB;
-                % 媛?CacheModel???덉궛 ?꾪뙆 ???곸긽 濡쒕뱶??寃쎈줈留??쒕룄 ?ш퀎??
+                % 각 CacheModel에 예산 전파 후 영상 로드된 경로만 한도 재계산
                 for fIdx = 1:2
                     if ~isempty(app.CacheModel) && fIdx <= numel(app.CacheModel)
                         app.CacheModel(fIdx).setBudgetMB(budgetMB);
@@ -1848,7 +1848,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.15 ??ぉ 5-3] DebugMode GUI 泥댄겕諛뺤뒪 肄쒕갚
+        % [V3.15 항목 5-3] DebugMode GUI 체크박스 콜백
         function toggleDebugMode(app, val)
             try
                 app.DebugMode = logical(val);
@@ -1903,9 +1903,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.14 ??ぉ 5] VideoReader ?좏슚??寃???ы띁 (?쇨????덈뒗 媛??
+        % [V3.14 항목 5] VideoReader 유효성 검사 헬퍼 (일관성 있는 가드)
         function tf = isVideoReady(app, fIdx)
-            % [REFACTOR Step 2-B] VideoModel ?꾩엫
+            % [REFACTOR Step 2-B] VideoModel 위임
             tf = false;
             try
                 if fIdx < 1 || fIdx > 2, return; end
@@ -1917,8 +1917,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [REFACTOR Step 2-C] VideoLoaded ?대깽???몃뱾??
-        % - cache ?쒕룄 ?ш퀎??(?댁긽??湲곕컲)
+        % [REFACTOR Step 2-C] VideoLoaded 이벤트 핸들러
+        % - cache 한도 재계산 (해상도 기반)
         function onVideoLoaded(app, fIdx, ~)
             try
                 if ~isempty(app.CacheModel) && fIdx <= numel(app.CacheModel)
@@ -1930,7 +1930,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME, app.logCaught(ME, 'silent'); end
         end
 
-        % [REFACTOR Step 2-C] VideoCleared ?대깽???몃뱾??- cache 臾댄슚??
+        % [REFACTOR Step 2-C] VideoCleared 이벤트 핸들러 - cache 무효화
         function onVideoCleared(app, fIdx)
             try
                 app.resetVideoWidthPreferences(fIdx);
@@ -1951,14 +1951,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     sld.Value = 1;
                     ticks = round(linspace(1, maxF, 5));
                     sld.MajorTicks = ticks;
-                    sld.MajorTickLabels = arrayfun(@num2str, ticks, 'UniformOutput', false); % 吏???쒓린 諛⑹?
+                    sld.MajorTickLabels = arrayfun(@num2str, ticks, 'UniformOutput', false); % 지수 표기 방지
                     sld.MinorTicks = [];
                 end
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.14 VirtualDub UI] Frame N / Total (HH:MM:SS.mmm) ?쇰꺼 媛깆떊
-        % [V3.15 ??ぉ 5-1 / REFACTOR Step 0] ?쒓컙 ?щ㎎?낆쓣 util.TimeFormat?쇰줈 ?꾩엫
+        % [V3.14 VirtualDub UI] Frame N / Total (HH:MM:SS.mmm) 라벨 갱신
+        % [V3.15 항목 5-1 / REFACTOR Step 0] 시간 포맷팅을 util.TimeFormat으로 위임
         function updateVdubFrameLabel(app, fIdx, frameNo)
             try
                 if ~isfield(app.UI(fIdx), 'vidVdubLabel') || ~isvalid(app.UI(fIdx).vidVdubLabel)
@@ -1974,11 +1974,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.15 ??ぉ 2 / V3.16 / V3.17 (1)(9)] goToFrame() - ?⑥씪 怨듭떇 吏꾩엯??
-        % - V3.16: InGoToFrame ?ъ쭊??媛??+ onCleanup
-        % - V3.17 (1)(9): coalescing - 泥섎━ 以????붿껌? PendingFrame???????
-        %                 ?꾩옱 泥섎━ ?꾨즺 ???먮룞 ?≪닔 (理쒖떊 frame ?꾨씫 諛⑹?)
-        % - V3.17 (8): State = 'UPDATING' ?쒖떆
+        % [V3.15 항목 2 / V3.16 / V3.17 (1)(9)] goToFrame() - 단일 공식 진입점
+        % - V3.16: InGoToFrame 재진입 가드 + onCleanup
+        % - V3.17 (1)(9): coalescing - 처리 중 새 요청은 PendingFrame에 저장 후
+        %                 현재 처리 완료 시 자동 흡수 (최신 frame 누락 방지)
+        % - V3.17 (8): State = 'UPDATING' 표시
         function goToFrame(app, fIdx, frameNo, mode)
             if nargin < 4, mode = 'final'; end
 
@@ -2016,11 +2016,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             drawnow limitrate;
         end
-        % [V3.17 (1)(9)] goToFrame???듭떖 泥섎━ 濡쒖쭅 (?ъ쭊??媛???고쉶 - coalescing ?꾩슜)
+        % [V3.17 (1)(9)] goToFrame의 핵심 처리 로직 (재진입 가드 우회 - coalescing 전용)
         function processFrameInternal(app, fIdx, frameNo, mode)
             if isempty(mode), mode = 'final'; end
 
-            % 1. 踰붿쐞 寃利?+ clamp
+            % 1. 범위 검증 + clamp
             totalF = app.VideoSyncState(fIdx).TotalFrames;
             if totalF < 1, return; end
             frameNo = round(frameNo);
@@ -2033,7 +2033,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % 3. 紐⑤뱺 ?쒖떆 ?붿냼 ?쇨큵 ?숆린??
             app.syncFrameMarkersAndLabel(fIdx, frameNo);
 
-            % 4. ?곸긽 媛깆떊 (mode???곕씪 source ?좏깮)
+            % 4. 영상 갱신 (mode에 따라 source 선택)
             app.syncFrameMarkersAndLabel(fIdx, frameNo);
             if strcmp(mode, 'drag')
                 app.updateVideoFrameByFrameNo(fIdx, frameNo, 'drag');
@@ -2071,11 +2071,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.15 ??ぉ 1] ?щ씪?대뜑 ?쒕옒洹?以?肄쒕갚 (ValueChangingFcn)
-        % - throttle 0.03s(33fps) ?곸슜?쇰줈 ?붿퐫?????곸껜 諛⑹?
-        % - 'drag' 紐⑤뱶濡?goToFrame ?몄텧 ??寃쎈웾 媛깆떊留??섑뻾
+        % [V3.15 항목 1] 슬라이더 드래그 중 콜백 (ValueChangingFcn)
+        % - throttle 0.03s(33fps) 적용으로 디코딩 큐 적체 방지
+        % - 'drag' 모드로 goToFrame 호출 → 경량 갱신만 수행
         function onVdubSliderChanging(app, fIdx, evtValue)
-            % ?щ씪?대뜑 throttle: ?덈Т ?먯＜ ?몄텧?섎㈃ 臾댁떆
+            % 슬라이더 throttle: 너무 자주 호출되면 무시
             if app.throttleHit('LastSliderUpdate', fIdx, flightdash.util.AppConstants.SLIDER_THROTTLE_S), return; end
 
             frameNo = round(evtValue);
@@ -2088,15 +2088,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.goToFrame(fIdx, evtValue, 'drag');
         end
 
-        % [V3.15 ??ぉ 1] ?щ씪?대뜑 ?쒕옒洹?醫낅즺 ??肄쒕갚 (ValueChangedFcn)
-        % - 'final' 紐⑤뱶濡?goToFrame ?몄텧 ???꾩껜 ?⑤꼸 1???숆린??蹂댁옣
+        % [V3.15 항목 1] 슬라이더 드래그 종료 시 콜백 (ValueChangedFcn)
+        % - 'final' 모드로 goToFrame 호출 → 전체 패널 1회 동기화 보장
         % - [V3.16] 媛숈? frame?대씪??drag 紐⑤뱶 醫낅즺 吏곹썑?????덉쑝誘濡?updateDashboard 媛뺤젣
         function onVdubSliderChanged(app, fIdx, src)
             try
                 target = round(src.Value);
                 if app.VideoSyncState(fIdx).CurrentFrame == target
                     % drag 紐⑤뱶??updateMarkersOnly留??몄텧 ???뚯씠釉?寃뚯씠吏 stale 媛??
-                    % final 紐⑤뱶 1??媛뺤젣 ?몄텧濡??꾩껜 ?숆린??蹂댁옣
+                    % final 모드 1회 강제 호출로 전체 동기화 보장
                     if app.VideoSyncState(fIdx).IsSynced && ~isempty(app.Models(fIdx).rawData)
                         % [FIX] IsUpdating onCleanup 蹂댁옣
                         app.setStateUpdating(fIdx, true);
@@ -2107,18 +2107,18 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     return;
                 end
                 app.goToFrame(fIdx, src.Value, 'final');
-                % [V3.19 (2)] ?щ씪?대뜑 ?쒕옒洹?醫낅즺 ??adaptive prefetch
+                % [V3.19 (2)] 슬라이더 드래그 종료 시 adaptive prefetch
                 app.prefetchAdjacentFrames(fIdx);
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.16 / V3.17 (8)] goToFrame ?ъ쭊???뚮옒洹??댁젣 (onCleanup 肄쒕갚)
+        % [V3.16 / V3.17 (8)] goToFrame 재진입 플래그 해제 (onCleanup 콜백)
         function clearGoToFrameFlag(app, fIdx)
             app.setStateGoToFrame(fIdx, false);
             if ~app.anyStateGoToFrame(), app.State = 'IDLE'; end
         end
 
-        % [V3.17 (7)] ?붿퐫??吏꾪뻾 以??뚮옒洹??댁젣 (onCleanup 肄쒕갚)
+        % [V3.17 (7)] 디코딩 진행 중 플래그 해제 (onCleanup 콜백)
         function clearDecodingFlag(app, fIdx)
             app.setStateDecoding(fIdx, false);
             app.processPendingDecodeRequest(fIdx);
@@ -2146,28 +2146,28 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.18 (4) / V3.19 (2)] adaptive prefetch: ?쒕옒洹??띾룄/諛⑺뼢 湲곕컲 prefetch 踰붿쐞
+        % [V3.18 (4) / V3.19 (2)] adaptive prefetch: 드래그 속도/방향 기반 prefetch 범위
         function prefetchAdjacentFrames(app, fIdx)
             try
                 if ~app.isVideoReady(fIdx), return; end
                 cur = app.VideoSyncState(fIdx).CurrentFrame;
                 total = app.VideoSyncState(fIdx).TotalFrames;
 
-                v = app.DragVelocity(fIdx);   % frames/sec (遺??= 諛⑺뼢)
+                v = app.DragVelocity(fIdx);   % frames/sec (부호 = 방향)
                 speed = abs(v);
 
-                % [V3.19 (2)] ?띾룄 湲곕컲 prefetch 踰붿쐞
+                % [V3.19 (2)] 속도 기반 prefetch 범위
                 if speed < 30
-                    offsets = [-3:-1, 1:3];        % ?먮┝: 洹좊벑 ?묐갑??
+                    offsets = [-3:-1, 1:3];        % 느림: 균등 양방향
                 elseif speed < 100
                     if v > 0
-                        offsets = [-2, -1, 1:7];   % ?뺣갑???곗꽭
+                        offsets = [-2, -1, 1:7];   % 정방향 우세
                     else
-                        offsets = [-7:-1, 1, 2];   % ??갑???곗꽭
+                        offsets = [-7:-1, 1, 2];   % 역방향 우세
                     end
                 else
                     if v > 0
-                        offsets = 1:12;            % 鍮좊쫫: 吏꾪뻾諛⑺뼢留?源딄쾶
+                        offsets = 1:12;            % 빠름: 진행방향만 깊게
                     else
                         offsets = -12:-1;
                     end
@@ -2177,7 +2177,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     fprintf('[Prefetch] fIdx=%d, v=%.1f f/s, %d offsets\n', fIdx, v, length(offsets));
                 end
 
-                % ?ㅼ쓬 ?쒕옒洹몄슜 reset
+                % 다음 드래그용 reset
                 app.DragVelocity(fIdx) = 0;
                 app.DragVelocitySamples{fIdx} = [];
 
@@ -2245,7 +2245,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.14 VirtualDub UI] ?꾟뾼 ?????뷜뼷 ?ㅻ퉬寃뚯씠??踰꾪듉 肄쒕갚
+        % [V3.14 VirtualDub UI] ◄◄ ◄ ► ►► 네비게이션 버튼 콜백
         % [V3.15 ??ぉ 2] goToFrame ?⑥씪 吏꾩엯???ъ슜
         function onVdubNav(app, fIdx, action)
             try
@@ -2267,7 +2267,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.14 VirtualDub UI] Frame 留덉빱/?щ씪?대뜑/?쇰꺼 ?쇨큵 ?숆린???ы띁
+        % [V3.14 VirtualDub UI] Frame 마커/슬라이더/라벨 일괄 동기화 헬퍼
         function syncFrameMarkersAndLabel(app, fIdx, frameNo)
             try
                 % [?섏젙] ?ъ슜?섏? ?딅뒗 ?쏅궇 留덉빱 媛깆떊 肄붾뱶???꾩쟾????젣?섏뿬 ?먮윭 ?먯쿇 李⑤떒
@@ -2279,7 +2279,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     end
                 end
 
-                % 2. ?쇰꺼 ?띿뒪??媛깆떊 (?먮윭 ?놁씠 ?덉쟾?섍쾶 ?꾨떖)
+                % 2. 라벨 텍스트 갱신 (에러 없이 안전하게 도달)
                 app.updateVdubFrameLabel(fIdx, frameNo);
 
             catch ME_silent
@@ -2307,7 +2307,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.12 2.2.3] ?숆린 踰꾪듉 肄쒕갚 - ?낅젰媛?寃利?諛??숆린 ?ㅼ젙
+        % [V3.12 2.2.3] 동기 버튼 콜백 - 입력값 검증 및 동기 설정
         function applyVideoSync(app, fIdx)
             % ?숆린 ?댁젣 紐⑤뱶
             if app.VideoSyncState(fIdx).IsSynced
@@ -2315,7 +2315,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 return;
             end
 
-            % 1. ?곸긽/?곗씠??濡쒕뱶 寃利?
+            % 1. 영상/데이터 로드 검증
             if isempty(app.VideoState(fIdx).videoReader)
                 errordlg('Load AVI file first.', 'Sync Error'); return;
             end
@@ -2339,26 +2339,26 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 errordlg(sprintf('Time(s) must be in range %.3f ~ %.3f', times(1), times(end)), 'Range Error'); return;
             end
 
-            % 4. Hz 媛?媛깆떊
+            % 4. Hz 값 갱신
             vfpsUI = app.UI(fIdx).vidVideoFpsInput.Value;
             dfps = app.UI(fIdx).vidDataFpsInput.Value;
             if vfpsUI < 1 || dfps < 1
                 errordlg('Hz value must be at least 1.', 'Input Error'); return;
             end
 
-            % [?섏젙 3] ?뚯닔???뺣????좎떎 諛⑹? 濡쒖쭅
-            % ?대????뺥솗???뚯닔??FPS瑜?諛섏삱由쇳븳 媛믨낵 ?꾩옱 UI ?ㅽ뵾?덉쓽 媛믪씠 媛숇떎硫?
+            % [수정 3] 소수점 정밀도 유실 방지 로직
+            % 내부의 정확한 소수점 FPS를 반올림한 값과 현재 UI 스피너의 값이 같다면,
             % ?ъ슜?먭? ?ㅽ뵾?덈? ?섎룞 議곗옉?섏? ?딆? 寃껋쑝濡?媛꾩＜?섏뿬 ?뺥솗???대? ?뚯닔??FPS瑜??좎???
             if round(app.VideoSyncState(fIdx).VideoFps) == vfpsUI
-                % do nothing (?뚯닔???뺣????좎?)
+                % do nothing (소수점 정밀도 유지)
             else
-                app.VideoSyncState(fIdx).VideoFps = vfpsUI; % ?ъ슜?먭? ?ㅽ뵾?덈? 諛붽씔 寃쎌슦?먮쭔 媛깆떊
+                app.VideoSyncState(fIdx).VideoFps = vfpsUI; % 사용자가 스피너를 바꾼 경우에만 갱신
             end
 
             app.VideoSyncState(fIdx).DataFps = dfps;
 
             % 5. ?숆린 ?뺣낫 ???
-            % [V3.23 sub-frame / FIX] ?섎룞 ?숆린???ъ슜???낅젰???덈?媛믪쑝濡??좊ː ??offset=0 怨좎젙
+            % [V3.23 sub-frame / FIX] 수동 동기는 사용자 입력을 절대값으로 신뢰 → offset=0 고정
             % (sub-frame offset? ?먮룞 anchor?먯꽌留??섎?. ?섎룞 ?낅젰?먯꽌??frameNo?봳imeVal??怨?吏꾩떎)
             anchorOffset = 0;
 
@@ -2369,14 +2369,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.VideoSyncState(fIdx).AnchorOffset = anchorOffset;
             app.VideoSyncState(fIdx).AnchorTime   = timeVal;
 
-            % 6. UI ?쇰뱶諛?
+            % 6. UI 피드백
             app.UI(fIdx).vidSyncBtn.Text = 'Reset Sync';
             app.UI(fIdx).vidSyncBtn.Text = 'Sync Off';
             app.UI(fIdx).vidSyncBtn.BackgroundColor = [0.8 0.2 0.2];
             app.UI(fIdx).vidSyncStatus.Text = sprintf('Sync OK (F%d -> %.3fs)', frameNo, timeVal);
             app.UI(fIdx).vidSyncStatus.FontColor = [0.06 0.65 0.50];
 
-            % [V3.14 ??ぉ 4 / REFACTOR Step 1] ?숆린 ?ъ꽕????罹먯떆 臾댄슚??- ?섑띁 ?ъ슜
+            % [V3.14 항목 4 / REFACTOR Step 1] 동기 재설정 시 캐시 무효화 - 래퍼 사용
             app.invalidateFrameCache(fIdx);
             if app.DebugMode
                 fprintf('[VideoSync] fIdx=%d, anchor F%d ??%.3fs, vfps=%d, dfps=%d, cache cleared\n', ...
@@ -2384,7 +2384,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.12 2.2.3.1] Hz ?낅젰 짹 ?붿궡??踰꾪듉 肄쒕갚 (1Hz ?⑥쐞)
+        % [V3.12 2.2.3.1] Hz 입력 ± 화살표 버튼 콜백 (1Hz 단위)
         function adjustHzValue(app, fIdx, target, delta)
             try
                 if strcmp(target, 'video')
@@ -2397,7 +2397,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if newVal > 1000, newVal = 1000; end
                 fld.Value = newVal;
 
-                % 利됱떆 VideoSyncState?먮룄 諛섏쁺 (?숆린 ?ㅼ젙 ?꾩씠?쇰룄)
+                % 즉시 VideoSyncState에도 반영 (동기 설정 전이라도)
                 if strcmp(target, 'video')
                     app.VideoSyncState(fIdx).VideoFps = newVal;
                 else
@@ -2419,16 +2419,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end
 
-        % [V3.12 2.2.3] Frame No ??Time 留ㅽ븨 (?듭빱 湲곕컲 ?좏삎)
+        % [V3.12 2.2.3] Frame No → Time 매핑 (앵커 기반 선형)
         function timeVal = frameToTime(app, fIdx, frameNo)
-            % [REFACTOR Step 2 / V3.23] SyncModel ?꾩엫 - anchor/fps/offset 紐낆떆 ?꾨떖
+            % [REFACTOR Step 2 / V3.23] SyncModel 위임 - anchor/fps/offset 명시 전달
             s = app.VideoSyncState(fIdx);
             timeVal = app.SyncMdl(fIdx).frameToTime(frameNo, s.VideoFps, s.AnchorFrame, s.AnchorTime, s.AnchorOffset);
         end
 
-        % [V3.12 2.2.3] Time ??Frame No 留ㅽ븨
+        % [V3.12 2.2.3] Time → Frame No 매핑
         function frameNo = timeToFrame(app, fIdx, timeVal)
-            % [REFACTOR Step 2 / V3.23] SyncModel ?꾩엫 - anchor/fps/total/offset 紐낆떆 ?꾨떖
+            % [REFACTOR Step 2 / V3.23] SyncModel 위임 - anchor/fps/total/offset 명시 전달
             s = app.VideoSyncState(fIdx);
             frameNo = app.SyncMdl(fIdx).timeToFrame(timeVal, s.VideoFps, s.TotalFrames, s.AnchorFrame, s.AnchorTime, s.AnchorOffset);
         end
@@ -2447,7 +2447,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         % [V3.13 C-1 / REFACTOR Step 1] ?꾨젅??罹먯떆 ???- CacheModel ?꾩엫
-        % - 媛以?LRU + 硫붾え由??덉궛 evict??紐⑤몢 紐⑤뜽 ?대??먯꽌 泥섎━
+        % - 가중 LRU + 메모리 예산 evict는 모두 모델 내부에서 처리
         function cacheStoreFrame(app, fIdx, frameNo, img)
             try
                 if isempty(app.CacheModel) || fIdx > numel(app.CacheModel), return; end
@@ -2464,20 +2464,20 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         % [REFACTOR Step 1] evictByScore??CacheModel ?대? 硫붿꽌?쒕줈 ?댁쟾??
         % ?몃??먯꽌 吏곸젒 ?몄텧?섎뒗 肄붾뱶媛 ?놁쑝誘濡?蹂??대옒?ㅼ뿉???꾩쟾 ?쒓굅.
-        % (?꾩슂 ??app.CacheModel(fIdx).stats() 濡?罹먯떆 ?곹깭 ?먭? 媛??
+        % (필요 시 app.CacheModel(fIdx).stats() 로 캐시 상태 점검 가능)
 
         % =====================================================================
-        % [V3.21 #3-A] 3怨꾩링 遺꾨━ 援ъ“ - 梨낆엫 紐낇솗??
+        % [V3.21 #3-A] 3계층 분리 구조 - 책임 명확화
         %
-        %   Layer 1: requestFrame  - 吏꾩엯??+ 罹먯떆 lookup + ?꾨왂 ?좏깮
-        %   Layer 2: decodeFrameSync - ?숆린 ?붿퐫??(read or ?대갚)
-        %            startAsyncDecode - 鍮꾨룞湲??붿퐫??(蹂꾨룄 硫붿꽌?? 湲곗〈)
-        %   Layer 3: displayFrame  - ?쒖떆 + 罹먯떆 store (?⑥씪 異쒓뎄)
+        %   Layer 1: requestFrame  - 진입점 + 캐시 lookup + 전략 선택
+        %   Layer 2: decodeFrameSync - 동기 디코딩 (read or 폴백)
+        %            startAsyncDecode - 비동기 디코딩 (별도 메서드, 기존)
+        %   Layer 3: displayFrame  - 표시 + 캐시 store (단일 출구)
         %
         % 湲곗〈 updateVideoFrameByFrameNo???명솚???꾪빐 requestFrame濡??꾩엫.
         % =====================================================================
 
-        % [V3.21 #3-A Layer 1] Frame ?붿껌 吏꾩엯??
+        % [V3.21 #3-A Layer 1] Frame 요청 진입점
         % source: 'drag' / 'autoplay' / 'sync' / 'force'
         function requestFrame(app, fIdx, frameNo, source)
             if nargin < 4, source = 'force'; end
@@ -2485,19 +2485,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             % ?좏슚??寃??
 
-            % autoplay throttle 遺꾧린
+            % autoplay throttle 분기
             if strcmp(source, 'autoplay')
                 if app.throttleHit('LastVideoUpdate', fIdx, flightdash.util.AppConstants.VIDEO_THROTTLE_S), return; end
             end
 
-            % clamp (lookup/store ???쇨???
+            % clamp (lookup/store 키 일관성)
             totalF = app.VideoSyncState(fIdx).TotalFrames;
             clampedFrame = max(1, min(round(frameNo), max(1, totalF)));
 
-            % [PATCH] ?숈씪 ?꾨젅??議곌린 諛섑솚 - GUI/?붿퐫??遺???숈떆 ?덇컧
+            % [PATCH] 동일 프레임 조기 반환 - GUI/디코딩 부하 동시 절감
             if app.LastDisplayedFrame(fIdx) == clampedFrame, return; end
 
-            % Layer 1: 罹먯떆 lookup
+            % Layer 1: 캐시 lookup
             cached = app.cacheGetFrame(fIdx, clampedFrame);
             if ~isempty(cached)
                 app.displayFrame(fIdx, clampedFrame, cached, true);  % cacheHit=true
@@ -2510,13 +2510,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 return;
             end
 
-            % ?꾨왂 ?좏깮: async vs sync
+            % 전략 선택: async vs sync
             if app.UseAsyncDecode && strcmp(source, 'drag')
                 app.startAsyncDecode(fIdx, clampedFrame);
                 return;
             end
 
-            % Layer 2: ?숆린 ?붿퐫??
+            % Layer 2: 동기 디코딩
             app.setStateDecoding(fIdx, true);
             cleanup2 = onCleanup(@() app.clearDecodingFlag(fIdx)); %#ok<NASGU>
 
@@ -2526,7 +2526,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.21 #3-A Layer 2] ?숆린 ?붿퐫??(read or ?대갚)
+        % [V3.21 #3-A Layer 2] 동기 디코딩 (read or 폴백)
         function img = decodeFrameSync(app, fIdx, clampedFrame)
             img = [];
             vr = app.VideoState(fIdx).videoReader;
@@ -2534,7 +2534,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 img = read(vr, clampedFrame);
             catch
-                % ?대갚: CurrentTime + readFrame
+                % 폴백: CurrentTime + readFrame
                 try
                     fps = app.VideoSyncState(fIdx).VideoFps;
                     if fps <= 0, fps = 70; end
@@ -2553,14 +2553,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.21 #3-A Layer 3] ?⑥씪 ?쒖떆 異쒓뎄 - 紐⑤뱺 ?붿퐫??寃곌낵???ш린 ?듦낵
+        % [V3.21 #3-A Layer 3] 단일 표시 출구 - 모든 디코딩 결과는 여기 통과
         function displayFrame(app, fIdx, frameNo, img, isCacheHit)
             try
                 if ~app.isVideoReady(fIdx) || isempty(img), return; end
                 set(app.VideoState(fIdx).vidImageHandle, 'CData', img);
-                app.LastDisplayedFrame(fIdx) = frameNo;   % [PATCH] 議곌린諛섑솚 ??
+                app.LastDisplayedFrame(fIdx) = frameNo;   % [PATCH] 조기반환 키
 
-                % 罹먯떆 store (?덊듃 ?꾨땺 ?뚮쭔 - cache-first write-through)
+                % 캐시 store (히트 아닐 때만 - cache-first write-through)
                 if ~isCacheHit
                     app.cacheStoreFrame(fIdx, frameNo, img);
                 end
@@ -2569,8 +2569,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.13 / V3.14 / V3.21 ?명솚] 湲곗〈 updateVideoFrameByFrameNo??
-        % requestFrame濡??꾩엫 (?몃? ?몄텧泥??명솚 ?좎?)
+        % [V3.13 / V3.14 / V3.21 호환] 기존 updateVideoFrameByFrameNo는
+        % requestFrame로 위임 (외부 호출처 호환 유지)
         function updateVideoFrameByFrameNo(app, fIdx, frameNo, source)
             if nargin < 4, source = 'force'; end
             app.requestFrame(fIdx, frameNo, source);
@@ -2753,7 +2753,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if ~isfinite(newVideoW), return; end
                 app.ManualVideoWidth(fIdx) = max(0, round(newVideoW));
 
-                % [FIX] ?ъ슜?먭? splitter 議곗옉 ???먮룞 由ъ궗?댁쫰 李⑤떒 ?뚮옒洹?
+                % [FIX] 사용자가 splitter 조작 시 자동 리사이즈 차단 플래그
                 app.VideoUserResized(fIdx) = true;
                 app.LayoutMgr.applyResponsiveChannelLayout(app, fIdx, profile);
                 drawnow limitrate;
@@ -2777,7 +2777,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % [V3.11 B] XLim 由ъ뒪???쇨큵 ?쒖뼱 (?쒕옒洹?以?以묐떒/蹂듭썝)
         % ---------------------------------------------------------------------
         function setXLimListenersEnabled(app, fIdx, enabled)
-            % H ?⑤꼸 ??紐⑤뱺 ??쓽 XLim 由ъ뒪???쒖뼱
+            % H 패널 내 모든 탭의 XLim 리스너 제어
             try
                 for tIdx = 1:length(app.UI(fIdx).xLimListeners)
                     listeners = app.UI(fIdx).xLimListeners{tIdx};
@@ -2790,7 +2790,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % Altitude ?⑤꼸 XLim 由ъ뒪???쒖뼱
+            % Altitude 패널 XLim 리스너 제어
             try
                 if isfield(app.UI(fIdx), 'altXLimListener')
                     L = app.UI(fIdx).altXLimListener;
@@ -2802,14 +2802,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         % ---------------------------------------------------------------------
-        % [V3.11 C / V3.12 ?뺤옣] 寃쎈웾 ?낅뜲?댄듃 寃쎈줈 (?쒕옒洹?以??꾩슜)
-        % - V3.11: 留덉빱/xline + ?꾩옱?쒓컙 ?쇰꺼 + H ?⑤꼸 梨낆옣 ?섍린湲?
-        % - V3.12 1.1: Map 鍮꾪뻾寃쎈줈 + 鍮④컙 ?쇨컖???ㅼ떆媛?媛깆떊 異붽?
-        % - V3.12 2.2.3: 鍮꾨뵒???숆린 ?ㅼ젙 ??Frame 留덉빱 媛깆떊 + ?곸긽 ?꾨젅??媛깆떊
+        % [V3.11 C / V3.12 확장] 경량 업데이트 경로 (드래그 중 전용)
+        % - V3.11: 마커/xline + 현재시간 라벨 + H 패널 책장 넘기기
+        % - V3.12 1.1: Map 비행경로 + 빨간 삼각형 실시간 갱신 추가
+        % - V3.12 2.2.3: 비디오 동기 설정 시 Frame 마커 갱신 + 영상 프레임 갱신
         % - ?꾩옱 鍮꾪뻾 ?뺣낫 ?뚯씠釉붽낵 鍮꾪뻾 寃뚯씠吏???쒕옒洹?以묒뿉??利됱떆 媛깆떊
         % ---------------------------------------------------------------------
         function updateMarkersOnly(app, fIdx, idx)
-            % [V3.17 (4)(11)] persistent inCascade ??InCascade ?몄뒪?댁뒪 ?띿꽦?쇰줈 ?대룞
+            % [V3.17 (4)(11)] persistent inCascade → InCascade 인스턴스 속성으로 이동
             % [V3.17 (5)] drawnow瑜??몃?(goToFrame)?먯꽌 泥섎━?섎?濡??먯껜 ?몄텧? 媛??
             isOuter = ~app.InCascade;
 
@@ -2822,7 +2822,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 altCol = app.Models(fIdx).mappedCols.Alt;
                 alts = app.Models(fIdx).rawData.(altCol);
 
-                % Altitude ?⑤꼸 留덉빱 + xline 媛깆떊
+                % Altitude 패널 마커 + xline 갱신
                 if isfield(app.UI(fIdx), 'hAltMarker') && isvalid(app.UI(fIdx).hAltMarker)
                     set(app.UI(fIdx).hAltMarker, 'XData', currTime, 'YData', alts(idx));
                 end
@@ -2846,7 +2846,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.updateAttitudeGauges(fIdx, idx);
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [V3.12 1.1] Map 鍮꾪뻾寃쎈줈 + 鍮④컙 ?쇨컖???ㅼ떆媛?媛깆떊 (媛踰쇱?)
+            % [V3.12 1.1] Map 비행경로 + 빨간 삼각형 실시간 갱신 (가벼움)
             % [PERF] validIdx ?쒓굅 - load ??NaN ?꾩쿂由щ맖, plot??NaN?먯꽌 ?먮룞 ?딄?
             try
                 pathLon = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lon);
@@ -2877,9 +2877,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.updatePlotTimeLines(fIdx, idx, currTime);
             end
 
-            % [V3.12 2.2.3] 鍮꾨뵒???숆린 ?ㅼ젙 ??Frame 留덉빱 + ?곸긽 ?꾨젅??媛깆떊
+            % [V3.12 2.2.3] 비디오 동기 설정 시 Frame 마커 + 영상 프레임 갱신
             % (?? 鍮꾨뵒??痢≪뿉???쒖옉???쒕옒洹멸? ?꾨땺 ?뚮쭔 - 臾댄븳 猷⑦봽 諛⑹?)
-            % [PATCH UX-1] Sync 紐낆떆 ?쒖꽦??+ 鍮꾨뵒??ready ?숈떆 異⑹” ?쒖뿉留?媛깆떊
+            % [PATCH UX-1] Sync 명시 활성화 + 비디오 ready 동시 충족 시에만 갱신
             if app.VideoSyncState(fIdx).IsSynced && ~app.MarkerDragCtrl.DraggedFromVideo ...
                     && app.isVideoReady(fIdx) && app.VideoSyncState(fIdx).AnchorFrame > 0
                 try
@@ -2890,13 +2890,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     % [V3.14] Frame 留덉빱 + xline + ?щ씪?대뜑 + ?쇰꺼 ?쇨큵 ?숆린??
                     app.syncFrameMarkersAndLabel(fIdx, targetFrame);
 
-                    % [V3.13 ?덉땐] 鍮꾪뻾?곗씠???쒕옒洹????곸긽 媛깆떊? throttle ?좎?
+                    % [V3.13 절충] 비행데이터 드래그 시 영상 갱신은 throttle 유지
                     app.syncFrameMarkersAndLabel(fIdx, targetFrame);
                     app.updateVideoFrameByFrameNo(fIdx, targetFrame, 'autoplay');
                 catch ME, app.logCaught(ME, 'silent'); end
             end
 
-            % ?숆린??紐⑤뱶: 寃쎈줈 1 ?쒕옒洹???寃쎈줈 2??寃쎈웾 ?낅뜲?댄듃
+            % 동기화 모드: 경로 1 드래그 시 경로 2도 경량 업데이트
             if app.SyncState.IsSynced && fIdx == 1 && ~isempty(app.Models(2).rawData)
                 targetT2 = app.SyncState.SyncT2 + (currTime - app.SyncState.SyncT1);
                 timeCol2 = app.Models(2).mappedCols.Time;
@@ -2912,8 +2912,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             try, app.LayoutMgr.updatePanelRailSummaries(app, fIdx); catch, end
 
-            % [V3.17 (5)] cascade ?몃? + goToFrame 誘멸꼍???쒖뿉留?drawnow
-            % goToFrame? ?먯껜 醫낅즺 ??drawnow ?몄텧?섎?濡?以묐났 諛⑹?
+            % [V3.17 (5)] cascade 외부 + goToFrame 미경유 시에만 drawnow
+            % goToFrame은 자체 종료 시 drawnow 호출하므로 중복 방지
             if isOuter && ~app.anyStateGoToFrame()
                 drawnow limitrate;
             end
@@ -3711,16 +3711,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % H ?곸뿭 ??諛??ㅼ쨷 ?뚮’ 愿由?
         % ---------------------------------------------------------------------
         % [FIX] ???붾㈃ 理쒕? 3媛?蹂댁옣: tabGroup 媛???믪씠瑜?3?깅텇??RowHeight ?숈쟻 媛깆떊
-        % - throttle 0.05s濡?由ъ궗?댁쫰 以??ㅻ컻 ?몄텧 李⑤떒
-        % - 紐⑤뱺 ??쓽 紐⑤뱺 row瑜??숈씪 ?믪씠濡??듭씪 (4媛??댁긽 ???먮룞 ?ㅽ겕濡?
+        % - throttle 0.05s로 리사이즈 중 다발 호출 차단
+        % - 모든 탭의 모든 row를 동일 높이로 통일 (4개 이상 시 자동 스크롤)
         function updatePlotRowHeights(app, fIdx)
             if app.throttleHit('PlotRowResize', fIdx, 0.05), return; end
             try
                 if ~isfield(app.UI(fIdx), 'tabGroup') || ~isvalid(app.UI(fIdx).tabGroup), return; end
                 pos = getpixelposition(app.UI(fIdx).tabGroup, true);
-                visH = pos(4) - 30;  % ???ㅻ뜑 ~30px 李④컧
+                visH = pos(4) - 30;  % 탭 헤더 ~30px 차감
                 if visH < 90, visH = 90; end
-                rowH = max(120, floor(visH / 3));  % 理쒖냼 120px, ???붾㈃ 3媛?
+                rowH = max(120, floor(visH / 3));  % 최소 120px, 한 화면 3개
                 for t = 1:numel(app.UI(fIdx).plotLayouts)
                     L = app.UI(fIdx).plotLayouts{t};
                     if isempty(L) || ~isvalid(L) || isempty(L.RowHeight), continue; end
@@ -3729,7 +3729,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME, app.logCaught(ME, 'silent'); end
         end
 
-        % [FIX] UIFigure 由ъ궗?댁쫰 ????梨꾨꼸 plot row ?숈떆 媛깆떊
+        % [FIX] UIFigure 리사이즈 시 두 채널 plot row 동시 갱신
         function onUIFigureResized(app)
             if app.IsDeleting, return; end
             app.LayoutMgr.applyLayout(app, 'resize');
@@ -3834,14 +3834,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function handlePlotXLimChange(app, fIdx, ax)
-            % [V3.11 A] ?꾨줈洹몃옒諛띿쟻 XLim 蹂寃?梨낆옣 ?섍린湲?????寃쎌슦 由ъ뒪??臾댁떆
+            % [V3.11 A] 프로그래밍적 XLim 변경(책장 넘기기 등)인 경우 리스너 무시
             %           ???ъ슜?먭? ?쒕옒洹명븳 留덉빱 ?꾩튂媛 以묒븰?쇰줈 媛뺤젣 ?먰봽?섎뒗 ?꾩긽 李⑤떒
             if app.IsProgrammaticXLim(fIdx), return; end
 
             % =======================================================
-            % [V3.8 蹂닿컯] ?대컮??Zoom/Pan 紐⑤뱶瑜??꾨줈洹몃옒諛띿쟻?쇰줈 媛뺤젣 Off
-            % - ?뱀떆 ?몃? API???ㅻⅨ 寃쎈줈瑜??듯빐 zoom/pan 紐⑤뱶媛 耳쒖죱??寃쎌슦
-            %   WindowButtonUp ?대깽??媛濡쒖콈湲곕줈 ?명븳 留덉빱 ?ㅽ꽦 ?꾩긽 ?먯쿇 李⑤떒
+            % [V3.8 보강] 툴바의 Zoom/Pan 모드를 프로그래밍적으로 강제 Off
+            % - 혹시 외부 API나 다른 경로를 통해 zoom/pan 모드가 켜졌을 경우
+            %   WindowButtonUp 이벤트 가로채기로 인한 마커 스턱 현상 원천 차단
             % =======================================================
             try
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
@@ -3962,7 +3962,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if isempty(app.Models(fIdx).rawData), return; end
             bnds = app.Models(fIdx).bounds;
 
-            % --- Map ?ㅼ젙 ---
+            % --- Map 설정 ---
             axMap = app.UI(fIdx).mapAxes; cla(axMap);
             hold(axMap, 'on');
             if bnds.isValid
@@ -3979,7 +3979,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             pathLon = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lon);
             pathLat = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lat);
-            % [PERF] NaN ?꾩쿂由???吏곸젒 plot (NaN?먯꽌 ?먮룞 ?딄?)
+            % [PERF] NaN 전처리 → 직접 plot (NaN에서 자동 끊김)
             plot(axMap, pathLon, pathLat, 'Color', [0.8 0.8 0.8], 'LineWidth', 1);
 
             lineColor = [0.23 0.51 0.96];
@@ -3996,12 +3996,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             x_base = [0, -0.5, 0.5, 0] * scale; y_base = [1, -1, -1, 1] * scale;
             patch('Parent', app.UI(fIdx).hgMapPlane, 'XData', x_base, 'YData', y_base, 'FaceColor', 'r', 'EdgeColor', [0.5 0 0], 'LineWidth', 1);
 
-            % --- Altitude ?ㅼ젙 諛?Y異??숈쟻 ?ㅼ??쇰쭅 ?쒖꽦??---
+            % --- Altitude 설정 및 Y축 동적 스케일링 활성화 ---
             axAlt = app.UI(fIdx).altAxes; cla(axAlt);
             times = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Time);
             alts = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Alt);
 
-            % ?먮윭 諛⑹뼱: altXLimListener媛 ?좏슚?쒖? 泥댄겕
+            % 에러 방어: altXLimListener가 유효한지 체크
             if isfield(app.UI(fIdx), 'altXLimListener')
                 try
                     if ~isempty(app.UI(fIdx).altXLimListener) && isvalid(app.UI(fIdx).altXLimListener)
@@ -4010,12 +4010,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 catch ME, app.logCaught(ME, 'silent'); end
             end
 
-            % X異뺤쓣 ?곗씠???꾩껜濡??↔퀬, Y異뺤? auto 紐⑤뱶濡??ㅼ젙?섏뿬 GUI 由ъ궗?댁쫰 ???숈쟻?쇰줈 ?곸쓳?섎룄濡?蹂댁옣
+            % X축을 데이터 전체로 잡고, Y축은 auto 모드로 설정하여 GUI 리사이즈 시 동적으로 적응하도록 보장
             axAlt.XLim = [min(times) max(times)];
             axAlt.YLimMode = 'auto';
             plot(axAlt, times, alts, 'Color', [0.8 0.8 0.8], 'LineWidth', 1, 'HitTest', 'off');
 
-            % [V3.10] Altitude axes???대컮 ?④? (??以??쒕옒洹??щ쭔 ?ъ슜)
+            % [V3.10] Altitude axes는 툴바 숨김 (휠 줌/드래그 팬만 사용)
             app.UI(fIdx).altAxes.Toolbar.Visible = 'off';
             app.UI(fIdx).altAxes.Interactions = [panInteraction, zoomInteraction];
 
@@ -4027,7 +4027,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.UI(fIdx).hAltMarker.ButtonDownFcn = @(src, event) app.MarkerDragCtrl.startPlotMarkerDrag(fIdx, 0, src, event);
             app.UI(fIdx).timeLine.ButtonDownFcn = @(src, event) app.MarkerDragCtrl.startPlotMarkerDrag(fIdx, 0, src, event);
 
-            % Altitude ?⑤꼸??Zoom/Pan ???숆린??由ъ뒪??異붽?
+            % Altitude 패널의 Zoom/Pan 시 동기화 리스너 추가
             app.UI(fIdx).altXLimListener = addlistener(axAlt, 'XLim', 'PostSet', @(~,~) app.handlePlotXLimChange(fIdx, axAlt));
 
             % --- 鍮꾪뻾?먯꽭 寃뚯씠吏 ?ㅼ젙 ---
@@ -4273,7 +4273,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             currLon = pathLon(1:index);
             currLat = pathLat(1:index);
 
-            % [PERF] NaN ?꾩쿂由???吏곸젒 set
+            % [PERF] NaN 전처리 → 직접 set
             set(app.UI(fIdx).hMapPath, 'XData', currLon, 'YData', currLat);
 
             hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(index);
@@ -4296,20 +4296,20 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.updateAttitudeGauges(fIdx, index);
 
             % 鍮꾨뵒??諛?H ?곸뿭 媛깆떊
-            % [V3.12 2.2.3] 鍮꾨뵒???숆린 ?ㅼ젙 ??Frame No 湲곕컲 媛깆떊 (?뺥솗??留ㅽ븨)
+            % [V3.12 2.2.3] 비디오 동기 설정 시 Frame No 기반 갱신 (정확한 매핑)
             if app.VideoSyncState(fIdx).IsSynced
                 try
                     targetFrame = app.timeToFrame(fIdx, currTime);
                     app.VideoSyncState(fIdx).CurrentFrame = targetFrame;
                     % [V3.14] Frame 留덉빱 + xline + ?щ씪?대뜑 + ?쇰꺼 ?쇨큵 ?숆린??
                     app.syncFrameMarkersAndLabel(fIdx, targetFrame);
-                    app.updateVideoFrameByFrameNo(fIdx, targetFrame, 'sync');  % ?뺥솗???숆린??
+                    app.updateVideoFrameByFrameNo(fIdx, targetFrame, 'sync');  % 정확한 동기화
                 catch
-                    app.updateVideoFrame(fIdx, currTime);  % ?대갚
+                    app.updateVideoFrame(fIdx, currTime);  % 폴백
                 end
             else
                 % ?숆린 誘몄꽕?? 湲곗〈 諛⑹떇?濡??쒓컙 湲곕컲 媛깆떊
-                % app.updateVideoFrame(fIdx, currTime);  % <--- ??以꾩쓣 二쇱꽍 泥섎━?섏뿬 ?꾩쟾 遺꾨━
+                % app.updateVideoFrame(fIdx, currTime);  % <--- 이 줄을 주석 처리하여 완전 분리
             end
             app.updatePlotTimeLines(fIdx, index, currTime);
             app.LayoutMgr.updatePanelRailSummaries(app, fIdx);
@@ -4319,13 +4319,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     end
 
     % =========================================================================
-    % UI ?덉씠?꾩썐 ?앹꽦 ?⑺넗由?(Create Layout)
+    % UI 레이아웃 생성 팩토리 (Create Layout)
     % =========================================================================
     methods (Access = public)
         function createLayout(app)
-            % [REFACTOR Step 3] 硫붿씤 怨④꺽 + 梨꾨꼸蹂?鍮뚮뱶??view ?⑦궎吏濡??꾩엫
-            % - ?ㅻ뜑: buildHeaderBar (湲곗〈 ?좎?)
-            % - 梨꾨꼸: flightdash.view.ChannelLayout.build (6而щ읆 ?꾩엫)
+            % [REFACTOR Step 3] 메인 골격 + 채널별 빌드는 view 패키지로 위임
+            % - 헤더: buildHeaderBar (기존 유지)
+            % - 채널: flightdash.view.ChannelLayout.build (6컬럼 위임)
             mainLayout = uigridlayout(app.UIFigure, [2 1]);
             app.LayoutHandles.mainLayout = mainLayout;
             mainLayout.RowHeight = {'fit', '1x'};
@@ -4367,19 +4367,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.LayoutMgr.applyLayout(app, 'createLayout');
         end
 
-        % [V3.22 #5] ?됰㈃ UI struct瑜?洹몃９?붾맂 view(struct)濡?臾띠뼱 蹂꾨룄 ?띿꽦?????
+        % [V3.22 #5] 평면 UI struct를 그룹화된 view(struct)로 묶어 별도 속성에 저장
         % - app.UIGroup(fIdx).attitude.rollAxes = app.UI(fIdx).rollAxes  (alias)
-        % - ??肄붾뱶??app.UIGroup(...) 寃쎈줈瑜?沅뚯옣; 湲곗〈 肄붾뱶??app.UI(...) 洹몃?濡?
+        % - 새 코드는 app.UIGroup(...) 경로를 권장; 기존 코드는 app.UI(...) 그대로
         % - ?몃뱾 媛앹껜?대?濡?alias媛 ?숈씪 媛앹껜瑜?媛由ъ폒 蹂寃????묒そ 紐⑤몢 ?숆린??
         function buildUIGroups(app)
-            % [V3.22 #5] ?됰㈃ UI struct瑜?洹몃９?붾맂 view(struct array, 1x2)濡?臾띠쓬
+            % [V3.22 #5] 평면 UI struct를 그룹화된 view(struct array, 1x2)로 묶음
             % - ?몃뱾 媛앹껜?대?濡?alias媛 ?숈씪 媛앹껜瑜?媛由ъ폒 蹂寃????묒そ 紐⑤몢 ?숆린??
             UIGroup_temp = struct([]);
             for fIdx = 1:2
                 u = app.UI(fIdx);
                 grp = struct();
 
-                % ?먯꽭(Attitude) 洹몃９
+                % 자세(Attitude) 그룹
                 grp.attitude = struct( ...
                     'panel',      u.panelAttitude, ...
                     'pitchAxes',  u.pitchAxes,  'pitchLabel', u.pitchLabel, 'hgPitch', app.uiFieldOr(u, 'hgPitch', gobjects(0)), ...
@@ -4398,7 +4398,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     'timeLine',   app.uiFieldOr(u, 'timeLine',   gobjects(0)), ...
                     'altXLimListener', app.uiFieldOr(u, 'altXLimListener', []));
 
-                % 鍮꾨뵒??+ Frame Navigator 洹몃９
+                % 비디오 + Frame Navigator 그룹
                 grp.video = struct( ...
                     'panel',           u.panelVideo, ...
                     'vidAxes',         u.vidAxes, ...
@@ -4466,10 +4466,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.22 #7] 硫붿씤 ?덈룄???곷떒 ?ㅻ뜑 諛?(?뚯씪 ?좏깮 / Debug / Sync ?낅젰)
-        % - createLayout?먯꽌 遺꾨━?섏뿬 ?ㅻ뜑 ?곸뿭 蹂寃쎌씠 硫붿씤 鍮뚮뜑???곹뼢 ?녿룄濡???
+        % [V3.22 #7] 메인 윈도우 상단 헤더 바 (파일 선택 / Debug / Sync 입력)
+        % - createLayout에서 분리하여 헤더 영역 변경이 메인 빌더에 영향 없도록 함
         function buildHeaderBar(app, mainLayout)
-            % [REFACTOR Step 6-1] flightdash.view.HeaderBar濡??꾩엫
+            % [REFACTOR Step 6-1] flightdash.view.HeaderBar로 위임
             ui = flightdash.view.HeaderBar.build(mainLayout);
             app.LayoutHandles.header = ui;
             app.SyncInput = ui.SyncInput;
@@ -4477,19 +4477,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         % [REFACTOR] createGaugePanel??flightdash.view.AttitudePanel.createGauge濡??대룞
-        %            (View媛 ?먯껜 寃뚯씠吏 援ъ꽦 - app ?섏〈 ?꾩쟾 ?쒓굅)
+        %            (View가 자체 게이지 구성 - app 의존 완전 제거)
     end
 
-    % [REFACTOR Step 5-C] ?댁쟾 Static wrapper(workerDecodeFrame/workerCleanupCache)??
-    % ?ъ슜泥?0 ???꾩쟾 ?쒓굅. parfeval? ?댁젣 file-level ?⑥닔瑜?吏곸젒 李몄“:
+    % [REFACTOR Step 5-C] 이전 Static wrapper(workerDecodeFrame/workerCleanupCache)는
+    % 사용처 0 → 완전 제거. parfeval은 이제 file-level 함수를 직접 참조:
     %   parfeval(pool, @asyncDecodeFramePersistent, ...)
     %   parfevalOnAll(pool, @cleanupAsyncDecodeCache, 0)
 end
 
 % =========================================================================
-% [REFACTOR Step 5-B] file-level worker ?⑥닔??蹂꾨룄 .m ?뚯씪濡?遺꾨━??
+% [REFACTOR Step 5-B] file-level worker 함수는 별도 .m 파일로 분리됨:
 %   - asyncDecodeFrame.m
-%   - asyncDecodeFramePersistent.m  (parfeval worker ?ロ뙣??
+%   - asyncDecodeFramePersistent.m  (parfeval worker 핫패스)
 %   - cleanupAsyncDecodeCache.m
 % ?뚯빱 path 寃?됱쓣 ?꾪빐 蹂??뚯씪怨??숈씪 ?대뜑???꾩튂?댁빞 ??
 % =========================================================================
