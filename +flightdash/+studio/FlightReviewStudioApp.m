@@ -227,6 +227,18 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 'Position', app.initialFigurePosition(), ...
                 'Color', [0.94 0.94 0.96], ...
                 'AutoResizeChildren', 'off');
+            % [PHASE 3c] Start maximized so the embedded FlightDataDashboard
+            % gets enough horizontal room to avoid NARROW-profile rails.
+            % MATLAB Online resizes the maximized figure to the browser
+            % viewport, which is typically wider than our 1700px preferred
+            % size and pushes the workspace area above the 1120px COMPACT
+            % threshold even after subtracting the side docks.
+            try
+                if isprop(app.UIFigure, 'WindowState')
+                    app.UIFigure.WindowState = 'maximized';
+                end
+            catch
+            end
             app.UIFigure.CloseRequestFcn = @(~,~) app.onCloseRequest();
 
             % --- Top-level grid: header / body / status bar ---
@@ -248,8 +260,11 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.ToolbarMgr = flightdash.studio.ToolbarManager(app, headerGrid);
 
             % --- Body (3-column: explorer | workspace | dock) ---
+            % [PHASE 3c] Slim down the side panels so the workspace
+            % column has enough width to keep the embedded
+            % FlightDataDashboard out of NARROW profile (rail mode).
             app.BodyGrid = uigridlayout(shellGrid, [1 3], ...
-                'ColumnWidth', {UIScale.px(240), '1x', UIScale.px(320)}, ...
+                'ColumnWidth', {UIScale.px(200), '1x', UIScale.px(260)}, ...
                 'RowHeight', {'1x'}, ...
                 'ColumnSpacing', 4, 'Padding', [4 4 4 4], ...
                 'BackgroundColor', [0.94 0.94 0.96]);
@@ -282,24 +297,31 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function pos = initialFigurePosition(~)
-            % Conservative size that fits MATLAB Online browser viewports
-            % AND most desktop monitors. Avoids "exceeds monitor range".
+            % Studio embeds the FlightDataDashboard inside its workspace
+            % column. The dashboard's responsive layout drops every
+            % channel panel to "rail mode" (text-only summary) when the
+            % available width is below the COMPACT threshold (~1120px).
+            % The previous 1280px cap with a 240+320 explorer+dock
+            % chrome left only ~700px for the workspace, putting the
+            % embedded dashboard into NARROW profile and triggering rail
+            % mode on Att/Map/Info/Video. Open the figure as wide as the
+            % monitor allows so the embedded layout has room.
             try
                 monitors = get(groot, 'MonitorPositions');
                 if ~isempty(monitors) && size(monitors, 2) >= 4
                     mon = monitors(1, 1:4);
                 else
-                    mon = [1 1 1280 800];
+                    mon = [1 1 1600 900];
                 end
             catch
-                mon = [1 1 1280 800];
+                mon = [1 1 1600 900];
             end
-            % Cap at a friendly size; never larger than 90% of monitor.
-            maxW = 1280;  maxH = 800;
-            w = min(maxW, floor(mon(3) * 0.9));
-            h = min(maxH, floor(mon(4) * 0.9));
-            w = max(960, w);
-            h = max(600, h);
+            preferredW = 1700;
+            preferredH = 1000;
+            w = min(preferredW, floor(mon(3) * 0.95));
+            h = min(preferredH, floor(mon(4) * 0.92));
+            w = max(1280, w);
+            h = max(720,  h);
             x = mon(1) + max(10, floor((mon(3) - w) / 2));
             y = mon(2) + max(10, floor((mon(4) - h) / 2));
             pos = [x, y, w, h];
