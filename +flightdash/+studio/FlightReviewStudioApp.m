@@ -29,6 +29,10 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         RightDock             % flightdash.studio.RightDockManager
         StatusBar             % flightdash.studio.StatusBarManager
 
+        % [PHASE 3.5] Owns the figure-level WindowButton callbacks so
+        % per-session drag controllers do not race for the single slot.
+        MouseRouter           % flightdash.studio.StudioMouseRouter
+
         % Studio-level state
         % Phase 2: Project model holds Sessions/Figures/Results/Themes.
         Project               % flightdash.project.ProjectModel (value class)
@@ -283,12 +287,60 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         function delete(app)
             if app.IsDeleting, return; end
             app.IsDeleting = true;
+
+            % [PHASE 3.5] Close every embedded session FIRST so each
+            % FlightDataDashboard.delete runs with the figure/router
+            % still alive. Each dashboard releases its own AsyncFutures
+            % + VideoReader + cache; embedded mode leaves the parpool
+            % intact so the order here matters.
+            try, app.removeAllSessions(); catch ME, try, app.logCaught(ME, 'Studio:teardown:sessions'); catch, end, end
+
+            % Detach router before tearing down workspace so no late
+            % motion event tries to dispatch into a freed controller.
+            try
+                if ~isempty(app.MouseRouter) && isvalid(app.MouseRouter)
+                    app.MouseRouter.detach();
+                    delete(app.MouseRouter);
+                end
+            catch, end
+            app.MouseRouter = [];
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
+                        && isappdata(app.UIFigure, 'StudioMouseRouter')
+                    rmappdata(app.UIFigure, 'StudioMouseRouter');
+                end
+            catch, end
+
             try, delete(app.MenuMgr);          catch, end
             try, delete(app.ToolbarMgr);       catch, end
             try, delete(app.ProjectExplorer);  catch, end
             try, delete(app.Workspace);        catch, end
             try, delete(app.RightDock);        catch, end
             try, delete(app.StatusBar);        catch, end
+
+            % [PHASE 3.5] Studio owns process-global async resources
+            % once embedded sessions skipped pool teardown in their
+            % delete(). Run a best-effort cleanup on any current parpool
+            % so the next FlightReviewStudio session starts fresh. The
+            % parpool itself is intentionally left alive — MATLAB
+            % reuses it across runs for fast restart.
+            try
+                gp = gcp('nocreate');
+                if ~isempty(gp) && isvalid(gp)
+                    fCleanup = parfevalOnAll(gp, @cleanupAsyncDecodeCache, 0);
+                    try
+                        wait(fCleanup, 'finished', 3);
+                    catch
+                        try, cancel(fCleanup); catch, end
+                    end
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:globalPoolCleanup'); catch, end
+            end
+
+            try
+                flightdash.util.SessionScope.clear();
+            catch, end
             try
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
                     delete(app.UIFigure);
@@ -378,6 +430,16 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 'BackgroundColor', [0.92 0.92 0.94]);
             app.StatusBarPanel.Layout.Row = 3;
             app.StatusBar = flightdash.studio.StatusBarManager(app, app.StatusBarPanel);
+
+            % [PHASE 3.5] Centralize WindowButton callbacks. Drag
+            % controllers in embedded mode reach the router via
+            % getappdata(parentFigure, 'StudioMouseRouter') so they do
+            % not need a direct reference to FlightReviewStudioApp.
+            app.MouseRouter = flightdash.studio.StudioMouseRouter(app.UIFigure, app.Workspace);
+            try
+                setappdata(app.UIFigure, 'StudioMouseRouter', app.MouseRouter);
+            catch
+            end
         end
 
         function onCloseRequest(app)

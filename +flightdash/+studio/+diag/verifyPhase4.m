@@ -20,6 +20,7 @@ function results = verifyPhase4()
 %     P4-5  SessionModel.setFlightFile rejects bad channel idx
 %     P4-6  SessionModel.setDisplayName rejects empty / whitespace
 %     P4-7  ProjectModel.removeSession cascades dependent results
+%     P4-8  StudioMouseRouter lock semantics (Phase 3.5)
 
     fprintf('\n=== Phase 4 verification ===\n');
 
@@ -30,7 +31,8 @@ function results = verifyPhase4()
         'P4-4', @p44_newIdCounter; ...
         'P4-5', @p45_channelIdxValidator; ...
         'P4-6', @p46_displayNameValidator; ...
-        'P4-7', @p47_removeSessionCascade ...
+        'P4-7', @p47_removeSessionCascade; ...
+        'P4-8', @p48_studioMouseRouter ...
     };
 
     results = repmat(struct('Id','','Passed',false,'Message','','Details',struct()), 1, size(cases,1));
@@ -286,4 +288,98 @@ function r = p47_removeSessionCascade()
     end
     r.Passed = true;
     r.Message = 'removeSession drops session AND cascades dependent ReviewResults';
+end
+
+
+function r = p48_studioMouseRouter()
+    % [PHASE 3.5] Verify the router enforces lock-state invariants:
+    %   - figure callbacks attach on construction
+    %   - lock granted when session matches workspace's active id
+    %   - second drag request rejected while lock is held
+    %   - lock refused when requesting session is not active
+    %   - releaseDragLock returns to grantable state
+    %   - detach() clears figure callbacks
+    %
+    % Mocked controller is a real handle subclass so isvalid()/isempty()
+    % checks inside the router behave naturally. Dispatch (handleDragMotion
+    % / stopDrag invocation) is exercised by the live UI manual scenarios,
+    % not here.
+    r = struct('Passed', false, 'Message', '', 'Details', struct());
+    fig = []; router = []; ctrl = [];
+    try
+        fig = uifigure('Visible', 'off', 'Name', 'P4-8 router test');
+
+        % Stub workspace via containers.Map (handle) so the router's
+        % isvalid(...) checks pass without importing a class file.
+        wsHolder = containers.Map('KeyType', 'char', 'ValueType', 'any');
+        wsHolder('id') = 'SESS_AAA';
+        ws.activeSessionId = @() wsHolder('id');
+        % Wrap as struct — router only calls .activeSessionId() method.
+        % The router's isvalid(workspace) check only fires inside the
+        % dispatch path which we do not exercise here.
+
+        router = flightdash.studio.StudioMouseRouter(fig, ws);
+
+        if isempty(fig.WindowButtonMotionFcn) || isempty(fig.WindowButtonUpFcn)
+            r.Message = 'Router did not attach figure callbacks';
+            return;
+        end
+
+        % Use a real handle as the "controller" stub. event.EventData is
+        % a tiny built-in handle subclass — perfect for satisfying
+        % isvalid() without dragging in any controller logic.
+        ctrl = event.EventData();
+
+        % --- subtest A: lock granted for active session
+        granted = router.requestDragLock('SESS_AAA', ctrl);
+        if ~granted
+            r.Message = 'Router refused lock for active session';
+            return;
+        end
+        if ~router.isLockHeldBy('SESS_AAA')
+            r.Message = 'isLockHeldBy(active) false right after grant';
+            return;
+        end
+
+        % --- subtest B: second request refused while lock is held
+        ctrl2 = event.EventData();
+        granted2 = router.requestDragLock('SESS_AAA', ctrl2);
+        if granted2
+            r.Message = 'Router granted a second lock while one was held';
+            return;
+        end
+
+        % --- subtest C: refused when session not active
+        router.releaseDragLock();
+        wsHolder('id') = 'SESS_BBB';
+        granted3 = router.requestDragLock('SESS_AAA', ctrl);
+        if granted3
+            r.Message = 'Router granted lock to a non-active session';
+            return;
+        end
+
+        % --- subtest D: regrant after activeId change
+        granted4 = router.requestDragLock('SESS_BBB', ctrl);
+        if ~granted4
+            r.Message = 'Router refused lock for newly active session';
+            return;
+        end
+        router.releaseDragLock();
+
+        % --- subtest E: detach clears callbacks
+        router.detach();
+        if ~isempty(fig.WindowButtonMotionFcn) || ~isempty(fig.WindowButtonUpFcn)
+            r.Message = 'detach() did not clear figure callbacks';
+            return;
+        end
+
+        r.Passed = true;
+        r.Message = 'Router lock grant / refusal / regrant / detach semantics correct';
+    catch ME
+        r.Message = sprintf('Router test errored: %s', ME.message);
+    end
+    if ~isempty(router) && isa(router, 'flightdash.studio.StudioMouseRouter')
+        try, delete(router); catch, end
+    end
+    if ~isempty(fig) && isvalid(fig), try, delete(fig); catch, end, end
 end

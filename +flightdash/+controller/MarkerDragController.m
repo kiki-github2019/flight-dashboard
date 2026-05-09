@@ -63,8 +63,7 @@ classdef MarkerDragController < handle
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            app.UIFigure.WindowButtonMotionFcn = @(~,~) obj.plotMarkerDragMotion(fIdx);
-            app.UIFigure.WindowButtonUpFcn = @(~,~) obj.stopDrag();
+            obj.bindFigureCallbacks(app);
         end
 
         function startVideoFrameDrag(obj, fIdx, src, event)
@@ -91,8 +90,51 @@ classdef MarkerDragController < handle
 
             app.setXLimListenersEnabled(fIdx, false);
 
-            app.UIFigure.WindowButtonMotionFcn = @(~,~) obj.videoFrameDragMotion(fIdx);
-            app.UIFigure.WindowButtonUpFcn = @(~,~) obj.stopDrag();
+            obj.bindFigureCallbacks(app);
+        end
+
+        function bindFigureCallbacks(obj, app)
+            % [PHASE 3.5] Standalone keeps writing the figure callback
+            % directly. Embedded mode hands the lock to the Studio's
+            % StudioMouseRouter so a single owner dispatches motion +
+            % up events for every session sharing the host figure.
+            if app.IsEmbedded
+                router = obj.lookupRouter(app);
+                if ~isempty(router) && isvalid(router)
+                    if router.requestDragLock(app.ActiveSessionId, obj)
+                        return;  % router will dispatch handleDragMotion / stopDrag
+                    end
+                end
+                % Fallback: router unavailable or refused. Direct
+                % callback assignment is still safer than no callback;
+                % the Phase 4 isActiveSession guards inside the motion
+                % methods keep cross-tab leaks impossible.
+            end
+            app.UIFigure.WindowButtonMotionFcn = @(~,~) obj.handleDragMotion();
+            app.UIFigure.WindowButtonUpFcn    = @(~,~) obj.stopDrag();
+        end
+
+        function handleDragMotion(obj)
+            % [PHASE 3.5] Unified motion entry: dispatch based on
+            % whether the active drag was started from a plot marker
+            % or a video frame slider.
+            if ~obj.IsDraggingMarker, return; end
+            if obj.DraggedFromVideo
+                obj.videoFrameDragMotion(obj.DraggedFIdx);
+            else
+                obj.plotMarkerDragMotion(obj.DraggedFIdx);
+            end
+        end
+
+        function router = lookupRouter(~, app)
+            router = [];
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
+                        && isappdata(app.UIFigure, 'StudioMouseRouter')
+                    router = getappdata(app.UIFigure, 'StudioMouseRouter');
+                end
+            catch
+            end
         end
 
         function plotMarkerDragMotion(obj, fIdx)
@@ -166,8 +208,13 @@ classdef MarkerDragController < handle
             obj.IsDraggingMarker = false;
             app.State = 'IDLE';
 
+            % [PHASE 3.5] Only clear figure callbacks in standalone
+            % mode. In embedded mode the StudioMouseRouter owns those
+            % slots — clearing them would break drag for every other
+            % session in the Studio. The router calls releaseDragLock
+            % itself after stopDrag returns.
             try
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                if ~app.IsEmbedded && ~isempty(app.UIFigure) && isvalid(app.UIFigure)
                     app.UIFigure.WindowButtonMotionFcn = '';
                     app.UIFigure.WindowButtonUpFcn = '';
                 end

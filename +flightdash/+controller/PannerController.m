@@ -92,8 +92,7 @@ classdef PannerController < handle
                 obj.DragFIdx = fIdx;
                 obj.DragSide = char(side);
                 if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
-                app.UIFigure.WindowButtonMotionFcn = @(~,~) obj.handleDragMotion();
-                app.UIFigure.WindowButtonUpFcn = @(~,~) obj.stopHandleDrag();
+                obj.bindFigureCallbacks(app);
             catch ME
                 app.logCaught(ME, 'PannerHandle:start');
             end
@@ -139,7 +138,10 @@ classdef PannerController < handle
                 obj.DragFIdx = 0;
                 obj.DragSide = '';
                 if isempty(app) || ~isvalid(app), return; end
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                % [PHASE 3.5] Embedded mode lets StudioMouseRouter
+                % manage the WindowButton callbacks; only standalone
+                % clears them itself.
+                if ~app.IsEmbedded && ~isempty(app.UIFigure) && isvalid(app.UIFigure)
                     app.UIFigure.WindowButtonMotionFcn = '';
                     app.UIFigure.WindowButtonUpFcn = '';
                     if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'arrow'; end
@@ -152,6 +154,39 @@ classdef PannerController < handle
                     end
                 catch
                 end
+            end
+        end
+
+        function stopDrag(obj)
+            % [PHASE 3.5] Unified stop entry — alias used by
+            % StudioMouseRouter so MarkerDragController and
+            % PannerController share the same contract.
+            obj.stopHandleDrag();
+        end
+
+        function bindFigureCallbacks(obj, app)
+            % [PHASE 3.5] Standalone keeps direct callback assignment.
+            % Embedded mode hands off to the central router.
+            if app.IsEmbedded
+                router = obj.lookupRouter(app);
+                if ~isempty(router) && isvalid(router)
+                    if router.requestDragLock(app.ActiveSessionId, obj)
+                        return;
+                    end
+                end
+            end
+            app.UIFigure.WindowButtonMotionFcn = @(~,~) obj.handleDragMotion();
+            app.UIFigure.WindowButtonUpFcn    = @(~,~) obj.stopHandleDrag();
+        end
+
+        function router = lookupRouter(~, app)
+            router = [];
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
+                        && isappdata(app.UIFigure, 'StudioMouseRouter')
+                    router = getappdata(app.UIFigure, 'StudioMouseRouter');
+                end
+            catch
             end
         end
 
