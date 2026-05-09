@@ -409,23 +409,24 @@ function [ok, msg, status] = checkInspectorInvalidSelection()
         rd = app.RightDock;
 
         invalidHandle = makeDeletedGraphicsHandle();
+        emptyOk = selectInspectorObject(rd, []);
 
         if ismethod(rd, 'selectObject')
             rd.selectObject(invalidHandle);
-            ok = true;
-            msg = 'Inspector selectObject handles invalid graphics handle';
+            ok = emptyOk;
+            msg = 'Inspector selectObject handles empty/deleted graphics handles';
         elseif ismethod(rd, 'showObjectProperties')
             rd.showObjectProperties(invalidHandle);
-            ok = true;
-            msg = 'Inspector showObjectProperties handles invalid graphics handle';
+            ok = emptyOk;
+            msg = 'Inspector showObjectProperties handles empty/deleted graphics handles';
         elseif ismethod(rd, 'refreshInspector')
             rd.refreshInspector(invalidHandle);
-            ok = true;
-            msg = 'Inspector refreshInspector handles invalid graphics handle';
+            ok = emptyOk;
+            msg = 'Inspector refreshInspector handles empty/deleted graphics handles';
         elseif ismethod(rd, 'setSelectedObject')
             rd.setSelectedObject(invalidHandle);
-            ok = true;
-            msg = 'Inspector setSelectedObject handles invalid graphics handle';
+            ok = emptyOk;
+            msg = 'Inspector setSelectedObject handles empty/deleted graphics handles';
         else
             status = 'SKIP_NOT_IMPLEMENTED';
             ok = true;
@@ -454,6 +455,12 @@ function [ok, msg, status] = checkInspectorVisibleToggle()
         h.Visible = 'on';
 
         selectedOk = selectInspectorObject(rd, h);
+        propertyOk = true;
+        if ismethod(rd, 'setSelectedProperty')
+            propertyOk = rd.setSelectedProperty('DisplayName', 'Phase6 Inspector Line') && propertyOk;
+            propertyOk = rd.setSelectedProperty('LineWidth', 2.5) && propertyOk;
+            propertyOk = rd.setSelectedProperty('Color', [0.2 0.4 0.8]) && propertyOk;
+        end
 
         toggled = false;
         if ismethod(rd, 'toggleSelectedVisible')
@@ -479,9 +486,30 @@ function [ok, msg, status] = checkInspectorVisibleToggle()
 
         if toggled
             visibleChanged = isVisibleOff(h);
-            ok = selectedOk && visibleChanged;
-            msg = sprintf('Inspector visible toggle path exercised; selected=%d visible=%s', ...
-                selectedOk, h.Visible);
+            propertyStateOk = strcmp(char(h.DisplayName), 'Phase6 Inspector Line') && ...
+                abs(double(h.LineWidth) - 2.5) < 1e-9 && ...
+                norm(double(h.Color) - [0.2 0.4 0.8]) < 1e-9;
+
+            axesOk = selectInspectorObject(rd, ax);
+            panelOk = true;
+            deletedOk = true;
+            try
+                pnl = uipanel('Parent', fig, 'Visible', 'on');
+                panelOk = selectInspectorObject(rd, pnl);
+                if ismethod(rd, 'setSelectedVisible')
+                    rd.setSelectedVisible('off');
+                    panelOk = panelOk && strcmp(char(pnl.Visible), 'off');
+                end
+                delete(pnl);
+                deletedOk = selectInspectorObject(rd, pnl);
+            catch
+                panelOk = false;
+            end
+
+            ok = selectedOk && propertyOk && propertyStateOk && visibleChanged && ...
+                axesOk && panelOk && deletedOk;
+            msg = sprintf('Inspector safe properties/toggle exercised; selected=%d props=%d axes=%d panel=%d deleted=%d visible=%s', ...
+                selectedOk, propertyOk && propertyStateOk, axesOk, panelOk, deletedOk, h.Visible);
         else
             status = 'SKIP_NOT_IMPLEMENTED';
             ok = true;

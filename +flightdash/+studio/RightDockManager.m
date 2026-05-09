@@ -155,25 +155,26 @@ classdef RightDockManager < handle
 
         function selectObject(obj, h)
             obj.refreshInspector(h);
+            obj.syncObjectTreeSelection(h);
         end
 
         function setSelectedObject(obj, h)
-            obj.refreshInspector(h);
+            obj.selectObject(h);
         end
 
         function showObjectProperties(obj, h)
-            obj.refreshInspector(h);
+            obj.selectObject(h);
         end
 
         function toggleSelectedVisible(obj)
             try
-                h = obj.SelectedHandle;
-                if isempty(h) || ~all(isgraphics(h))
-                    obj.flashStatus('Select an object first');
+                info = obj.describeSelection(obj.SelectedHandle);
+                if ~info.CanEdit
+                    obj.flashStatus(info.Status);
                     return;
                 end
                 current = 'on';
-                try, current = char(h(1).Visible); catch, end
+                try, current = char(info.Handle.Visible); catch, end
                 if strcmpi(current, 'on')
                     obj.setSelectedVisible('off');
                 else
@@ -186,44 +187,68 @@ classdef RightDockManager < handle
 
         function setSelectedVisible(obj, value)
             try
-                h = obj.SelectedHandle;
-                if isempty(h) || ~all(isgraphics(h))
-                    obj.flashStatus('Select an object first');
-                    return;
-                end
-                if islogical(value)
-                    if value
-                        visible = 'on';
-                    else
-                        visible = 'off';
-                    end
-                else
-                    visible = char(value);
-                end
-                if ~any(strcmpi(visible, {'on', 'off'}))
-                    visible = 'on';
-                end
-                try, set(h, 'Visible', lower(visible)); catch, return; end
-                obj.refreshInspector(h);
+                obj.setSelectedProperty('Visible', value);
             catch ME
                 try, obj.App.logCaught(ME, 'Inspector:setVisible'); catch, end
             end
         end
 
-        function refreshInspector(obj, h)
+        function tf = setSelectedProperty(obj, propName, value)
+            tf = false;
             try
-                if isempty(h) || ~all(isgraphics(h))
-                    obj.SelectedHandle = [];
-                    obj.rebuildInspector([]);
+                info = obj.describeSelection(obj.SelectedHandle);
+                if ~info.CanEdit
+                    obj.flashStatus(info.Status);
+                    obj.rebuildInspector(info);
                     return;
                 end
-                obj.SelectedHandle = h;
-                obj.rebuildInspector(struct( ...
-                    'Kind',       'handle', ...
-                    'ChannelIdx', 0, ...
-                    'Field',      class(h), ...
-                    'Label',      class(h), ...
-                    'Handle',     h));
+
+                propName = char(propName);
+                if ~any(strcmp(propName, obj.safePropertyNames()))
+                    obj.flashStatus(sprintf('Unsupported property: %s', propName));
+                    obj.rebuildInspector(info);
+                    return;
+                end
+                if ~isprop(info.Handle, propName)
+                    obj.flashStatus(sprintf('Read-only: %s is not available', propName));
+                    obj.rebuildInspector(info);
+                    return;
+                end
+
+                coerced = obj.coercePropertyValue(propName, value);
+                try
+                    set(info.Handle, propName, coerced);
+                    tf = true;
+                    obj.flashStatus(sprintf('Inspector updated %s', propName));
+                catch ME_set
+                    obj.flashStatus(sprintf('Read-only: %s', propName));
+                    try, obj.App.logCaught(ME_set, ['Inspector:set:' propName]); catch, end
+                end
+                obj.refreshInspector(info.Handle);
+            catch ME
+                try, obj.App.logCaught(ME, 'Inspector:setSelectedProperty'); catch, end
+                try
+                    obj.SelectedHandle = [];
+                    obj.rebuildInspector([]);
+                catch
+                end
+            end
+        end
+
+        function info = getSelectedPropertyInfo(obj)
+            info = obj.describeSelection(obj.SelectedHandle);
+        end
+
+        function refreshInspector(obj, h)
+            try
+                info = obj.describeSelection(h);
+                if ~info.IsValid
+                    obj.SelectedHandle = [];
+                    obj.rebuildInspector(info);
+                    return;
+                end
+                obj.SelectedHandle = info.Handle;
+                obj.rebuildInspector(info);
             catch ME
                 try, obj.App.logCaught(ME, 'Inspector:refreshPublic'); catch, end
                 try
@@ -306,8 +331,13 @@ classdef RightDockManager < handle
                 node = evt.SelectedNodes(1);
                 nd = node.NodeData;
                 if isstruct(nd) && isfield(nd, 'Kind') && strcmp(nd.Kind, 'handle')
-                    obj.SelectedHandle = nd.Handle;
-                    obj.rebuildInspector(nd);
+                    info = obj.describeSelection(nd.Handle, nd);
+                    if info.IsValid
+                        obj.SelectedHandle = info.Handle;
+                    else
+                        obj.SelectedHandle = [];
+                    end
+                    obj.rebuildInspector(info);
                 else
                     obj.SelectedHandle = [];
                     obj.rebuildInspector([]);
@@ -331,55 +361,301 @@ classdef RightDockManager < handle
                 return;
             end
 
-            h = meta.Handle;
-            valid = ~isempty(h) && all(isgraphics(h));
-            obj.InspectorBody.RowHeight = repmat({22}, 1, 5);
+            if ~isfield(meta, 'SafeProperties')
+                meta = obj.describeSelection(meta.Handle, meta);
+            end
+
+            props = meta.SafeProperties;
+            rowCount = 4 + max(1, numel(props));
+            obj.InspectorBody.RowHeight = repmat({24}, 1, rowCount);
             obj.InspectorBody.ColumnWidth = {90, '1x'};
             obj.InspectorBody.ColumnSpacing = 6;
             obj.InspectorBody.RowSpacing = 4;
 
-            obj.addRow('Label',     meta.Label);
-            obj.addRow('Channel',   sprintf('Flight %d', meta.ChannelIdx));
-            obj.addRow('Field',     meta.Field);
-            if valid
-                cls = class(h);
-                obj.addRow('Type',  cls);
-                vis = '';
-                try, vis = char(h.Visible); catch, end
-                obj.addRow('Visible', vis);
+            obj.addRow('Label',  meta.Label, false);
+            obj.addRow('Field',  meta.Field, false);
+            obj.addRow('Type',   meta.Type, false);
+            obj.addRow('Status', meta.Status, false);
+
+            if meta.CanEdit
+                for p = 1:numel(props)
+                    obj.addSafePropertyRow(props{p}, meta.Handle);
+                end
             else
-                obj.addRow('Type', '(invalid handle)');
-                obj.addRow('Visible', '-');
+                obj.addRow('Mode', meta.Mode, false);
             end
         end
 
-        function addRow(obj, key, val)
+        function addRow(obj, key, val, editable)
+            if nargin < 4, editable = false; end
             uilabel(obj.InspectorBody, 'Text', key, 'FontWeight', 'bold');
-            uilabel(obj.InspectorBody, 'Text', char(val), 'FontColor', [0.2 0.2 0.2]);
+            if editable
+                obj.addEditor(key, val);
+            else
+                uilabel(obj.InspectorBody, 'Text', char(val), 'FontColor', [0.2 0.2 0.2]);
+            end
+        end
+
+        function addSafePropertyRow(obj, propName, h)
+            value = obj.safeGetProperty(h, propName);
+            uilabel(obj.InspectorBody, 'Text', propName, 'FontWeight', 'bold');
+            obj.addEditor(propName, value);
+        end
+
+        function addEditor(obj, propName, value)
+            propName = char(propName);
+            switch propName
+                case 'Visible'
+                    val = 'on';
+                    if strcmpi(char(value), 'off'), val = 'off'; end
+                    uidropdown(obj.InspectorBody, ...
+                        'Items', {'on', 'off'}, ...
+                        'Value', val, ...
+                        'ValueChangedFcn', @(src,~) obj.setSelectedProperty('Visible', src.Value));
+                case 'LineWidth'
+                    num = 0.5;
+                    try, num = double(value); catch, end
+                    uieditfield(obj.InspectorBody, 'numeric', ...
+                        'Value', num, ...
+                        'Limits', [0 Inf], ...
+                        'ValueChangedFcn', @(src,~) obj.setSelectedProperty('LineWidth', src.Value));
+                otherwise
+                    uieditfield(obj.InspectorBody, 'text', ...
+                        'Value', obj.valueToText(value), ...
+                        'ValueChangedFcn', @(src,~) obj.setSelectedProperty(propName, src.Value));
+            end
         end
 
         function onQuickAction(obj, action)
             % [PHASE 6b] Show / Hide the currently inspected handle.
             try
-                h = obj.SelectedHandle;
-                if isempty(h) || ~all(isgraphics(h))
-                    obj.flashStatus('Select an object first');
+                info = obj.describeSelection(obj.SelectedHandle);
+                if ~info.CanEdit
+                    obj.flashStatus(info.Status);
                     return;
                 end
                 switch char(action)
                     case 'show'
-                        try, set(h, 'Visible', 'on'); catch, end
+                        obj.setSelectedVisible('on');
                     case 'hide'
-                        try, set(h, 'Visible', 'off'); catch, end
-                end
-                % Reflect new state in Inspector
-                if ~isempty(obj.ObjectTree) && isvalid(obj.ObjectTree) ...
-                        && ~isempty(obj.ObjectTree.SelectedNodes)
-                    nd = obj.ObjectTree.SelectedNodes(1).NodeData;
-                    obj.rebuildInspector(nd);
+                        obj.setSelectedVisible('off');
                 end
             catch ME
                 try, obj.App.logCaught(ME, 'Inspector:quickAction'); catch, end
+            end
+        end
+
+        function info = describeSelection(obj, h, meta)
+            if nargin < 3 || ~isstruct(meta)
+                meta = struct();
+            end
+
+            info = struct( ...
+                'Kind',           'handle', ...
+                'ChannelIdx',     obj.metaField(meta, 'ChannelIdx', 0), ...
+                'Field',          obj.metaField(meta, 'Field', ''), ...
+                'Label',          obj.metaField(meta, 'Label', ''), ...
+                'Handle',         [], ...
+                'IsValid',        false, ...
+                'IsScalar',       false, ...
+                'Type',           '(none)', ...
+                'Mode',           'Read-Only', ...
+                'Status',         'No selection', ...
+                'SafeProperties', {{}}, ...
+                'CanEdit',        false);
+
+            if isempty(h)
+                return;
+            end
+
+            if ~obj.isUsableHandle(h)
+                info.Type = '(invalid handle)';
+                info.Status = 'Invalid or deleted object';
+                return;
+            end
+
+            info.Handle = h;
+            info.IsValid = true;
+            info.IsScalar = isscalar(h);
+            try, info.Type = class(h); catch, info.Type = '(handle)'; end
+            if isempty(info.Field), info.Field = info.Type; end
+            if isempty(info.Label), info.Label = info.Type; end
+
+            if ~info.IsScalar
+                info.Mode = 'Unsupported';
+                info.Status = 'Unsupported: bulk editing is out of MVP scope';
+                return;
+            end
+
+            props = obj.safeAvailableProperties(h);
+            info.SafeProperties = props;
+            if isempty(props)
+                info.Mode = 'Read-Only';
+                info.Status = 'Read-Only: no MVP-safe editable properties';
+                return;
+            end
+
+            info.Mode = 'Editable';
+            info.Status = sprintf('Editable: %s', strjoin(props, ', '));
+            info.CanEdit = true;
+        end
+
+        function out = metaField(~, meta, fieldName, defaultValue)
+            out = defaultValue;
+            try
+                if isstruct(meta) && isfield(meta, fieldName) && ~isempty(meta.(fieldName))
+                    out = meta.(fieldName);
+                end
+            catch
+                out = defaultValue;
+            end
+        end
+
+        function tf = isUsableHandle(~, h)
+            tf = false;
+            try
+                tf = ~isempty(h) && all(isgraphics(h));
+            catch
+                tf = false;
+            end
+        end
+
+        function names = safePropertyNames(~)
+            names = {'Visible', 'DisplayName', 'LineWidth', 'Color'};
+        end
+
+        function props = safeAvailableProperties(obj, h)
+            props = {};
+            if ~obj.isUsableHandle(h) || ~isscalar(h)
+                return;
+            end
+            candidates = obj.safePropertyNames();
+            for i = 1:numel(candidates)
+                name = candidates{i};
+                try
+                    if isprop(h, name)
+                        value = h.(name); %#ok<NASGU>
+                        props{end+1} = name; %#ok<AGROW>
+                    end
+                catch
+                end
+            end
+        end
+
+        function value = safeGetProperty(obj, h, propName)
+            value = '';
+            try
+                if obj.isUsableHandle(h) && isscalar(h) && isprop(h, propName)
+                    value = h.(propName);
+                end
+            catch
+                value = '';
+            end
+        end
+
+        function value = coercePropertyValue(obj, propName, raw)
+            propName = char(propName);
+            switch propName
+                case 'Visible'
+                    if islogical(raw)
+                        if raw
+                            value = 'on';
+                        else
+                            value = 'off';
+                        end
+                    else
+                        value = lower(strtrim(char(raw)));
+                        if ~any(strcmp(value, {'on', 'off'}))
+                            value = 'on';
+                        end
+                    end
+                case 'DisplayName'
+                    value = char(raw);
+                case 'LineWidth'
+                    value = double(raw);
+                    if isempty(value) || ~isscalar(value) || ~isfinite(value) || value < 0
+                        value = 0.5;
+                    end
+                case 'Color'
+                    value = obj.coerceColor(raw);
+                otherwise
+                    value = raw;
+            end
+        end
+
+        function value = coerceColor(~, raw)
+            if isnumeric(raw) && numel(raw) == 3
+                value = reshape(double(raw), 1, 3);
+                value = max(0, min(1, value));
+                return;
+            end
+
+            text = strtrim(char(raw));
+            nums = sscanf(regexprep(text, '[\[\],;]', ' '), '%f');
+            if numel(nums) >= 3
+                value = reshape(double(nums(1:3)), 1, 3);
+                value = max(0, min(1, value));
+            else
+                value = text;
+            end
+        end
+
+        function text = valueToText(~, value)
+            try
+                if isnumeric(value)
+                    if isvector(value)
+                        text = ['[' strtrim(sprintf('%.4g ', value(:).')) ']'];
+                    else
+                        text = mat2str(value);
+                    end
+                elseif islogical(value)
+                    text = mat2str(value);
+                elseif isstring(value)
+                    text = char(value);
+                elseif ischar(value)
+                    text = value;
+                else
+                    text = char(string(value));
+                end
+            catch
+                text = '';
+            end
+        end
+
+        function syncObjectTreeSelection(obj, h)
+            try
+                if isempty(obj.ObjectTree) || ~isvalid(obj.ObjectTree) || ...
+                        ~obj.isUsableHandle(h) || ~isscalar(h)
+                    return;
+                end
+                node = obj.findTreeNodeForHandle(obj.ObjectTree.Children, h);
+                if ~isempty(node) && isvalid(node)
+                    obj.ObjectTree.SelectedNodes = node;
+                end
+            catch
+            end
+        end
+
+        function match = findTreeNodeForHandle(obj, nodes, h)
+            match = [];
+            for i = 1:numel(nodes)
+                node = nodes(i);
+                try
+                    nd = node.NodeData;
+                    if isstruct(nd) && isfield(nd, 'Handle') && ...
+                            obj.isUsableHandle(nd.Handle) && isscalar(nd.Handle) && ...
+                            isequal(nd.Handle, h)
+                        match = node;
+                        return;
+                    end
+                catch
+                end
+
+                try
+                    match = obj.findTreeNodeForHandle(node.Children, h);
+                    if ~isempty(match), return; end
+                catch
+                end
             end
         end
 
