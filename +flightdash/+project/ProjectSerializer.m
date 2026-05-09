@@ -78,12 +78,8 @@ classdef ProjectSerializer
                 manifest = flightdash.project.ProjectSerializer.buildManifest(project);
                 flightdash.project.ProjectSerializer.writeJson(fullfile(tmpDir, 'manifest.json'), manifest);
 
-                % --- zip ---
-                if exist(filePath, 'file')
-                    delete(filePath);
-                end
                 entries = flightdash.project.ProjectSerializer.listEntries(tmpDir);
-                zip(filePath, entries, tmpDir);
+                flightdash.project.ProjectSerializer.writeZipToTarget(filePath, entries, tmpDir);
             catch ME
                 clear cleaner;
                 rethrow(ME);
@@ -362,6 +358,109 @@ classdef ProjectSerializer
             for k = 1:numel(d)
                 if any(strcmp(d(k).name, {'.', '..'})), continue; end
                 names{end+1} = fullfile(root, d(k).name); %#ok<AGROW>
+            end
+        end
+
+        function writeZipToTarget(filePath, entries, rootDir)
+            [targetDir, ~, ~] = fileparts(filePath);
+            if isempty(targetDir)
+                targetDir = pwd;
+            elseif ~isfolder(targetDir)
+                error('ProjectSerializer:WriteFailed', 'Target folder not found: %s', targetDir);
+            end
+
+            tempBase = tempname(targetDir);
+            tempZip = [tempBase '.zip'];
+            backupPath = [tempBase '.bak'];
+            candidates = {tempZip, [tempZip '.zip'], [filePath '.zip']};
+            existedBefore = cellfun(@(p) exist(p, 'file') == 2, candidates);
+            tempCreated = '';
+            backupMade = false;
+
+            cleanup = onCleanup(@() flightdash.project.ProjectSerializer.cleanupZipWrite( ...
+                candidates, existedBefore, tempCreated));
+
+            zip(tempZip, entries, rootDir);
+            tempCreated = flightdash.project.ProjectSerializer.firstCreatedFile(candidates, existedBefore);
+            if isempty(tempCreated)
+                error('ProjectSerializer:WriteFailed', 'zip() did not create a project archive.');
+            end
+
+            try
+                if exist(filePath, 'file') == 2
+                    [ok, msg] = movefile(filePath, backupPath, 'f');
+                    if ~ok
+                        error('ProjectSerializer:WriteFailed', ...
+                            'Cannot replace existing project file: %s', msg);
+                    end
+                    backupMade = true;
+                end
+
+                [ok, msg] = movefile(tempCreated, filePath, 'f');
+                if ~ok
+                    if backupMade && exist(backupPath, 'file') == 2 && exist(filePath, 'file') ~= 2
+                        movefile(backupPath, filePath, 'f');
+                        backupMade = false;
+                    end
+                    error('ProjectSerializer:WriteFailed', ...
+                        'Cannot move project archive into place: %s', msg);
+                end
+                tempCreated = '';
+
+                if ~isfile(filePath)
+                    if backupMade && exist(backupPath, 'file') == 2 && exist(filePath, 'file') ~= 2
+                        movefile(backupPath, filePath, 'f');
+                        backupMade = false;
+                    end
+                    error('ProjectSerializer:WriteFailed', ...
+                        'save() completed but did not create %s', filePath);
+                end
+
+                if backupMade && exist(backupPath, 'file') == 2
+                    delete(backupPath);
+                    backupMade = false;
+                end
+            catch ME
+                if backupMade && exist(backupPath, 'file') == 2
+                    try
+                        if exist(filePath, 'file') == 2
+                            delete(filePath);
+                        end
+                        movefile(backupPath, filePath, 'f');
+                        backupMade = false;
+                    catch
+                    end
+                end
+                rethrow(ME);
+            end
+
+            clear cleanup;
+        end
+
+        function p = firstCreatedFile(candidates, existedBefore)
+            p = '';
+            for k = 1:numel(candidates)
+                if ~existedBefore(k) && exist(candidates{k}, 'file') == 2
+                    p = candidates{k};
+                    return;
+                end
+            end
+        end
+
+        function cleanupZipWrite(candidates, existedBefore, tempCreated)
+            for k = 1:numel(candidates)
+                try
+                    if ~existedBefore(k) && ~isempty(candidates{k}) && exist(candidates{k}, 'file') == 2
+                        delete(candidates{k});
+                    end
+                catch
+                end
+            end
+            try
+                if ~isempty(tempCreated) && exist(tempCreated, 'file') == 2
+                    delete(tempCreated);
+                end
+            catch
             end
         end
 
