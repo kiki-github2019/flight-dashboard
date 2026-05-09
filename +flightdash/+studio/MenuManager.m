@@ -153,6 +153,18 @@ classdef MenuManager < handle
             % "(not implemented yet)" until Phase 6 wires real handlers.
             try
                 switch cmdId
+                    case 'File:NewProject'
+                        obj.App.newProject();
+                        return;
+                    case 'File:OpenProject'
+                        obj.App.openProject();
+                        return;
+                    case 'File:SaveProject'
+                        obj.App.saveProject();
+                        return;
+                    case 'File:SaveProjectAs'
+                        obj.App.saveProjectAs();
+                        return;
                     case 'Project:AddSession'
                         obj.App.addSession();
                         return;

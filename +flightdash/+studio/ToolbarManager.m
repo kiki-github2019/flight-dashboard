@@ -90,6 +90,15 @@ classdef ToolbarManager < handle
         function dispatch(obj, cmdId)
             try
                 switch cmdId
+                    case 'Toolbar:New'
+                        obj.App.newProject();
+                        return;
+                    case 'Toolbar:Open'
+                        obj.App.openProject();
+                        return;
+                    case 'Toolbar:Save'
+                        obj.App.saveProject();
+                        return;
                     case 'Toolbar:AddSession'
                         obj.App.addSession();
                         return;

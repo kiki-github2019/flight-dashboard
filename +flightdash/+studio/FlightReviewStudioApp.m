@@ -223,6 +223,101 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
         end
 
+        function newProject(app)
+            % [PHASE 9] Replace current Project with a fresh Untitled.
+            % Closes every embedded session first to free resources.
+            try, app.removeAllSessions(); catch, end
+            app.Project = flightdash.project.ProjectModel('Untitled');
+            app.ProjectFolder = '';
+            app.refreshExplorer();
+            app.refreshTitle();
+            if ~isempty(app.StatusBar)
+                app.StatusBar.setMessage('New project (Untitled)');
+            end
+        end
+
+        function tf = saveProject(app, filePath)
+            % [PHASE 9] Persist app.Project to a .frsproj zip.
+            % If filePath is omitted and app.Project.ProjectFilePath is
+            % empty, falls through to saveProjectAs (uiputfile).
+            tf = false;
+            if nargin < 2 || isempty(filePath)
+                filePath = char(app.Project.ProjectFilePath);
+            end
+            if isempty(filePath)
+                tf = app.saveProjectAs();
+                return;
+            end
+            try
+                flightdash.project.ProjectSerializer.save(app.Project, filePath);
+                app.Project.ProjectFilePath   = filePath;
+                app.Project.ProjectFolderPath = fileparts(filePath);
+                app.Project.DirtyFlag = false;
+                app.ProjectFolder = fileparts(filePath);
+                app.refreshTitle();
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(sprintf('Saved: %s', filePath));
+                end
+                tf = true;
+            catch ME
+                try, app.logCaught(ME, 'Studio:saveProject'); catch, end
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    uialert(app.UIFigure, sprintf('Save failed:\n%s\n\n%s', ...
+                        filePath, ME.message), 'Save Project Failed');
+                end
+            end
+        end
+
+        function tf = saveProjectAs(app)
+            % [PHASE 9] uiputfile prompt then saveProject.
+            tf = false;
+            try
+                defaultName = char(app.Project.ProjectName);
+                if isempty(defaultName), defaultName = 'Untitled'; end
+                ext = flightdash.project.ProjectSerializer.FileExt;
+                [f, p] = uiputfile({['*' ext], ['FlightReviewStudio Project (*' ext ')']}, ...
+                    'Save Project As', [defaultName ext]);
+                if isequal(f, 0), return; end
+                tf = app.saveProject(fullfile(p, f));
+            catch ME
+                try, app.logCaught(ME, 'Studio:saveProjectAs'); catch, end
+            end
+        end
+
+        function tf = openProject(app, filePath)
+            % [PHASE 9] Load a .frsproj into app.Project. Closes the
+            % current sessions before installing the loaded model.
+            tf = false;
+            if nargin < 2 || isempty(filePath)
+                ext = flightdash.project.ProjectSerializer.FileExt;
+                [f, p] = uigetfile({['*' ext], ['FlightReviewStudio Project (*' ext ')']}, ...
+                    'Open Project');
+                if isequal(f, 0), return; end
+                filePath = fullfile(p, f);
+            end
+            try
+                loaded = flightdash.project.ProjectSerializer.load(filePath);
+                try, app.removeAllSessions(); catch, end
+                app.Project = loaded;
+                app.Project.ProjectFilePath   = filePath;
+                app.Project.ProjectFolderPath = fileparts(filePath);
+                app.ProjectFolder = fileparts(filePath);
+                app.refreshExplorer();
+                app.refreshTitle();
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(sprintf('Opened: %s (%d sessions)', ...
+                        filePath, numel(app.Project.Sessions)));
+                end
+                tf = true;
+            catch ME
+                try, app.logCaught(ME, 'Studio:openProject'); catch, end
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    uialert(app.UIFigure, sprintf('Open failed:\n%s\n\n%s', ...
+                        filePath, ME.message), 'Open Project Failed');
+                end
+            end
+        end
+
         function id = activeSessionIdFromWorkspace(app)
             id = '';
             try

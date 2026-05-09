@@ -21,6 +21,7 @@ function results = verifyPhase4()
 %     P4-6  SessionModel.setDisplayName rejects empty / whitespace
 %     P4-7  ProjectModel.removeSession cascades dependent results
 %     P4-8  StudioMouseRouter lock semantics (Phase 3.5)
+%     P9-1  ProjectSerializer save+load round-trip (Phase 9)
 
     fprintf('\n=== Phase 4 verification ===\n');
 
@@ -32,7 +33,8 @@ function results = verifyPhase4()
         'P4-5', @p45_channelIdxValidator; ...
         'P4-6', @p46_displayNameValidator; ...
         'P4-7', @p47_removeSessionCascade; ...
-        'P4-8', @p48_studioMouseRouter ...
+        'P4-8', @p48_studioMouseRouter; ...
+        'P9-1', @p91_serializerRoundTrip ...
     };
 
     results = repmat(struct('Id','','Passed',false,'Message','','Details',struct()), 1, size(cases,1));
@@ -382,4 +384,95 @@ function r = p48_studioMouseRouter()
         try, delete(router); catch, end
     end
     if ~isempty(fig) && isvalid(fig), try, delete(fig); catch, end, end
+end
+
+
+function r = p91_serializerRoundTrip()
+    % [PHASE 9] Build a non-trivial Project, save it to a .frsproj
+    % temp file, load it back, and assert that key fields survived.
+    r = struct('Passed', false, 'Message', '', 'Details', struct());
+    tmpFile = [tempname() flightdash.project.ProjectSerializer.FileExt];
+    cleaner = onCleanup(@() flightdash.project.ProjectSerializer.delIfExists(tmpFile));
+    try
+        % --- build source project ---
+        p = flightdash.project.ProjectModel('VerifyProj');
+        p.GuiMode        = 'Analysis';
+        p.AutoUpdateMode = 'Auto';
+
+        s1 = flightdash.project.SessionModel('Alpha');
+        s1 = s1.setFlightFile(1, 'C:/data/alpha_ch1.dat');
+        s1 = s1.setVideoFile(2,  'C:/data/alpha_ch2.avi');
+        s1.CurrentIndex = [10, 20];
+        p = p.addSession(s1);
+
+        s2 = flightdash.project.SessionModel('Beta');
+        p = p.addSession(s2);
+
+        th = flightdash.project.AnalysisThemeModel('RoiDefault', 'RoiStats');
+        th = th.setSettings(struct('window', 50, 'kind', 'mean'));
+        p = p.addTheme(th);
+
+        % --- save ---
+        flightdash.project.ProjectSerializer.save(p, tmpFile);
+        if ~isfile(tmpFile)
+            r.Message = 'save() did not produce the .frsproj file';
+            return;
+        end
+
+        % --- load ---
+        q = flightdash.project.ProjectSerializer.load(tmpFile);
+
+        % --- assertions ---
+        checks = { ...
+            strcmp(q.ProjectName, 'VerifyProj'),                         'ProjectName lost'; ...
+            strcmp(q.ProjectId,   p.ProjectId),                          'ProjectId not preserved'; ...
+            strcmp(q.GuiMode,     'Analysis'),                           'GuiMode lost'; ...
+            strcmp(q.AutoUpdateMode, 'Auto'),                            'AutoUpdateMode lost'; ...
+            numel(q.Sessions) == 2,                                      'Sessions count mismatch'; ...
+            numel(q.AnalysisThemes) == 1,                                'AnalysisThemes count mismatch'; ...
+            any(arrayfun(@(s) strcmp(s.SessionId, s1.SessionId), q.Sessions)), 'Session 1 id missing'; ...
+            any(arrayfun(@(s) strcmp(s.DisplayName, 'Beta'), q.Sessions)), 'Session 2 name missing'; ...
+            ~q.DirtyFlag,                                                'Loaded project should be clean'; ...
+        };
+        for k = 1:size(checks, 1)
+            if ~checks{k, 1}
+                r.Message = checks{k, 2};
+                return;
+            end
+        end
+
+        % Per-session field check (find the Alpha session)
+        idxA = find(arrayfun(@(s) strcmp(s.DisplayName, 'Alpha'), q.Sessions), 1);
+        if isempty(idxA)
+            r.Message = 'Alpha session not found after load';
+            return;
+        end
+        sa = q.Sessions(idxA);
+        if ~strcmp(sa.FlightFilePath{1}, 'C:/data/alpha_ch1.dat')
+            r.Message = 'FlightFilePath{1} not preserved';
+            return;
+        end
+        if ~strcmp(sa.VideoFilePath{2}, 'C:/data/alpha_ch2.avi')
+            r.Message = 'VideoFilePath{2} not preserved';
+            return;
+        end
+        if ~isequal(sa.CurrentIndex(:)', [10 20])
+            r.Message = sprintf('CurrentIndex altered: got [%g %g]', sa.CurrentIndex(1), sa.CurrentIndex(2));
+            return;
+        end
+
+        % Theme settings
+        loadedTh = q.AnalysisThemes(1);
+        if ~isfield(loadedTh.Settings, 'window') || loadedTh.Settings.window ~= 50
+            r.Message = 'Theme.Settings.window not preserved';
+            return;
+        end
+
+        r.Passed = true;
+        r.Message = 'Project + 2 sessions + 1 theme round-tripped through .frsproj';
+        r.Details.File = tmpFile;
+    catch ME
+        r.Message = sprintf('Round-trip errored: %s', ME.message);
+    end
+    clear cleaner;
 end
