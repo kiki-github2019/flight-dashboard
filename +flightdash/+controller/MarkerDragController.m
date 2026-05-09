@@ -64,7 +64,9 @@ classdef MarkerDragController < handle
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
-            obj.bindFigureCallbacks(app);
+            if ~obj.bindFigureCallbacks(app)
+                obj.stopDrag();
+            end
         end
 
         function startVideoFrameDrag(obj, fIdx, src, event)
@@ -92,28 +94,31 @@ classdef MarkerDragController < handle
 
             app.setXLimListenersEnabled(fIdx, false);
 
-            obj.bindFigureCallbacks(app);
+            if ~obj.bindFigureCallbacks(app)
+                obj.stopDrag();
+            end
         end
 
-        function bindFigureCallbacks(obj, app)
+        function tf = bindFigureCallbacks(obj, app)
             % [PHASE 3.5] Standalone keeps writing the figure callback
             % directly. Embedded mode hands the lock to the Studio's
             % StudioMouseRouter so a single owner dispatches motion +
             % up events for every session sharing the host figure.
+            tf = false;
             if app.IsEmbedded
                 router = obj.lookupRouter(app);
                 if ~isempty(router) && isvalid(router)
                     if router.requestDragLock(app.ActiveSessionId, obj)
+                        tf = true;
                         return;  % router will dispatch handleDragMotion / stopDrag
                     end
                 end
-                % Fallback: router unavailable or refused. Direct
-                % callback assignment is still safer than no callback;
-                % the Phase 4 isActiveSession guards inside the motion
-                % methods keep cross-tab leaks impossible.
+                obj.logEmbeddedRouterIssue(app);
+                return;
             end
             app.UIFigure.WindowButtonMotionFcn = @(~,~) flightdash.controller.MarkerDragController.safeHandleDragMotion(obj);
             app.UIFigure.WindowButtonUpFcn    = @(~,~) flightdash.controller.MarkerDragController.safeStopDrag(obj);
+            tf = true;
         end
 
         function handleDragMotion(obj)
@@ -136,6 +141,15 @@ classdef MarkerDragController < handle
                         && isappdata(app.UIFigure, 'StudioMouseRouter')
                     router = getappdata(app.UIFigure, 'StudioMouseRouter');
                 end
+            catch
+            end
+        end
+
+        function logEmbeddedRouterIssue(~, app)
+            try
+                ME = MException('FlightDash:NoStudioMouseRouter', ...
+                    'Embedded marker drag requires StudioMouseRouter.');
+                app.logCaught(ME, 'Drag:router');
             catch
             end
         end

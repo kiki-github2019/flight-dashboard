@@ -27,7 +27,7 @@ classdef WorkspaceManager < handle
         function delete(obj)
             % Tear down embedded dashboards before parent uitabs go away.
             try
-                if ~isempty(obj.DashboardEntries) && isvalid(obj.DashboardEntries)
+                if ~isempty(obj.DashboardEntries)
                     keys_ = obj.DashboardEntries.keys;
                     for k = 1:numel(keys_)
                         entry = obj.DashboardEntries(keys_{k});
@@ -41,9 +41,14 @@ classdef WorkspaceManager < handle
             catch, end
         end
 
-        function tab = addDashboardTab(obj, sessionId, displayName)
+        function tab = addDashboardTab(obj, sessionId, displayName, sessionModel)
             % [PHASE 3b] Create a workspace tab and embed a
             % FlightDataDashboard inside it for the given session.
+            if nargin < 4
+                sessionModel = [];
+            end
+            sessionId = char(sessionId);
+            displayName = char(displayName);
             if obj.DashboardEntries.isKey(sessionId)
                 % Bring existing tab to front
                 entry = obj.DashboardEntries(sessionId);
@@ -61,6 +66,9 @@ classdef WorkspaceManager < handle
                 % Create dashboard with this tab as parent. Constructor
                 % builds its full UI inside the tab.
                 dash = flightdash.FlightDataDashboard(tab, sessionId);
+                if ~isempty(sessionModel) && ismethod(dash, 'applySessionSnapshot')
+                    dash.applySessionSnapshot(sessionModel);
+                end
 
                 obj.DashboardEntries(sessionId) = struct( ...
                     'SessionId', sessionId, ...

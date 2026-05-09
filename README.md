@@ -1,6 +1,6 @@
 # Flight Data Dashboard
 
-uicontorl 함수 기반의 비행 데이터 + AVI 영상 동기 리뷰 대시보드.
+uicontrol 함수 기반의 비행 데이터 + AVI 영상 동기 리뷰 대시보드.
 듀얼 채널(2개의 비행 경로)을 동시에 비교 분석할 수 있으며, EventBus + MVC 아키텍처와 비동기 프레임 디코딩을 통해 대용량 영상에서도 부드러운 스크럽이 가능합니다.
 
 ## 주요 기능
@@ -16,7 +16,7 @@ uicontorl 함수 기반의 비행 데이터 + AVI 영상 동기 리뷰 대시보
 
 ## 시스템 요구사항
 
-- **MATLAB R2024b 이상** (R2025a 권장)
+- **MATLAB R2025a / R2026a 대상** (R2024b 이상에서도 동작 가능하도록 보수적으로 유지)
 - **Image Processing Toolbox**
 - **Parallel Computing Toolbox** (비동기 디코딩 사용 시)
 - Windows 10/11 (Linux/macOS도 동작 가능하나 미검증)
@@ -27,8 +27,24 @@ uicontorl 함수 기반의 비행 데이터 + AVI 영상 동기 리뷰 대시보
 % 프로젝트 root에서 (본 README가 있는 디렉토리)
 cd <repo-root>
 addpath(genpath(pwd))
+
+% Studio shell (Project Explorer / Workspace / Inspector)
+FlightReviewStudio
+
+% Legacy standalone dashboard
 FlightDataDashboard
 ```
+
+## 실행 모드
+
+- **Studio 실행**: `FlightReviewStudio`는 Project Explorer, Workspace tab, Inspector/Right Dock, Status Bar를 포함한 통합 shell입니다. MATLAB은 `uifigure`를 `uitab` 안에 직접 embed할 수 없으므로, embedded dashboard는 Studio tab 내부에 panel/grid 기반으로 직접 그립니다.
+- **Standalone 실행**: `FlightDataDashboard`는 기존 단일 dashboard 진입점이며, 기존 파일 로드/동기/플롯/영상 리뷰 흐름을 유지합니다.
+
+## `.frsproj` 저장 형식
+
+현재 v1 `.frsproj`는 zip 기반 **linked project** 형식입니다. `manifest.json`, `project.json`, `sessions/<SessionId>/session.json`, `themes/*.json`, `external_links.json`을 포함하며, 비행 로그와 비디오 원본 bytes를 프로젝트 내부로 복사하지 않고 외부 경로를 참조합니다.
+
+알려진 제한: OriginPro식 완전 docking/floating UI와 raw data/video packing은 현재 범위 밖입니다. 프로젝트 로드 시 session metadata와 tab은 복원되지만, 대용량 flight/video 데이터는 사용자가 원본 파일 경로를 유지하는 linked mode 전제로 다룹니다.
 
 ### 데이터 로드 흐름
 
@@ -267,5 +283,3 @@ app.dumpErrorLog(20, 'Async'); % 'Async' 태그 필터
 ## 변경 이력
 
 상세 변경 이력은 [project_info.md](project_info.md) 참고.
-
-

@@ -91,8 +91,16 @@ classdef PannerController < handle
                 obj.IsDragging = true;
                 obj.DragFIdx = fIdx;
                 obj.DragSide = char(side);
-                if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
-                obj.bindFigureCallbacks(app);
+                if ~obj.bindFigureCallbacks(app)
+                    obj.IsDragging = false;
+                    obj.DragFIdx = 0;
+                    obj.DragSide = '';
+                    if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer')
+                        app.UIFigure.Pointer = 'arrow';
+                    end
+                    return;
+                end
+                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
             catch ME
                 app.logCaught(ME, 'PannerHandle:start');
             end
@@ -164,19 +172,29 @@ classdef PannerController < handle
             obj.stopHandleDrag();
         end
 
-        function bindFigureCallbacks(obj, app)
+        function tf = bindFigureCallbacks(obj, app)
             % [PHASE 3.5] Standalone keeps direct callback assignment.
             % Embedded mode hands off to the central router.
+            tf = false;
             if app.IsEmbedded
                 router = obj.lookupRouter(app);
                 if ~isempty(router) && isvalid(router)
                     if router.requestDragLock(app.ActiveSessionId, obj)
+                        tf = true;
                         return;
                     end
                 end
+                try
+                    ME = MException('FlightDash:NoStudioMouseRouter', ...
+                        'Embedded panner drag requires StudioMouseRouter.');
+                    app.logCaught(ME, 'Panner:router');
+                catch
+                end
+                return;
             end
             app.UIFigure.WindowButtonMotionFcn = @(~,~) obj.handleDragMotion();
             app.UIFigure.WindowButtonUpFcn    = @(~,~) obj.stopHandleDrag();
+            tf = true;
         end
 
         function router = lookupRouter(~, app)

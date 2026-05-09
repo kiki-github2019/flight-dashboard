@@ -1,7 +1,7 @@
 classdef FlightDataDashboard < matlab.apps.AppBase
     % =========================================================================
     % 비행 데이터 리뷰 대시보드 - V3.22 (리팩토링: 모듈 분해 + 캐시 자료구조 개선)
-    % ?ㅻ챸:
+    % 설명:
     %   [V3.22 변경사항]
     %   - #1 ErrorLog ring buffer (silent catch도 사후 조사 가능)
     %        + dumpErrorLog(n, filterTag) 헬퍼 메서드
@@ -979,13 +979,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.22 #3] loadAviFile 분해 - 오케스트레이터 + 6단계 헬퍼
-        % 단계: 1) 사용자 확인 → 2) 캐시 무효화 → 3) 기존 자원 정리
-        %       4) VR 생성 → 5) TotalFrames + UI 동기화 → 6) 첫 프레임 로드
-        %
-        % All-Intra 포맷 사용 권장:
-        %   - 권장: AVI (Motion JPEG / Uncompressed), MP4 (All-Intra)
-        % Long-GOP 영상은 임의 위치로 seek 시 가장 가까운 키프레임(I-Frame)부터
+        % Video load flow: confirm replacement, clear stale async/cache state,
+        % create one VideoReader, update metadata/UI once, then load frame 1.
         function loadAviFile(app, fIdx)
             if getappdata(0, 'FlightDashFileDialogActive'), return; end
             setappdata(0, 'FlightDashFileDialogActive', true);
@@ -995,19 +990,23 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if isequal(fname, 0), return; end
             fullPath = fullfile(pname, fname);
 
-            % 1) 사용자 확인 (기존 동기 설정 해제)
-            if ~app.confirmVideoReplace(fIdx), return; end
+            vr = app.createVideoReader(fullPath, fname);
+            if isempty(vr), return; end
 
-            app.invalidateFrameCache(fIdx);
+            % Confirm before replacing an existing video/sync setup.
+            if ~app.confirmVideoReplace(fIdx)
+                app.deleteDetachedVideoReader(vr);
+                return;
+            end
 
-            % 3) 기존 VR/Future 정리 + startTime 산출
             app.invalidateFrameCache(fIdx);
             startTime = app.computeStartTimeFromFlightData(fIdx);
             app.cleanupVideoResources(fIdx);
 
-            % 4) VideoReader 생성
-            vr = app.openVideoReader(fIdx, fullPath, fname);
-            if isempty(vr), return; end
+            if ~app.attachVideoReader(fIdx, vr, fullPath, fname)
+                app.deleteDetachedVideoReader(vr);
+                return;
+            end
             app.VideoState(fIdx).videoStartTime = startTime;
             app.VideoState(fIdx).videoReader.CurrentTime = 0;
             app.throttleReset('LastVideoUpdate', fIdx);
@@ -1017,17 +1016,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 return;
             end
             app.loadFirstFrame(fIdx);
-
-            % 5) TotalFrames 산정 + UI 위젯 동기화
-            app.applyVideoLoadedUI(fIdx, vr);
-
-            % 6) 첫 프레임 로드 + 표시 + 캐시 저장
-            app.loadFirstFrame(fIdx);
         end
 
-        % --------- loadAviFile 헬퍼들 (V3.22 #3) ---------
+        % --------- loadAviFile helpers ---------
 
-        % [V3.22 #3-1] 기존 동기 설정이 있을 때 사용자 확인 다이얼로그
         function ok = confirmVideoReplace(app, fIdx)
             ok = true;
             if app.VideoSyncState(fIdx).IsSynced
@@ -1138,6 +1130,81 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if nargin < 2 || isempty(saveMode), saveMode = 'manual'; end
             if nargin < 3, filePath = ''; end
             cfg = app.ConfigMgr.collectSessionConfig(app, saveMode, filePath);
+        end
+
+        function sess = exportSessionSnapshot(app, baseSession)
+            % Lightweight Studio save snapshot. Linked files stay external.
+            if nargin >= 2 && isa(baseSession, 'flightdash.project.SessionModel')
+                sess = baseSession;
+            else
+                sess = flightdash.project.SessionModel(app.snapshotDisplayName());
+            end
+            try
+                if ~isempty(app.ActiveSessionId)
+                    sess.SessionId = char(app.ActiveSessionId);
+                end
+                if isempty(sess.DisplayName)
+                    sess.DisplayName = app.snapshotDisplayName();
+                end
+                sess.FlightFilePath = app.pathPair(app.FlightFilePath);
+                sess.VideoFilePath = app.pathPair(app.VideoFilePath);
+                sess.CurrentIndex = [app.safeCurrentIndex(1), app.safeCurrentIndex(2)];
+                sess.CurrentFrame = [app.safeCurrentFrame(1), app.safeCurrentFrame(2)];
+                sess.FlightSyncState = app.SyncState;
+                sess.VideoSyncState = app.VideoSyncState;
+
+                plotTabs = struct();
+                roiRows = {cell(0, 5), cell(0, 5)};
+                panelVisible = struct();
+                for ch = 1:2
+                    cfg = app.collectChannelConfig(ch);
+                    plotTabs.(sprintf('Channel%d', ch)) = cfg.Tabs;
+                    roiRows{ch} = cfg.RoiRows;
+                    panelVisible.(sprintf('Channel%d', ch)) = cfg.PanelVisible;
+                end
+                sess.PlotTabs = plotTabs;
+                sess.RoiRows = roiRows;
+                sess.PanelVisible = panelVisible;
+                sess.LayoutState = app.exportLayoutState();
+                sess.ModifiedAt = flightdash.project.ProjectModel.nowIso();
+            catch ME
+                try, app.logCaught(ME, 'Studio:exportSessionSnapshot'); catch, end
+            end
+        end
+
+        function applySessionSnapshot(app, sess)
+            % Restore linked metadata into a fresh embedded dashboard.
+            if ~isa(sess, 'flightdash.project.SessionModel'), return; end
+            try
+                if ~isempty(sess.SessionId)
+                    app.ActiveSessionId = char(sess.SessionId);
+                end
+                app.FlightFilePath = app.pathPair(sess.FlightFilePath);
+                app.VideoFilePath = app.pathPair(sess.VideoFilePath);
+                if isstruct(sess.FlightSyncState)
+                    app.SyncState = sess.FlightSyncState;
+                end
+                if isstruct(sess.VideoSyncState) && numel(sess.VideoSyncState) >= 1
+                    for ch = 1:min(2, numel(sess.VideoSyncState))
+                        app.VideoSyncState(ch) = app.mergeStructFields(app.VideoSyncState(ch), sess.VideoSyncState(ch));
+                    end
+                end
+                for ch = 1:2
+                    try, app.Models(ch).currentIndex = max(1, round(sess.CurrentIndex(ch))); catch, end
+                    try, app.VideoSyncState(ch).CurrentFrame = max(0, round(sess.CurrentFrame(ch))); catch, end
+                    try
+                        pv = app.panelVisibleForChannel(sess.PanelVisible, ch);
+                        if ~isempty(fieldnames(pv)) && isfield(app.UI(ch), 'PanelVisible')
+                            app.UI(ch).PanelVisible = app.mergeStructFields(app.UI(ch).PanelVisible, pv);
+                        end
+                    catch
+                    end
+                end
+                app.applyLayoutState(sess.LayoutState);
+                app.refreshLayout('sessionSnapshot');
+            catch ME
+                try, app.logCaught(ME, 'Studio:applySessionSnapshot'); catch, end
+            end
         end
 
         function ch = collectChannelConfig(app, fIdx)
@@ -1601,6 +1668,100 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
+        function frame = safeCurrentFrame(app, fIdx)
+            frame = 0;
+            try
+                if fIdx <= numel(app.VideoSyncState)
+                    frame = double(app.VideoSyncState(fIdx).CurrentFrame);
+                end
+            catch
+                frame = 0;
+            end
+        end
+
+        function name = snapshotDisplayName(app)
+            name = char(app.ActiveSessionId);
+            if isempty(name) || strcmp(name, 'standalone')
+                name = 'Dashboard Session';
+            end
+        end
+
+        function pair = pathPair(app, value)
+            pair = {'', ''};
+            try
+                if iscell(value)
+                    for k = 1:min(2, numel(value))
+                        pair{k} = app.valueToChar(value{k});
+                    end
+                elseif isstring(value)
+                    for k = 1:min(2, numel(value))
+                        pair{k} = app.valueToChar(value(k));
+                    end
+                elseif ischar(value)
+                    pair{1} = value;
+                end
+            catch
+                pair = {'', ''};
+            end
+        end
+
+        function state = exportLayoutState(app)
+            state = struct();
+            try
+                state.LayoutProfile = app.LayoutProfile;
+                state.ChannelViewMode = app.ChannelViewMode;
+                state.PreferredVideoWidth = app.PreferredVideoWidth;
+                state.ManualVideoWidth = app.ManualVideoWidth;
+                state.ManualPanelWidths = app.ManualPanelWidths;
+                state.VideoUserResized = app.VideoUserResized;
+            catch
+            end
+        end
+
+        function applyLayoutState(app, state)
+            if ~isstruct(state), return; end
+            try
+                if isfield(state, 'LayoutProfile'), app.LayoutProfile = app.valueToChar(state.LayoutProfile); end
+                if isfield(state, 'ChannelViewMode'), app.ChannelViewMode = app.valueToChar(state.ChannelViewMode); end
+                if isfield(state, 'PreferredVideoWidth'), app.PreferredVideoWidth = double(state.PreferredVideoWidth); end
+                if isfield(state, 'ManualVideoWidth'), app.ManualVideoWidth = double(state.ManualVideoWidth); end
+                if isfield(state, 'ManualPanelWidths') && iscell(state.ManualPanelWidths)
+                    app.ManualPanelWidths = state.ManualPanelWidths;
+                end
+                if isfield(state, 'VideoUserResized'), app.VideoUserResized = logical(state.VideoUserResized); end
+            catch ME
+                app.logCaught(ME, 'Studio:applyLayoutState');
+            end
+        end
+
+        function out = mergeStructFields(~, base, updates)
+            out = base;
+            try
+                if ~isstruct(base) || ~isstruct(updates), return; end
+                names = fieldnames(updates);
+                for k = 1:numel(names)
+                    out.(names{k}) = updates.(names{k});
+                end
+            catch
+                out = base;
+            end
+        end
+
+        function pv = panelVisibleForChannel(~, panelVisible, ch)
+            pv = struct();
+            try
+                if ~isstruct(panelVisible), return; end
+                key = sprintf('Channel%d', ch);
+                if isfield(panelVisible, key) && isstruct(panelVisible.(key))
+                    pv = panelVisible.(key);
+                elseif any(isfield(panelVisible, {'attitude', 'map', 'info', 'video'}))
+                    pv = panelVisible;
+                end
+            catch
+                pv = struct();
+            end
+        end
+
         function pos = currentFigurePosition(app)
             pos = [];
             try
@@ -1741,7 +1902,6 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME, app.logCaught(ME, 'silent'); end
             % [REFACTOR Step 2-B] VideoModel.cleanup 위임 + VideoState 호환 클리어
-            try, app.VideoMdl(fIdx).cleanup(); catch ME, app.logCaught(ME, 'silent'); end
             try, app.VideoMdl(fIdx).cleanup(); catch ME, app.logCaught(ME, 'Video:cleanupModel'); end
             app.VideoState(fIdx).videoReader   = [];
             app.VideoState(fIdx).videoStartTime = 0;
@@ -1751,15 +1911,20 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         % [V3.22 #3-5] VideoReader 생성 (실패 시 errordlg + [] 반환)
         function vr = openVideoReader(app, fIdx, fullPath, fname)
+            vr = app.createVideoReader(fullPath, fname);
+            if isempty(vr), return; end
+            if ~app.attachVideoReader(fIdx, vr, fullPath, fname)
+                app.deleteDetachedVideoReader(vr);
+                vr = [];
+            end
+        end
+
+        function vr = createVideoReader(app, fullPath, fname)
             vr = [];
             try
                 vr = VideoReader(fullPath);
-                app.VideoState(fIdx).videoReader = vr;
-                app.VideoFilePath{fIdx} = fullPath;
-                % [REFACTOR Step 2-C] attachReader → VideoLoaded notify (cache 자동 recompute)
-                app.VideoMdl(fIdx).attachReader(vr, fullPath, app.VideoState(fIdx).vidImageHandle);
                 if app.DebugMode
-                    fprintf('[Video] loaded: %s (fIdx=%d)\n', fname, fIdx);
+                    fprintf('[Video] reader opened: %s\n', fname);
                 end
             catch e
                 if app.DebugMode
@@ -1767,8 +1932,37 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
                 app.logCaught(e, 'Video:open');
                 errordlg(['Video load failed: ', e.message], 'Error');
-                app.VideoFilePath{fIdx} = '';
                 vr = [];
+            end
+        end
+
+        function ok = attachVideoReader(app, fIdx, vr, fullPath, fname)
+            ok = false;
+            try
+                app.VideoState(fIdx).videoReader = vr;
+                app.VideoFilePath{fIdx} = fullPath;
+                % [REFACTOR Step 2-C] attachReader → VideoLoaded notify (cache 자동 recompute)
+                app.VideoMdl(fIdx).attachReader(vr, fullPath, app.VideoState(fIdx).vidImageHandle);
+                if app.DebugMode
+                    fprintf('[Video] loaded: %s (fIdx=%d)\n', fname, fIdx);
+                end
+                ok = true;
+            catch e
+                app.VideoState(fIdx).videoReader = [];
+                app.VideoFilePath{fIdx} = '';
+                try, app.VideoMdl(fIdx).cleanup(); catch, end
+                app.logCaught(e, 'Video:attach');
+                errordlg(['Video attach failed: ', e.message], 'Error');
+            end
+        end
+
+        function deleteDetachedVideoReader(app, vr)
+            try
+                if ~isempty(vr) && isvalid(vr)
+                    delete(vr);
+                end
+            catch ME
+                app.logCaught(ME, 'Video:deleteDetachedReader');
             end
         end
 
@@ -2695,9 +2889,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.PanelSplitterFIdx = fIdx;
                 app.PanelSplitterKind = kind;
                 app.IsDraggingPanelSplitter = true;
-                app.UIFigure.WindowButtonMotionFcn = @(~,~) app.panelSplitterMotion();
-                app.UIFigure.WindowButtonUpFcn    = @(~,~) app.stopPanelSplitterDrag();
-                if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
+                if ~app.bindDragCallbacks(@(~,~) app.panelSplitterMotion(), ...
+                        @(~,~) app.stopPanelSplitterDrag(), 'PanelSplitter:router')
+                    app.IsDraggingPanelSplitter = false;
+                    app.PanelSplitterFIdx = 0;
+                    app.PanelSplitterKind = '';
+                    return;
+                end
+                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
             catch ME
                 app.logCaught(ME, 'PanelSplitter:start');
             end
@@ -2753,9 +2952,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function stopPanelSplitterDrag(app)
             try
-                app.UIFigure.WindowButtonMotionFcn = '';
-                app.UIFigure.WindowButtonUpFcn    = '';
-                if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'arrow'; end
+                if app.IsEmbedded
+                    app.releaseEmbeddedDragLock();
+                elseif ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    app.UIFigure.WindowButtonMotionFcn = '';
+                    app.UIFigure.WindowButtonUpFcn    = '';
+                    if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'arrow'; end
+                end
                 app.IsDraggingPanelSplitter = false;
                 app.PanelSplitterFIdx = 0;
                 app.PanelSplitterKind = '';
@@ -2799,9 +3002,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
                 app.HISplitterFIdx = fIdx;
                 app.IsDraggingSplitter = true;
-                app.UIFigure.WindowButtonMotionFcn = @(~,~) app.hiSplitterMotion();
-                app.UIFigure.WindowButtonUpFcn    = @(~,~) app.stopHISplitterDrag();
-                if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
+                if ~app.bindDragCallbacks(@(~,~) app.hiSplitterMotion(), ...
+                        @(~,~) app.stopHISplitterDrag(), 'HISplitter:router')
+                    app.IsDraggingSplitter = false;
+                    app.HISplitterFIdx = 0;
+                    return;
+                end
+                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
             catch ME, app.logCaught(ME, 'HISplitter:start'); end
         end
 
@@ -2837,14 +3044,83 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         function stopHISplitterDrag(app)
             try
-                app.UIFigure.WindowButtonMotionFcn = '';
-                app.UIFigure.WindowButtonUpFcn    = '';
-                if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'arrow'; end
+                if app.IsEmbedded
+                    app.releaseEmbeddedDragLock();
+                elseif ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    app.UIFigure.WindowButtonMotionFcn = '';
+                    app.UIFigure.WindowButtonUpFcn    = '';
+                    if isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'arrow'; end
+                end
                 app.IsDraggingSplitter = false;
                 app.LayoutMgr.applyLayout(app, 'splitterStop');
                 app.HISplitterFIdx = 0;
                 drawnow limitrate;
             catch ME, app.logCaught(ME, 'HISplitter:stop'); end
+        end
+
+        function handleDragMotion(app)
+            % StudioMouseRouter entry point for embedded dashboard-level drags.
+            if app.IsDraggingPanelSplitter
+                app.panelSplitterMotion();
+            elseif app.IsDraggingSplitter
+                app.hiSplitterMotion();
+            end
+        end
+
+        function stopDrag(app)
+            % StudioMouseRouter entry point for embedded dashboard-level drags.
+            if app.IsDraggingPanelSplitter
+                app.stopPanelSplitterDrag();
+            elseif app.IsDraggingSplitter
+                app.stopHISplitterDrag();
+            else
+                app.releaseEmbeddedDragLock();
+            end
+        end
+
+        function tf = bindDragCallbacks(app, motionFcn, stopFcn, logTag)
+            tf = false;
+            try
+                if app.IsEmbedded
+                    router = app.lookupStudioMouseRouter();
+                    if isempty(router) || ~isvalid(router)
+                        ME = MException('FlightDash:NoStudioMouseRouter', ...
+                            'Embedded drag requires StudioMouseRouter.');
+                        app.logCaught(ME, logTag);
+                        return;
+                    end
+                    tf = router.requestDragLock(app.ActiveSessionId, app);
+                    return;
+                end
+                app.UIFigure.WindowButtonMotionFcn = motionFcn;
+                app.UIFigure.WindowButtonUpFcn = stopFcn;
+                tf = true;
+            catch ME
+                app.logCaught(ME, logTag);
+                tf = false;
+            end
+        end
+
+        function router = lookupStudioMouseRouter(app)
+            router = [];
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
+                        && isappdata(app.UIFigure, 'StudioMouseRouter')
+                    router = getappdata(app.UIFigure, 'StudioMouseRouter');
+                end
+            catch
+            end
+        end
+
+        function releaseEmbeddedDragLock(app)
+            try
+                if ~app.IsEmbedded, return; end
+                router = app.lookupStudioMouseRouter();
+                if ~isempty(router) && isvalid(router)
+                    router.releaseDragLock();
+                end
+            catch
+            end
         end
 
 

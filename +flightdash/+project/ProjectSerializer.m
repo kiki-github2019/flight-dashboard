@@ -90,10 +90,7 @@ classdef ProjectSerializer
 
         function project = load(filePath)
             %LOAD  Restore a ProjectModel from a .frsproj zip file.
-            filePath = char(filePath);
-            if ~isfile(filePath)
-                error('ProjectSerializer:FileNotFound', 'File not found: %s', filePath);
-            end
+            filePath = flightdash.project.ProjectSerializer.resolveLoadPath(filePath);
 
             tmpDir = tempname();
             mkdir(tmpDir);
@@ -192,9 +189,20 @@ classdef ProjectSerializer
                 'FolderPath',     char(sess.FolderPath), ...
                 'FlightFilePath', {sess.FlightFilePath}, ...
                 'VideoFilePath',  {sess.VideoFilePath}, ...
+                'FlightSyncState', {sess.FlightSyncState}, ...
+                'VideoSyncState',  {sess.VideoSyncState}, ...
                 'AutoUpdateMode', char(sess.AutoUpdateMode), ...
                 'CurrentIndex',   sess.CurrentIndex, ...
                 'CurrentFrame',   sess.CurrentFrame, ...
+                'PlotTabs',       {sess.PlotTabs}, ...
+                'RoiRows',        {sess.RoiRows}, ...
+                'EventMarkers',   {sess.EventMarkers}, ...
+                'ReviewNotes',    char(sess.ReviewNotes), ...
+                'PanelVisible',   {sess.PanelVisible}, ...
+                'LayoutState',    {sess.LayoutState}, ...
+                'LastDataHash',   {sess.LastDataHash}, ...
+                'LastSyncHash',   {sess.LastSyncHash}, ...
+                'DirtyFlag',      logical(sess.DirtyFlag), ...
                 'CreatedAt',      char(sess.CreatedAt), ...
                 'ModifiedAt',     char(sess.ModifiedAt));
         end
@@ -206,12 +214,29 @@ classdef ProjectSerializer
             sess.FolderPath     = flightdash.project.ProjectSerializer.fieldChar(s, 'FolderPath', '');
             sess.FlightFilePath = flightdash.project.ProjectSerializer.fieldCellPair(s, 'FlightFilePath');
             sess.VideoFilePath  = flightdash.project.ProjectSerializer.fieldCellPair(s, 'VideoFilePath');
+            if isfield(s, 'FlightSyncState') && isstruct(s.FlightSyncState)
+                sess.FlightSyncState = s.FlightSyncState;
+            end
+            if isfield(s, 'VideoSyncState') && isstruct(s.VideoSyncState)
+                sess.VideoSyncState = s.VideoSyncState;
+            end
             sess.AutoUpdateMode = flightdash.project.ProjectSerializer.fieldChar(s, 'AutoUpdateMode', 'Inherit');
             sess.CurrentIndex   = flightdash.project.ProjectSerializer.fieldNumPair(s, 'CurrentIndex', [1 1]);
             sess.CurrentFrame   = flightdash.project.ProjectSerializer.fieldNumPair(s, 'CurrentFrame', [1 1]);
+            if isfield(s, 'PlotTabs') && isstruct(s.PlotTabs), sess.PlotTabs = s.PlotTabs; end
+            if isfield(s, 'RoiRows')
+                sess.RoiRows = flightdash.project.ProjectSerializer.fieldCellPairAny( ...
+                    s.RoiRows, {cell(0, 5), cell(0, 5)});
+            end
+            if isfield(s, 'EventMarkers') && isstruct(s.EventMarkers), sess.EventMarkers = s.EventMarkers; end
+            sess.ReviewNotes = flightdash.project.ProjectSerializer.fieldChar(s, 'ReviewNotes', '');
+            if isfield(s, 'PanelVisible') && isstruct(s.PanelVisible), sess.PanelVisible = s.PanelVisible; end
+            if isfield(s, 'LayoutState') && isstruct(s.LayoutState), sess.LayoutState = s.LayoutState; end
+            sess.LastDataHash = flightdash.project.ProjectSerializer.fieldCellPair(s, 'LastDataHash');
+            sess.LastSyncHash = flightdash.project.ProjectSerializer.fieldCellPair(s, 'LastSyncHash');
             sess.CreatedAt      = flightdash.project.ProjectSerializer.fieldChar(s, 'CreatedAt',  sess.CreatedAt);
             sess.ModifiedAt     = flightdash.project.ProjectSerializer.fieldChar(s, 'ModifiedAt', sess.ModifiedAt);
-            sess.DirtyFlag      = false;
+            sess.DirtyFlag      = flightdash.project.ProjectSerializer.fieldLogical(s, 'DirtyFlag', false);
         end
 
         % ===== Theme ↔ struct =====
@@ -238,7 +263,7 @@ classdef ProjectSerializer
             if isfield(s, 'InputDefaults') && isstruct(s.InputDefaults), th.InputDefaults = s.InputDefaults; end
             if isfield(s, 'Settings')      && isstruct(s.Settings),      th.Settings      = s.Settings;      end
             if isfield(s, 'OutputOptions') && isstruct(s.OutputOptions), th.OutputOptions = s.OutputOptions; end
-            th.IsDefault   = logical(flightdash.project.ProjectSerializer.fieldNum(s, 'IsDefault', 0));
+            th.IsDefault   = flightdash.project.ProjectSerializer.fieldLogical(s, 'IsDefault', false);
             th.CreatedAt   = flightdash.project.ProjectSerializer.fieldChar(s, 'CreatedAt',  th.CreatedAt);
             th.ModifiedAt  = flightdash.project.ProjectSerializer.fieldChar(s, 'ModifiedAt', th.ModifiedAt);
         end
@@ -300,17 +325,27 @@ classdef ProjectSerializer
             catch
                 txt = jsonencode(data);
             end
-            fid = fopen(filePath, 'w');
+            fid = fopen(filePath, 'w', 'n', 'UTF-8');
+            if fid < 0
+                fid = fopen(filePath, 'w');
+            end
             if fid < 0
                 error('ProjectSerializer:WriteFailed', 'Cannot write %s', filePath);
             end
             cleaner = onCleanup(@() fclose(fid));
-            fwrite(fid, txt, 'char');
+            fprintf(fid, '%s', txt);
             clear cleaner;
         end
 
         function data = readJson(filePath)
-            txt = fileread(filePath);
+            fid = fopen(filePath, 'r', 'n', 'UTF-8');
+            if fid < 0
+                txt = fileread(filePath);
+            else
+                cleaner = onCleanup(@() fclose(fid));
+                txt = fscanf(fid, '%c');
+                clear cleaner;
+            end
             data = jsondecode(txt);
         end
 
@@ -327,6 +362,24 @@ classdef ProjectSerializer
             if isstruct(s) && isfield(s, name) && ~isempty(s.(name))
                 v = double(s.(name));
             else
+                v = dflt;
+            end
+        end
+
+        function v = fieldLogical(s, name, dflt)
+            v = dflt;
+            try
+                if ~isstruct(s) || ~isfield(s, name) || isempty(s.(name)), return; end
+                raw = s.(name);
+                if islogical(raw)
+                    v = logical(raw);
+                elseif isnumeric(raw)
+                    v = raw ~= 0;
+                elseif ischar(raw) || isstring(raw)
+                    txt = lower(strtrim(char(raw)));
+                    v = any(strcmp(txt, {'true', '1', 'yes', 'on'}));
+                end
+            catch
                 v = dflt;
             end
         end
@@ -407,7 +460,52 @@ classdef ProjectSerializer
             end
         end
 
+        function v = fieldCellPairAny(raw, dflt)
+            v = dflt;
+            try
+                if isempty(raw)
+                    return;
+                elseif iscell(raw)
+                    for k = 1:min(2, numel(raw))
+                        v{k} = raw{k};
+                    end
+                elseif isstruct(raw) && numel(raw) >= 2
+                    for k = 1:min(2, numel(raw))
+                        v{k} = raw(k);
+                    end
+                elseif isstruct(raw)
+                    fields = fieldnames(raw);
+                    for k = 1:min(2, numel(fields))
+                        v{k} = raw.(fields{k});
+                    end
+                else
+                    v{1} = raw;
+                end
+            catch
+                v = dflt;
+            end
+        end
+
         % ===== Filesystem helpers =====
+        function resolved = resolveLoadPath(filePath)
+            requested = char(filePath);
+            candidates = {requested};
+            if ~endsWith(requested, '.zip', 'IgnoreCase', true)
+                candidates{end+1} = [requested '.zip']; %#ok<AGROW>
+            end
+            if endsWith(requested, '.frsproj.zip', 'IgnoreCase', true)
+                candidates{end+1} = requested(1:end-numel('.zip')); %#ok<AGROW>
+            end
+            for k = 1:numel(candidates)
+                if isfile(candidates{k})
+                    resolved = candidates{k};
+                    return;
+                end
+            end
+            error('ProjectSerializer:FileNotFound', ...
+                'File not found: %s. Candidates: %s', requested, strjoin(candidates, '; '));
+        end
+
         function names = listEntries(root)
             d = dir(root);
             names = {};

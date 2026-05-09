@@ -269,6 +269,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 return;
             end
             try
+                app.syncProjectFromWorkspace();
                 flightdash.project.ProjectSerializer.save(app.Project, filePath);
                 app.Project.ProjectFilePath   = filePath;
                 app.Project.ProjectFolderPath = fileparts(filePath);
@@ -360,6 +361,48 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             tf = app.openProject(filePath);
         end
 
+        function syncProjectFromWorkspace(app)
+            % Copy lightweight live dashboard state into ProjectModel before save.
+            try
+                if isempty(app.Project) || isempty(app.Workspace) || ~isvalid(app.Workspace)
+                    return;
+                end
+                if ~isprop(app.Workspace, 'DashboardEntries') || isempty(app.Workspace.DashboardEntries)
+                    return;
+                end
+                keys_ = app.Workspace.DashboardEntries.keys;
+                for k = 1:numel(keys_)
+                    sessionId = char(keys_{k});
+                    entry = app.Workspace.DashboardEntries(sessionId);
+                    if ~isfield(entry, 'Dashboard') || isempty(entry.Dashboard) || ~isvalid(entry.Dashboard)
+                        continue;
+                    end
+                    sess = app.Project.findSession(sessionId);
+                    if isempty(sess)
+                        displayName = sessionId;
+                        try
+                            if isfield(entry, 'Tab') && ~isempty(entry.Tab) && isvalid(entry.Tab)
+                                displayName = char(entry.Tab.Title);
+                            end
+                        catch
+                        end
+                        sess = flightdash.project.SessionModel(displayName);
+                        sess.SessionId = sessionId;
+                    end
+                    if ismethod(entry.Dashboard, 'exportSessionSnapshot')
+                        sess = entry.Dashboard.exportSessionSnapshot(sess);
+                    end
+                    if app.Project.hasSession(sessionId)
+                        app.Project = app.Project.updateSession(sessionId, sess);
+                    else
+                        app.Project = app.Project.addSession(sess);
+                    end
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:syncProjectFromWorkspace'); catch, end
+            end
+        end
+
         function dash = getActiveDashboard(app)
             dash = [];
             try
@@ -395,7 +438,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                         continue;
                     end
                     try
-                        app.Workspace.addDashboardTab(sessionId, displayName);
+                        app.Workspace.addDashboardTab(sessionId, displayName, sess);
                     catch ME
                         try, app.logCaught(ME, 'Studio:restoreSessionTab'); catch, end
                     end

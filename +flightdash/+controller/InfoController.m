@@ -35,8 +35,8 @@ classdef InfoController < handle
                 obj.IsDraggingInfoRow = true;
                 obj.InfoDragFIdx = fIdx;
                 obj.InfoDragSourceRow = row;
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    app.UIFigure.WindowButtonUpFcn = @(~,~) obj.stopRowDrag();
+                if ~obj.bindMouseUp(app)
+                    obj.clearState();
                 end
             catch ME
                 app.logCaught(ME, 'InfoDrag:select');
@@ -99,7 +99,12 @@ classdef InfoController < handle
                 obj.IsDraggingInfoRow = false;
                 obj.InfoDragFIdx = 0;
                 obj.InfoDragSourceRow = 0;
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                if app.IsEmbedded
+                    router = obj.lookupRouter(app);
+                    if ~isempty(router) && isvalid(router)
+                        router.releaseDragLock();
+                    end
+                elseif ~isempty(app.UIFigure) && isvalid(app.UIFigure)
                     app.UIFigure.WindowButtonUpFcn = '';
                 end
             catch ME
@@ -107,10 +112,52 @@ classdef InfoController < handle
             end
         end
 
+        function handleDragMotion(~)
+            % Info row drag is selection-driven; mouse motion is not needed.
+        end
+
+        function stopDrag(obj)
+            obj.stopRowDrag();
+        end
+
         function clearState(obj)
             obj.IsDraggingInfoRow = false;
             obj.InfoDragFIdx = 0;
             obj.InfoDragSourceRow = 0;
+        end
+
+        function tf = bindMouseUp(obj, app)
+            tf = false;
+            try
+                if app.IsEmbedded
+                    router = obj.lookupRouter(app);
+                    if isempty(router) || ~isvalid(router)
+                        ME = MException('FlightDash:NoStudioMouseRouter', ...
+                            'Embedded info row drag requires StudioMouseRouter.');
+                        app.logCaught(ME, 'InfoDrag:router');
+                        return;
+                    end
+                    tf = router.requestDragLock(app.ActiveSessionId, obj);
+                    return;
+                end
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    app.UIFigure.WindowButtonUpFcn = @(~,~) obj.stopRowDrag();
+                    tf = true;
+                end
+            catch ME
+                app.logCaught(ME, 'InfoDrag:bind');
+            end
+        end
+
+        function router = lookupRouter(~, app)
+            router = [];
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
+                        && isappdata(app.UIFigure, 'StudioMouseRouter')
+                    router = getappdata(app.UIFigure, 'StudioMouseRouter');
+                end
+            catch
+            end
         end
     end
 end
