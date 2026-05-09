@@ -111,6 +111,11 @@ classdef PlaybackController < handle
                     end
                 end
                 obj.FlightPlayTimers{fIdx} = [];
+                try
+                    obj.App.restorePlotMarkerInteractions(fIdx);
+                catch ME_restore
+                    obj.App.logCaught(ME_restore, 'FlightPlay:restoreMarkerDrag');
+                end
             catch ME
                 obj.App.logCaught(ME, 'FlightPlay:stop');
             end

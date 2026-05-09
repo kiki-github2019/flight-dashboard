@@ -3127,6 +3127,99 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
+        function restorePlotMarkerInteractions(app, fIdx)
+            try
+                if fIdx < 1 || fIdx > numel(app.UI), return; end
+
+                app.setXLimListenersEnabled(fIdx, true);
+
+                if isfield(app.UI(fIdx), 'altAxes')
+                    app.restoreAxesInteractions(app.UI(fIdx).altAxes, []);
+                end
+                if isfield(app.UI(fIdx), 'hAltMarker')
+                    app.restorePlotDragHandle(fIdx, 0, app.UI(fIdx).hAltMarker);
+                end
+                if isfield(app.UI(fIdx), 'timeLine')
+                    app.restorePlotDragHandle(fIdx, 0, app.UI(fIdx).timeLine);
+                end
+
+                if isfield(app.UI(fIdx), 'plotAxes')
+                    for tabIdx = 1:numel(app.UI(fIdx).plotAxes)
+                        axArr = app.UI(fIdx).plotAxes{tabIdx};
+                        for k = 1:numel(axArr)
+                            app.restoreAxesInteractions(axArr{k}, []);
+                        end
+                    end
+                end
+
+                if isfield(app.UI(fIdx), 'timeMarkers')
+                    for tabIdx = 1:numel(app.UI(fIdx).timeMarkers)
+                        mkArr = app.UI(fIdx).timeMarkers{tabIdx};
+                        for k = 1:numel(mkArr)
+                            app.restorePlotDragHandle(fIdx, tabIdx, mkArr{k});
+                        end
+                    end
+                end
+
+                if isfield(app.UI(fIdx), 'timeLines')
+                    for tabIdx = 1:numel(app.UI(fIdx).timeLines)
+                        tlArr = app.UI(fIdx).timeLines{tabIdx};
+                        for k = 1:numel(tlArr)
+                            app.restorePlotDragHandle(fIdx, tabIdx, tlArr{k});
+                        end
+                    end
+                end
+            catch ME
+                app.logCaught(ME, 'PlotMarker:restoreInteractions');
+            end
+        end
+
+        function restorePlotDragHandle(app, fIdx, tabIdx, h)
+            try
+                if isempty(h) || ~isvalid(h), return; end
+                if isprop(h, 'HitTest')
+                    h.HitTest = 'on';
+                end
+                if isprop(h, 'PickableParts')
+                    try
+                        h.PickableParts = 'visible';
+                    catch
+                        h.PickableParts = 'all';
+                    end
+                end
+                if isprop(h, 'ButtonDownFcn')
+                    h.ButtonDownFcn = @(src, event) app.MarkerDragCtrl.startPlotMarkerDrag(fIdx, tabIdx, src, event);
+                end
+                app.restoreAxesInteractions(h.Parent, h);
+            catch ME
+                app.logCaught(ME, 'PlotMarker:restoreHandle');
+            end
+        end
+
+        function restoreAxesInteractions(app, ax, sourceHandle)
+            try
+                if isempty(ax) || ~isvalid(ax) || ~isprop(ax, 'Interactions'), return; end
+
+                restored = false;
+                if nargin >= 3 && ~isempty(sourceHandle) && isvalid(sourceHandle) ...
+                        && isprop(sourceHandle, 'UserData') && ~isempty(sourceHandle.UserData)
+                    try
+                        ax.Interactions = sourceHandle.UserData;
+                        sourceHandle.UserData = [];
+                        restored = true;
+                    catch
+                        restored = false;
+                    end
+                end
+
+                if ~restored && isempty(ax.Interactions)
+                    ax.Interactions = [panInteraction, zoomInteraction];
+                end
+            catch ME
+                app.logCaught(ME, 'PlotMarker:restoreAxes');
+            end
+        end
+
         function tf = currentTabXAutoEnabled(app, fIdx, tabIdx)
             tf = true;
             try
