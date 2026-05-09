@@ -108,13 +108,14 @@ classdef ProjectExplorerPanel < handle
             try, expand(obj.Roots.Project); catch, end
             obj.Tree = tree;
 
-            % Right-click context menu (Phase 5 wires real actions)
+            % [PHASE 5] Right-click context menu wired to real actions.
             cm = uicontextmenu(obj.App.UIFigure);
             uimenu(cm, 'Text', 'Add Session',       'MenuSelectedFcn', @(~,~) obj.onContext('AddSession'));
             uimenu(cm, 'Text', 'Rename...',         'MenuSelectedFcn', @(~,~) obj.onContext('Rename'));
-            uimenu(cm, 'Text', 'Move to...',        'MenuSelectedFcn', @(~,~) obj.onContext('Move'));
+            uimenu(cm, 'Text', 'Duplicate',         'MenuSelectedFcn', @(~,~) obj.onContext('Duplicate'));
             uimenu(cm, 'Text', 'Delete',            'MenuSelectedFcn', @(~,~) obj.onContext('Delete'));
-            uimenu(cm, 'Text', 'Show / Hide', 'Separator', 'on', 'MenuSelectedFcn', @(~,~) obj.onContext('ToggleVisibility'));
+            uimenu(cm, 'Text', 'Move to...', 'Separator', 'on', 'MenuSelectedFcn', @(~,~) obj.onContext('Move'));
+            uimenu(cm, 'Text', 'Show / Hide',       'MenuSelectedFcn', @(~,~) obj.onContext('ToggleVisibility'));
             tree.ContextMenu = cm;
         end
 
@@ -169,11 +170,115 @@ classdef ProjectExplorerPanel < handle
         end
 
         function onContext(obj, action)
+            % [PHASE 5] Route context-menu items to actual operations
+            % when the selected node represents a session.
             try
-                if ~isempty(obj.App.StatusBar)
-                    obj.App.StatusBar.setMessage(sprintf('Context: %s (Phase 5)', action));
+                node = obj.selectedNode();
+                sessionId = obj.sessionIdFromNode(node);
+                switch char(action)
+                    case 'AddSession'
+                        obj.App.addSession();
+                        return;
+                    case 'Rename'
+                        if isempty(sessionId)
+                            obj.notifyStatus('Select a session to rename');
+                            return;
+                        end
+                        obj.promptAndRename(sessionId);
+                        return;
+                    case 'Duplicate'
+                        if isempty(sessionId)
+                            obj.notifyStatus('Select a session to duplicate');
+                            return;
+                        end
+                        obj.App.duplicateSession(sessionId);
+                        return;
+                    case 'Delete'
+                        if isempty(sessionId)
+                            obj.notifyStatus('Select a session to delete');
+                            return;
+                        end
+                        obj.confirmAndDelete(sessionId, node);
+                        return;
+                    case 'Move'
+                        obj.notifyStatus('Move to... is not implemented yet');
+                        return;
+                    case 'ToggleVisibility'
+                        obj.notifyStatus('Visibility toggle is not implemented yet');
+                        return;
+                end
+                obj.notifyStatus(sprintf('Context: %s', action));
+            catch ME
+                obj.notifyStatus(sprintf('Context %s failed: %s', action, ME.message));
+            end
+        end
+
+        function notifyStatus(obj, msg)
+            try
+                if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
+                    obj.App.StatusBar.setMessage(msg);
                 end
             catch
+            end
+        end
+
+        function node = selectedNode(obj)
+            node = [];
+            try
+                if isempty(obj.Tree) || ~isvalid(obj.Tree), return; end
+                sel = obj.Tree.SelectedNodes;
+                if ~isempty(sel)
+                    node = sel(1);
+                end
+            catch
+            end
+        end
+
+        function id = sessionIdFromNode(~, node)
+            id = '';
+            try
+                if isempty(node) || ~isvalid(node), return; end
+                nd = node.NodeData;
+                if isstruct(nd) && isfield(nd, 'Kind') && strcmp(nd.Kind, 'session') ...
+                        && isfield(nd, 'SessionId')
+                    id = char(nd.SessionId);
+                end
+            catch
+            end
+        end
+
+        function promptAndRename(obj, sessionId)
+            try
+                sess = obj.App.Project.findSession(sessionId);
+                if isempty(sess), return; end
+                answer = inputdlg({'New session name:'}, 'Rename Session', ...
+                    [1 50], {sess.DisplayName});
+                if isempty(answer), return; end
+                newName = strtrim(answer{1});
+                if isempty(newName), return; end
+                obj.App.renameSession(sessionId, newName);
+            catch ME
+                obj.notifyStatus(sprintf('Rename failed: %s', ME.message));
+            end
+        end
+
+        function confirmAndDelete(obj, sessionId, node)
+            try
+                sess = obj.App.Project.findSession(sessionId);
+                displayName = sessionId;
+                if ~isempty(sess), displayName = sess.DisplayName; end
+                fig = obj.App.UIFigure;
+                if ~isempty(fig) && isvalid(fig)
+                    sel = uiconfirm(fig, ...
+                        sprintf('Delete session "%s"? Embedded dashboard will close.', displayName), ...
+                        'Confirm Delete Session', ...
+                        'Options', {'Delete', 'Cancel'}, ...
+                        'DefaultOption', 2, 'CancelOption', 2);
+                    if ~strcmp(sel, 'Delete'), return; end
+                end
+                obj.App.removeSession(sessionId);
+            catch ME
+                obj.notifyStatus(sprintf('Delete failed: %s', ME.message));
             end
         end
     end

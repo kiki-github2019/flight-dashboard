@@ -148,6 +148,87 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
         end
 
+        function renameSession(app, sessionId, newName)
+            % [PHASE 5] Rename a session: update model, workspace tab,
+            % and Project Explorer label.
+            sessionId = char(sessionId);
+            try
+                sess = app.Project.findSession(sessionId);
+                if isempty(sess), return; end
+                trimmed = strtrim(char(newName));
+                if isempty(trimmed)
+                    if ~isempty(app.StatusBar)
+                        app.StatusBar.setMessage('Rename ignored: empty name');
+                    end
+                    return;
+                end
+                sess = sess.setDisplayName(trimmed);
+                app.Project = app.Project.updateSession(sessionId, sess);
+            catch ME
+                try, app.logCaught(ME, 'Studio:renameSession:project'); catch, end
+                return;
+            end
+            try
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    app.Workspace.renameDashboardTab(sessionId, trimmed);
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:renameSession:tab'); catch, end
+            end
+            app.refreshExplorer();
+            app.refreshTitle();
+            if ~isempty(app.StatusBar)
+                app.StatusBar.setMessage(sprintf('Renamed: %s', trimmed));
+            end
+        end
+
+        function newSessionId = duplicateSession(app, sessionId)
+            % [PHASE 5] Create a new session that clones the source
+            % session's lightweight metadata. The embedded dashboard
+            % itself starts fresh (no flight data preloaded) — users
+            % typically want a clean review session with the same name
+            % conventions. Phase 9 will let users opt in to deep clone
+            % via the project save/load round-trip.
+            newSessionId = '';
+            sessionId = char(sessionId);
+            try
+                src = app.Project.findSession(sessionId);
+                if isempty(src), return; end
+                copyName = sprintf('%s (copy)', src.DisplayName);
+                copy = flightdash.project.SessionModel(copyName);
+                % Carry over user preferences that are session-scoped
+                copy.AutoUpdateMode = src.AutoUpdateMode;
+                copy.PanelVisible   = src.PanelVisible;
+                copy.LayoutState    = src.LayoutState;
+                app.Project = app.Project.addSession(copy);
+                newSessionId = copy.SessionId;
+            catch ME
+                try, app.logCaught(ME, 'Studio:duplicateSession:project'); catch, end
+                return;
+            end
+            try
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    app.Workspace.addDashboardTab(newSessionId, copy.DisplayName);
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:duplicateSession:tab'); catch, end
+            end
+            app.refreshExplorer();
+            if ~isempty(app.StatusBar)
+                app.StatusBar.setMessage(sprintf('Duplicated -> %s', copy.DisplayName));
+            end
+        end
+
+        function id = activeSessionIdFromWorkspace(app)
+            id = '';
+            try
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    id = app.Workspace.activeSessionId();
+                end
+            catch
+            end
+        end
+
         function removeSession(app, sessionId)
             % [PHASE 3c] Remove a session everywhere it lives:
             %   1) ProjectModel (so cascades drop dependent results too)

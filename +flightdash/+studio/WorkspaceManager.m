@@ -137,6 +137,19 @@ classdef WorkspaceManager < handle
             end
         end
 
+        function renameDashboardTab(obj, sessionId, newName)
+            % [PHASE 5] Update the workspace tab title for the given session.
+            sessionId = char(sessionId);
+            if ~obj.DashboardEntries.isKey(sessionId), return; end
+            entry = obj.DashboardEntries(sessionId);
+            try
+                if ~isempty(entry.Tab) && isvalid(entry.Tab)
+                    entry.Tab.Title = char(newName);
+                end
+            catch
+            end
+        end
+
         function tf = selectSession(obj, sessionId)
             % [PHASE 3c] Switch the workspace to the tab bound to the
             % given session id. Returns true if a matching tab existed.

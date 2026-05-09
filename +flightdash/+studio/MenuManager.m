@@ -156,6 +156,21 @@ classdef MenuManager < handle
                     case 'Project:AddSession'
                         obj.App.addSession();
                         return;
+                    case 'Project:DuplicateSession'
+                        sessionId = obj.activeSessionIdOrWarn();
+                        if isempty(sessionId), return; end
+                        obj.App.duplicateSession(sessionId);
+                        return;
+                    case 'Project:RenameSession'
+                        sessionId = obj.activeSessionIdOrWarn();
+                        if isempty(sessionId), return; end
+                        obj.promptAndRename(sessionId);
+                        return;
+                    case 'Project:DeleteSession'
+                        sessionId = obj.activeSessionIdOrWarn();
+                        if isempty(sessionId), return; end
+                        obj.confirmAndDelete(sessionId);
+                        return;
                     case 'Window:CloseActive'
                         if ~isempty(obj.App.Workspace) && isvalid(obj.App.Workspace)
                             obj.App.Workspace.closeActiveTab();
@@ -175,6 +190,63 @@ classdef MenuManager < handle
             catch ME
                 if ~isempty(obj.App.StatusBar)
                     obj.App.StatusBar.setMessage(sprintf('Menu %s failed: %s', cmdId, ME.message));
+                end
+            end
+        end
+
+        function id = activeSessionIdOrWarn(obj)
+            % [PHASE 5] Look up the workspace's active tab session id.
+            % Returns '' if the user is on the Welcome tab so callers can
+            % surface a friendly status bar message.
+            id = '';
+            try
+                if ~isempty(obj.App.Workspace) && isvalid(obj.App.Workspace)
+                    raw = obj.App.Workspace.activeSessionId();
+                    if ~isempty(raw) && ~strcmp(raw, 'standalone')
+                        id = char(raw);
+                    end
+                end
+                if isempty(id) && ~isempty(obj.App.StatusBar)
+                    obj.App.StatusBar.setMessage('No active session — open or add a session first');
+                end
+            catch
+            end
+        end
+
+        function promptAndRename(obj, sessionId)
+            try
+                sess = obj.App.Project.findSession(sessionId);
+                if isempty(sess), return; end
+                answer = inputdlg({'New session name:'}, 'Rename Session', ...
+                    [1 50], {sess.DisplayName});
+                if isempty(answer), return; end
+                newName = strtrim(answer{1});
+                if isempty(newName), return; end
+                obj.App.renameSession(sessionId, newName);
+            catch ME
+                if ~isempty(obj.App.StatusBar)
+                    obj.App.StatusBar.setMessage(sprintf('Rename failed: %s', ME.message));
+                end
+            end
+        end
+
+        function confirmAndDelete(obj, sessionId)
+            try
+                sess = obj.App.Project.findSession(sessionId);
+                if isempty(sess), return; end
+                fig = obj.App.UIFigure;
+                if ~isempty(fig) && isvalid(fig)
+                    sel = uiconfirm(fig, ...
+                        sprintf('Delete session "%s"?', sess.DisplayName), ...
+                        'Confirm Delete Session', ...
+                        'Options', {'Delete', 'Cancel'}, ...
+                        'DefaultOption', 2, 'CancelOption', 2);
+                    if ~strcmp(sel, 'Delete'), return; end
+                end
+                obj.App.removeSession(sessionId);
+            catch ME
+                if ~isempty(obj.App.StatusBar)
+                    obj.App.StatusBar.setMessage(sprintf('Delete failed: %s', ME.message));
                 end
             end
         end
