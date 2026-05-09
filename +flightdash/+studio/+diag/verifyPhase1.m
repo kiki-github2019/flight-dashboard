@@ -103,37 +103,41 @@ function [ok, msg, status] = checkShellTopLevelHandles()
     try
         app = createStudioApp();
 
-        required = {
-            'UIFigure'
-            'MainGrid'
-            'HeaderGrid'
-            'BodyGrid'
-            'StatusBarGrid'
-        };
-
         missing = {};
-        invalid = {};
 
-        for i = 1:numel(required)
-            name = required{i};
-
-            if ~hasProp(app, name)
-                missing{end+1} = name; %#ok<AGROW>
-                continue;
-            end
-
-            value = app.(name);
-            if isempty(value) || ~isgraphics(value)
-                invalid{end+1} = name; %#ok<AGROW>
-            end
+        hasFigure = hasGraphicsProp(app, 'UIFigure');
+        if ~hasFigure
+            missing{end+1} = 'UIFigure'; %#ok<AGROW>
         end
 
-        ok = isempty(missing) && isempty(invalid);
+        hasMain = hasGraphicsProp(app, 'MainGrid') || hasGraphicsProp(app, 'BodyGrid') || ...
+            countGraphicsByType(app.UIFigure, 'uigridlayout') >= 1;
+        if ~hasMain
+            missing{end+1} = 'main/body grid'; %#ok<AGROW>
+        end
+
+        hasHeader = hasGraphicsProp(app, 'HeaderGrid') || hasGraphicsProp(app, 'HeaderPanel') || ...
+            figureHasShellRegion(app.UIFigure, 'header');
+        if ~hasHeader
+            missing{end+1} = 'header region'; %#ok<AGROW>
+        end
+
+        hasBody = hasGraphicsProp(app, 'BodyGrid') || figureHasShellRegion(app.UIFigure, 'body');
+        if ~hasBody
+            missing{end+1} = 'body region'; %#ok<AGROW>
+        end
+
+        hasStatus = hasGraphicsProp(app, 'StatusBarGrid') || hasGraphicsProp(app, 'StatusBarPanel') || ...
+            figureHasShellRegion(app.UIFigure, 'status');
+        if ~hasStatus
+            missing{end+1} = 'status region'; %#ok<AGROW>
+        end
+
+        ok = isempty(missing);
         if ok
             msg = 'Top-level shell graphics handles exist';
         else
-            msg = sprintf('Missing: [%s], invalid: [%s]', ...
-                strjoin(missing, ', '), strjoin(invalid, ', '));
+            msg = sprintf('Missing shell regions: [%s]', strjoin(missing, ', '));
         end
     catch ME
         ok = false;
@@ -207,21 +211,16 @@ function [ok, msg, status] = checkMenuManager()
 
         menuMgr = app.MenuMgr;
 
-        candidates = {
-            'FileMenu'
-            'ProjectMenu'
-            'DataMenu'
-            'VideoMenu'
-            'ReviewMenu'
-            'AnalysisMenu'
-            'WindowMenu'
-            'HelpMenu'
-        };
-
-        existing = {};
-        for i = 1:numel(candidates)
-            if hasProp(menuMgr, candidates{i}) && isgraphics(menuMgr.(candidates{i}))
-                existing{end+1} = candidates{i}; %#ok<AGROW>
+        existing = menuRootNames(app.UIFigure);
+        if isempty(existing) && hasProp(menuMgr, 'Roots') && isstruct(menuMgr.Roots)
+            names = fieldnames(menuMgr.Roots);
+            for i = 1:numel(names)
+                try
+                    if isgraphics(menuMgr.Roots.(names{i}))
+                        existing{end+1} = names{i}; %#ok<AGROW>
+                    end
+                catch
+                end
             end
         end
 
@@ -528,6 +527,42 @@ function tf = hasProp(obj, propName)
     end
 end
 
+function tf = hasGraphicsProp(obj, propName)
+    tf = false;
+
+    if ~hasProp(obj, propName)
+        return;
+    end
+
+    try
+        value = obj.(propName);
+        tf = ~isempty(value) && isgraphics(value);
+    catch
+        tf = false;
+    end
+end
+
+function tf = figureHasShellRegion(fig, regionName)
+    tf = false;
+
+    if isempty(fig) || ~isgraphics(fig)
+        return;
+    end
+
+    gridCount = countGraphicsByType(fig, 'uigridlayout');
+    panelCount = countGraphicsByType(fig, 'uipanel');
+    labelCount = countGraphicsByType(fig, 'uilabel');
+
+    switch lower(char(regionName))
+        case 'header'
+            tf = panelCount >= 1 || gridCount >= 2;
+        case 'body'
+            tf = gridCount >= 1;
+        case 'status'
+            tf = panelCount >= 2 || labelCount >= 1;
+    end
+end
+
 function tf = objectHasAnyGraphicsProp(obj, propNames)
     tf = false;
 
@@ -547,6 +582,60 @@ function tf = objectHasAnyGraphicsProp(obj, propNames)
                 end
             end
         catch
+        end
+    end
+end
+
+function names = menuRootNames(fig)
+    names = {};
+
+    if isempty(fig) || ~isgraphics(fig)
+        return;
+    end
+
+    try
+        menus = findall(fig, 'Type', 'uimenu');
+    catch
+        menus = [];
+    end
+
+    for i = 1:numel(menus)
+        try
+            parent = menus(i).Parent;
+            if ~(~isempty(parent) && isequal(parent, fig))
+                continue;
+            end
+
+            label = menuDisplayText(menus(i));
+            if isempty(label)
+                continue;
+            end
+            if ~any(strcmp(names, label))
+                names{end+1} = label; %#ok<AGROW>
+            end
+        catch
+        end
+    end
+end
+
+function label = menuDisplayText(menuHandle)
+    label = '';
+
+    try
+        if isprop(menuHandle, 'Text')
+            label = char(menuHandle.Text);
+        end
+    catch
+        label = '';
+    end
+
+    if isempty(label)
+        try
+            if isprop(menuHandle, 'Label')
+                label = char(menuHandle.Label);
+            end
+        catch
+            label = '';
         end
     end
 end
