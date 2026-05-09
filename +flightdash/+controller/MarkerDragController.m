@@ -21,6 +21,7 @@ classdef MarkerDragController < handle
         end
 
         function startPlotMarkerDrag(obj, fIdx, ~, src, event)
+            if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
             app = obj.App;
             if event.Button ~= 1, return; end
             if isempty(app.Models(fIdx).rawData), return; end
@@ -67,6 +68,7 @@ classdef MarkerDragController < handle
         end
 
         function startVideoFrameDrag(obj, fIdx, src, event)
+            if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
             app = obj.App;
             if event.Button ~= 1, return; end
             if isempty(app.VideoState(fIdx).videoReader), return; end
@@ -110,14 +112,15 @@ classdef MarkerDragController < handle
                 % the Phase 4 isActiveSession guards inside the motion
                 % methods keep cross-tab leaks impossible.
             end
-            app.UIFigure.WindowButtonMotionFcn = @(~,~) obj.handleDragMotion();
-            app.UIFigure.WindowButtonUpFcn    = @(~,~) obj.stopDrag();
+            app.UIFigure.WindowButtonMotionFcn = @(~,~) flightdash.controller.MarkerDragController.safeHandleDragMotion(obj);
+            app.UIFigure.WindowButtonUpFcn    = @(~,~) flightdash.controller.MarkerDragController.safeStopDrag(obj);
         end
 
         function handleDragMotion(obj)
             % [PHASE 3.5] Unified motion entry: dispatch based on
             % whether the active drag was started from a plot marker
             % or a video frame slider.
+            if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
             if ~obj.IsDraggingMarker, return; end
             if obj.DraggedFromVideo
                 obj.videoFrameDragMotion(obj.DraggedFIdx);
@@ -203,6 +206,7 @@ classdef MarkerDragController < handle
         end
 
         function stopDrag(obj)
+            if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
             app = obj.App;
             wasDraggingFIdx = obj.DraggedFIdx;
             obj.IsDraggingMarker = false;
@@ -277,6 +281,41 @@ classdef MarkerDragController < handle
 
         function clearDraggedMarker(obj)
             obj.DraggedMarker = [];
+        end
+    end
+
+    methods (Static)
+        function safeHandleDragMotion(controller)
+            try
+                if ~flightdash.controller.MarkerDragController.isUsable(controller), return; end
+                controller.handleDragMotion();
+            catch ME
+                try
+                    flightdash.util.ErrorLog.log(ME, 'MarkerDrag:motionCallback', false);
+                catch
+                end
+            end
+        end
+
+        function safeStopDrag(controller)
+            try
+                if ~flightdash.controller.MarkerDragController.isUsable(controller), return; end
+                controller.stopDrag();
+            catch ME
+                try
+                    flightdash.util.ErrorLog.log(ME, 'MarkerDrag:upCallback', false);
+                catch
+                end
+            end
+        end
+
+        function tf = isUsable(controller)
+            tf = false;
+            try
+                tf = ~isempty(controller) && isvalid(controller);
+            catch
+                tf = false;
+            end
         end
     end
 end
