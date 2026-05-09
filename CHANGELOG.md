@@ -5,13 +5,63 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 을 따르며,
 버전은 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) 을 준수합니다.
 
-## [Unreleased]
+## [Unreleased] — FlightDataReviewStudio 전환 (Phase 0~4)
 
-### Added
-- (예정) `CHANGELOG.md`, `CONTRIBUTING.md`, `LICENSE`, `docs/architecture.md` 작성
+OriginPro 식 통합 GUI(`FlightDataReviewStudio`)로의 전환 작업 중. 기존
+`FlightDataDashboard`는 **standalone + embedded(Studio 내부 탭)** 양쪽으로
+동작 가능.
 
-### Changed
-- (예정) `VideoSyncState` 의 `IsSynced`/`AnchorFrame`/`AnchorTime`/`DataFps` 를 `SyncMdl` 로 단일화 (Step 5)
+### Phase 0 — 기존 dashboard 안정화 (완료)
+- 67개 wrapper 메서드 삭제, 4개 신규 모듈 분리
+  (`MarkerDragController`, `RailSummaryView`, `RoiAnalyzer`, `InfoController`)
+- `PlaybackStateModel` 도입(채널별 가드/pending 상태)
+- `Throttle` 키에 `ActiveSessionId` 접두 정책
+- 4 design 문서 추가 (`design-serialization.md`, `design-dirty-dag.md`,
+  `design-matlab-ui-reality-check.md`, `test-multi-instance-drag.md`)
+
+### Phase 1 — Studio shell 신설 (완료)
+- `FlightReviewStudio.m` entry + `flightdash.studio.FlightReviewStudioApp`
+- 좌측 Project Explorer(`uitree`) + 중앙 Workspace tabgroup +
+  우측 Inspector/Object Manager/Logs/Apps 탭 + 하단 Status Bar
+- Menu (File/Project/Data/Video/Sync/Review/Analysis/Plot/Window/Preferences/Help)
+
+### Phase 2 — Project / Session model (완료)
+- `+flightdash/+project/`: `ProjectModel`, `SessionModel`, `FigureModel`,
+  `ReviewResultModel`(DAG 메타 포함), `AnalysisThemeModel`
+- 모두 value class + `SchemaVersion` + `DirtyFlag`
+- `.frsproj` ZIP+JSON+MAT v7.3 포맷 결정 (구현은 Phase 9)
+
+### Phase 3 — Embedded dashboard (완료)
+- 3a: `FlightDataDashboard(parentContainer, sessionId)` 시그니처
+- 3b: workspace 탭 안에 dashboard 임베드, `RootContainer` 추상화
+- 3c: 탭 라이프사이클(close active/all), 자동 진단(`runMultiInstanceTests`),
+  embedded mode rail 강제 disable, 파일 다이얼로그 setappdata 가드,
+  Explorer↔workspace 양방향 동기화
+
+### Phase 4 — Event Scope / Session Router (완료)
+- `flightdash.util.SessionScope` (전역 active session id registry)
+- `app.isActiveSession(eventData)` 2-layer 체크
+- `AppEventData.SessionId` 필드 (default `''` = broadcast)
+- 8개 controller listener에 session gate 적용
+- `MarkerDragController` / `PannerController` motion fcn 직접 guard
+- `FlightDataDashboard.delete()` embedded는 parpool/parfevalOnAll **건드리지 않음**
+- Studio resize / 탭 변경 시 active dashboard `LayoutMgr.applyLayout` 자동 호출
+
+### Round B — 모델 hardening (완료)
+- `SessionModel` channel index validator + path/name coercion
+- `ProjectModel.newId()` persistent counter (random 충돌 제거)
+
+### Repository hygiene
+- `.gitattributes` 추가: `*.m`/`*.md` UTF-8 + LF 강제 (CP949 mojibake 재발 방지)
+
+### 진행 중 (deferred)
+- Phase 5 (Project Explorer rename/duplicate, Object Manager wiring)
+- Phase 6 (Toolbar/Menu/Inspector/Mini Toolbar/GUI Mode)
+- Phase 7 (Analysis Dialog System)
+- Phase 8 (Auto Update / Recalculate, DirtyTracker)
+- Phase 9 (`.frsproj` Save/Load via ZIP)
+- Phase 10 (SharedDecodeService / SharedCacheService)
+- 우선 Phase 4까지 실측 검증 통과를 권장
 
 ### Deprecated
 - `app.VideoSyncState(fIdx)` 직접 참조 — 향후 `app.SyncMdl(fIdx)` 로 마이그레이션 예정

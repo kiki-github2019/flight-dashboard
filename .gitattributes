@@ -1,0 +1,48 @@
+# =============================================================================
+# Flight Data Dashboard / Studio — Git attributes
+# =============================================================================
+# Goal: keep .m / .md / config files consistently encoded as UTF-8 with LF
+# line endings on disk, regardless of the contributor's OS or MATLAB locale.
+# Past mojibake (CP949 -> UTF-8 misinterpretation) on FlightDataDashboard.m
+# is the reason for these rules.
+#
+# `text` tells git to perform line-ending normalization in the index.
+# `eol=lf` makes the WORKING TREE use LF on every platform (we lose CRLF
+#   round-tripping on Windows but gain consistency across MATLAB Online,
+#   GitHub diffs, and shell tools).
+# `working-tree-encoding=UTF-8` (git 2.10+) prevents Windows clients from
+#   silently re-encoding to CP949 when checking out.
+
+# --- Source code & docs ---
+*.m              text eol=lf working-tree-encoding=UTF-8
+*.mlx            -text -diff
+*.md             text eol=lf working-tree-encoding=UTF-8
+*.json           text eol=lf working-tree-encoding=UTF-8
+*.yml            text eol=lf working-tree-encoding=UTF-8
+*.yaml           text eol=lf working-tree-encoding=UTF-8
+*.txt            text eol=lf working-tree-encoding=UTF-8
+*.csv            text eol=lf working-tree-encoding=UTF-8
+
+# --- Shell / scripts ---
+*.sh             text eol=lf
+*.ps1            text eol=lf working-tree-encoding=UTF-8
+
+# --- Binary assets (force binary so git does not corrupt them) ---
+*.png            binary
+*.jpg            binary
+*.jpeg           binary
+*.gif            binary
+*.svg            text eol=lf
+*.fig            binary
+*.mat            binary
+*.mex*           binary
+*.zip            binary
+*.avi            binary
+*.mp4            binary
+*.mov            binary
+*.dat            binary
+
+# --- Repo metadata ---
+.gitattributes   text eol=lf
+.gitignore       text eol=lf
+LICENSE          text eol=lf
