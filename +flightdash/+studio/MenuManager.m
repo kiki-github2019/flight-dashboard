@@ -149,58 +149,14 @@ classdef MenuManager < handle
         end
 
         function dispatch(obj, cmdId)
-            % Route well-known commands; everything else shows
-            % "(not implemented yet)" until Phase 6 wires real handlers.
+            % Delegate to the shared command router so menu and toolbar
+            % commands use the same active-session target.
             try
-                switch cmdId
-                    case 'File:NewProject'
-                        obj.App.newProject();
-                        return;
-                    case 'File:OpenProject'
-                        obj.App.openProject();
-                        return;
-                    case 'File:SaveProject'
-                        obj.App.saveProject();
-                        return;
-                    case 'File:SaveProjectAs'
-                        obj.App.saveProjectAs();
-                        return;
-                    case 'Project:AddSession'
-                        obj.App.addSession();
-                        return;
-                    case 'Project:DuplicateSession'
-                        sessionId = obj.activeSessionIdOrWarn();
-                        if isempty(sessionId), return; end
-                        obj.App.duplicateSession(sessionId);
-                        return;
-                    case 'Project:RenameSession'
-                        sessionId = obj.activeSessionIdOrWarn();
-                        if isempty(sessionId), return; end
-                        obj.promptAndRename(sessionId);
-                        return;
-                    case 'Project:DeleteSession'
-                        sessionId = obj.activeSessionIdOrWarn();
-                        if isempty(sessionId), return; end
-                        obj.confirmAndDelete(sessionId);
-                        return;
-                    case 'Window:CloseActive'
-                        if ~isempty(obj.App.Workspace) && isvalid(obj.App.Workspace)
-                            obj.App.Workspace.closeActiveTab();
-                            obj.App.StatusBar.setMessage('Closed active tab');
-                        end
-                        return;
-                    case 'Window:CloseAll'
-                        if ~isempty(obj.App.Workspace) && isvalid(obj.App.Workspace)
-                            obj.App.Workspace.closeAllTabs();
-                            obj.App.StatusBar.setMessage('Closed all session tabs');
-                        end
-                        return;
-                end
-                if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
-                    obj.App.StatusBar.setMessage(sprintf('Menu: %s (not implemented yet)', cmdId));
+                if ~isempty(obj.App) && isvalid(obj.App) && ismethod(obj.App, 'dispatchCommand')
+                    obj.App.dispatchCommand(cmdId, 'Menu');
                 end
             catch ME
-                if ~isempty(obj.App.StatusBar)
+                if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
                     obj.App.StatusBar.setMessage(sprintf('Menu %s failed: %s', cmdId, ME.message));
                 end
             end

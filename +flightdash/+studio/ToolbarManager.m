@@ -89,25 +89,11 @@ classdef ToolbarManager < handle
 
         function dispatch(obj, cmdId)
             try
-                switch cmdId
-                    case 'Toolbar:New'
-                        obj.App.newProject();
-                        return;
-                    case 'Toolbar:Open'
-                        obj.App.openProject();
-                        return;
-                    case 'Toolbar:Save'
-                        obj.App.saveProject();
-                        return;
-                    case 'Toolbar:AddSession'
-                        obj.App.addSession();
-                        return;
-                end
-                if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
-                    obj.App.StatusBar.setMessage(sprintf('Toolbar: %s (not implemented yet)', cmdId));
+                if ~isempty(obj.App) && isvalid(obj.App) && ismethod(obj.App, 'dispatchCommand')
+                    obj.App.dispatchCommand(cmdId, 'Toolbar');
                 end
             catch ME
-                if ~isempty(obj.App.StatusBar)
+                if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
                     obj.App.StatusBar.setMessage(sprintf('Toolbar %s failed: %s', cmdId, ME.message));
                 end
             end

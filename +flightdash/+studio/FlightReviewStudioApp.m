@@ -24,6 +24,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         % Region managers (Phase 1: shells only)
         MenuMgr               % flightdash.studio.MenuManager
         ToolbarMgr            % flightdash.studio.ToolbarManager
+        CommandRouter         % flightdash.studio.CommandRouter
         ProjectExplorer       % flightdash.studio.ProjectExplorerPanel
         Workspace             % flightdash.studio.WorkspaceManager
         RightDock             % flightdash.studio.RightDockManager
@@ -136,6 +137,23 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     app.ProjectExplorer.refreshFromProject(app.Project);
                 end
             catch
+            end
+        end
+
+        function dispatchCommand(app, cmdId, source)
+            if nargin < 3 || isempty(source)
+                source = 'Command';
+            end
+            try
+                if isempty(app.CommandRouter) || ~isvalid(app.CommandRouter)
+                    app.CommandRouter = flightdash.studio.CommandRouter(app);
+                end
+                app.CommandRouter.dispatch(cmdId, source);
+            catch ME
+                try, app.logCaught(ME, ['Studio:dispatchCommand:' char(cmdId)]); catch, end
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(sprintf('%s failed: %s', char(cmdId), ME.message));
+                end
             end
         end
 
@@ -510,6 +528,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
             try, delete(app.MenuMgr);          catch, end
             try, delete(app.ToolbarMgr);       catch, end
+            try, delete(app.CommandRouter);    catch, end
             try, delete(app.ProjectExplorer);  catch, end
             try, delete(app.Workspace);        catch, end
             try, delete(app.RightDock);        catch, end
@@ -604,6 +623,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 'RowHeight', {UIScale.px(28), UIScale.px(36)}, ...
                 'RowSpacing', 0, 'Padding', [0 0 0 0]);
 
+            app.CommandRouter = flightdash.studio.CommandRouter(app);
             app.MenuMgr    = flightdash.studio.MenuManager(app);
             app.ToolbarMgr = flightdash.studio.ToolbarManager(app, headerGrid);
 

@@ -71,6 +71,7 @@ function [ok, msg, status] = checkPhase6Classes()
     classes = {
         'flightdash.studio.MenuManager'
         'flightdash.studio.ToolbarManager'
+        'flightdash.studio.CommandRouter'
         'flightdash.studio.RightDockManager'
     };
 
@@ -96,7 +97,7 @@ function [ok, msg, status] = checkStudioManagers()
     try
         app = createStudioApp();
 
-        required = {'MenuMgr', 'ToolbarMgr', 'RightDock', 'Workspace', 'StatusBar'};
+        required = {'MenuMgr', 'ToolbarMgr', 'CommandRouter', 'RightDock', 'Workspace', 'StatusBar'};
         missing = {};
         emptyVals = {};
 
@@ -217,7 +218,13 @@ function [ok, msg, status] = checkGlobalCommandsNoSession()
             beforeName = "";
         end
 
-        newOk = callIfMethod(app, {'newProject', 'onNewProject'});
+        if ismethod(app, 'dispatchCommand')
+            app.dispatchCommand('File:NewProject', 'verifyPhase6');
+            app.dispatchCommand('Toolbar:LoadData', 'verifyPhase6');
+            newOk = true;
+        else
+            newOk = callIfMethod(app, {'newProject', 'onNewProject'});
+        end
         drawnow limitrate;
 
         hasProject = hasProp(app, 'Project') && ~isempty(app.Project);
@@ -229,14 +236,15 @@ function [ok, msg, status] = checkGlobalCommandsNoSession()
         saveAsExists = ismethod(app, 'saveProjectAs') || ismethod(app, 'onSaveProjectAs');
         openExists = ismethod(app, 'openProject') || ismethod(app, 'onOpenProject');
 
-        ok = hasProject && (newOk || ~strcmp(beforeName, afterName) || strlength(afterName) > 0) && ...
+        routeExists = hasProp(app, 'CommandRouter') && ~isempty(app.CommandRouter);
+        ok = hasProject && routeExists && (newOk || ~strcmp(beforeName, afterName) || strlength(afterName) > 0) && ...
              saveAsExists && openExists;
 
         if ok
-            msg = 'Global project commands are callable/discoverable without active session';
+            msg = 'Global commands route without active session; session command reports no active target';
         else
-            msg = sprintf('Global command smoke failed: hasProject=%d newOk=%d saveAs=%d open=%d', ...
-                hasProject, newOk, saveAsExists, openExists);
+            msg = sprintf('Global command smoke failed: hasProject=%d router=%d newOk=%d saveAs=%d open=%d', ...
+                hasProject, routeExists, newOk, saveAsExists, openExists);
         end
     catch ME
         ok = false;
@@ -276,13 +284,20 @@ function [ok, msg, status] = checkSessionCommandWithActiveSession()
             activeDash = dash;
         end
 
-        ok = strcmp(char(activeId), sid) && sessionCommandExists && ~isempty(activeDash) && isvalid(activeDash);
+        routeOk = false;
+        if ismethod(app, 'dispatchCommand')
+            app.dispatchCommand('Toolbar:Recalc', 'verifyPhase6');
+            routeOk = contains(string(getStatusMessage(app)), string(sid));
+        end
+
+        ok = strcmp(char(activeId), sid) && sessionCommandExists && ...
+             ~isempty(activeDash) && isvalid(activeDash) && routeOk;
 
         if ok
             msg = 'Active session command target resolves to active embedded dashboard';
         else
-            msg = sprintf('Session command target failed: active=%s exists=%d dashValid=%d', ...
-                char(activeId), sessionCommandExists, ~isempty(activeDash) && isvalid(activeDash));
+            msg = sprintf('Session command target failed: active=%s exists=%d dashValid=%d routeOk=%d', ...
+                char(activeId), sessionCommandExists, ~isempty(activeDash) && isvalid(activeDash), routeOk);
         end
     catch ME
         ok = false;
@@ -318,16 +333,22 @@ function [ok, msg, status] = checkTabSwitchCommandRouting()
         active2 = flightdash.util.SessionScope.getActive();
         dash2 = getActiveDashboard(app);
 
+        route2 = false;
+        if ismethod(app, 'dispatchCommand')
+            app.dispatchCommand('Toolbar:Recalc', 'verifyPhase6');
+            route2 = contains(string(getStatusMessage(app)), string(sid2));
+        end
+
         ok = strcmp(char(active1), sid1) && strcmp(char(active2), sid2) && ...
              ~isempty(dash1) && isvalid(dash1) && ...
              ~isempty(dash2) && isvalid(dash2) && ...
-             ~isequal(dash1, dash2);
+             ~isequal(dash1, dash2) && route2;
 
         if ok
             msg = 'Tab switch updates active session command routing target';
         else
-            msg = sprintf('Routing mismatch: active1=%s active2=%s dash1=%d dash2=%d same=%d', ...
-                char(active1), char(active2), ~isempty(dash1), ~isempty(dash2), isequal(dash1, dash2));
+            msg = sprintf('Routing mismatch: active1=%s active2=%s dash1=%d dash2=%d same=%d route2=%d', ...
+                char(active1), char(active2), ~isempty(dash1), ~isempty(dash2), isequal(dash1, dash2), route2);
         end
     catch ME
         ok = false;
@@ -863,6 +884,19 @@ function tf = objectHasAnyGraphicsProp(obj, propNames)
             end
         catch
         end
+    end
+end
+
+function msg = getStatusMessage(app)
+    msg = '';
+    try
+        if hasProp(app, 'StatusBar') && ~isempty(app.StatusBar) && ...
+                isprop(app.StatusBar, 'MessageLabel') && ...
+                ~isempty(app.StatusBar.MessageLabel) && isvalid(app.StatusBar.MessageLabel)
+            msg = char(app.StatusBar.MessageLabel.Text);
+        end
+    catch
+        msg = '';
     end
 end
 
