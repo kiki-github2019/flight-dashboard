@@ -59,8 +59,24 @@ classdef ProjectExplorerPanel < handle
                     end
                 end
 
+                % --- Review / Analysis Results ---
+                obj.replaceChildren(obj.Roots.Roi);
+                obj.replaceChildren(obj.Roots.Sync);
+                obj.replaceChildren(obj.Roots.Snapshots);
+                if ~isempty(project) && ~isempty(project.Results)
+                    for k = 1:numel(project.Results)
+                        r = project.Results(k);
+                        parentNode = obj.resultRootFor(r);
+                        uitreenode(parentNode, ...
+                            'Text', obj.resultLabel(r), ...
+                            'NodeData', struct('ResultId', r.ResultId, ...
+                                'SessionId', r.SessionId, 'Kind', 'result'));
+                    end
+                end
+
                 try, expand(obj.Roots.Project); catch, end
                 try, expand(obj.Roots.Sessions); catch, end
+                try, expand(obj.Roots.Roi); catch, end
             catch
             end
         end
@@ -133,6 +149,37 @@ classdef ProjectExplorerPanel < handle
                     try, delete(kids(i)); catch, end
                 end
             catch
+            end
+        end
+
+        function parentNode = resultRootFor(obj, resultModel)
+            parentNode = obj.Roots.Roi;
+            try
+                typ = lower(char(resultModel.ResultType));
+                switch typ
+                    case {'synccheck', 'sync'}
+                        parentNode = obj.Roots.Sync;
+                    case {'snapshot'}
+                        parentNode = obj.Roots.Snapshots;
+                    otherwise
+                        parentNode = obj.Roots.Roi;
+                end
+            catch
+                parentNode = obj.Roots.Roi;
+            end
+        end
+
+        function label = resultLabel(~, resultModel)
+            try
+                tr = resultModel.TimeRange;
+                vars = resultModel.Variables;
+                varName = '';
+                if iscell(vars) && ~isempty(vars), varName = char(vars{1}); end
+                if isempty(varName), varName = char(resultModel.ResultType); end
+                label = sprintf('%s ch%d %.3g-%.3g (%s)', ...
+                    varName, resultModel.ChannelIdx, tr(1), tr(2), resultModel.ResultId);
+            catch
+                label = char(resultModel.ResultId);
             end
         end
 

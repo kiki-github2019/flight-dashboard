@@ -125,11 +125,38 @@ classdef RoiController < handle
                 rows = app.UI(fIdx).roiRows;
                 rows = flightdash.model.RoiAnalyzer.computeStats(times, app.Models(fIdx).rawData, rows);
                 app.UI(fIdx).roiRows = rows;
+                obj.registerSelectedResult(fIdx, rows, times);
                 obj.refreshTable(fIdx);
                 obj.drawBands(fIdx);
                 app.AuxWindowMgr.openStatsFigure(app, fIdx);
             catch ME
                 app.logCaught(ME, 'ROI:analysis');
+            end
+        end
+
+        function registerSelectedResult(obj, fIdx, rows, times)
+            app = obj.App;
+            try
+                roiIdx = 0;
+                if isfield(app.UI(fIdx), 'selectedRoiIdx')
+                    roiIdx = app.UI(fIdx).selectedRoiIdx;
+                end
+                if isempty(roiIdx) || roiIdx < 1 || roiIdx > size(rows, 1)
+                    if size(rows, 1) == 1
+                        roiIdx = 1;
+                    else
+                        return;
+                    end
+                end
+                request = flightdash.analysis.AnalysisService.makeRoiStatisticsRequest( ...
+                    app.ActiveSessionId, fIdx, roiIdx, rows(roiIdx, :), ...
+                    times, app.Models(fIdx).rawData, app.VideoSyncState(fIdx), ...
+                    flightdash.analysis.AnalysisService.DefaultRoiStatsThemeId);
+                analysisResult = flightdash.analysis.AnalysisService.run(request);
+                resultModel = flightdash.analysis.AnalysisService.toReviewResultModel(analysisResult);
+                app.registerReviewResult(resultModel);
+            catch ME
+                app.logCaught(ME, 'ROI:registerResult');
             end
         end
 

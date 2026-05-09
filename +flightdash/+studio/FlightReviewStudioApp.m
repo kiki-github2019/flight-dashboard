@@ -403,6 +403,25 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
         end
 
+        function registerReviewResult(app, resultModel)
+            % Phase 7: store analysis output and refresh lightweight UI surfaces.
+            try
+                mustBeA(resultModel, 'flightdash.project.ReviewResultModel');
+                [app.Project, theme] = flightdash.analysis.AnalysisService.ensureDefaultThemes(app.Project);
+                if isempty(resultModel.AnalysisThemeId)
+                    resultModel.AnalysisThemeId = theme.ThemeId;
+                end
+                app.Project = app.Project.addResult(resultModel);
+                app.refreshExplorer();
+                app.refreshTitle();
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(sprintf('Analysis result saved: %s', resultModel.ResultId));
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:registerReviewResult'); catch, end
+            end
+        end
+
         function dash = getActiveDashboard(app)
             dash = [];
             try
@@ -720,6 +739,12 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     rmappdata(app.UIFigure, 'StudioMouseRouter');
                 end
             catch, end
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
+                        && isappdata(app.UIFigure, 'FlightReviewStudioApp')
+                    rmappdata(app.UIFigure, 'FlightReviewStudioApp');
+                end
+            catch, end
 
             try, delete(app.MenuMgr);          catch, end
             try, delete(app.ToolbarMgr);       catch, end
@@ -784,6 +809,10 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 'Position', app.initialFigurePosition(), ...
                 'Color', [0.94 0.94 0.96], ...
                 'AutoResizeChildren', 'off');
+            try
+                setappdata(app.UIFigure, 'FlightReviewStudioApp', app);
+            catch
+            end
             % [PHASE 3c] Start maximized so the embedded FlightDataDashboard
             % gets enough horizontal room to avoid NARROW-profile rails.
             % MATLAB Online resizes the maximized figure to the browser

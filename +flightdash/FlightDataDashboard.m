@@ -1207,6 +1207,26 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
+        function tf = registerReviewResult(app, resultModel)
+            % In Studio mode, persist analysis output into ProjectModel.Results.
+            tf = false;
+            try
+                if ~isa(resultModel, 'flightdash.project.ReviewResultModel')
+                    return;
+                end
+                studio = app.lookupStudioApp();
+                if isempty(studio) || ~isvalid(studio)
+                    return;
+                end
+                if ismethod(studio, 'registerReviewResult')
+                    studio.registerReviewResult(resultModel);
+                    tf = true;
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:registerReviewResult'); catch, end
+            end
+        end
+
         function ch = collectChannelConfig(app, fIdx)
             ch = app.emptyChannelConfig();
             ch.Channel = fIdx;
@@ -3107,6 +3127,17 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
                         && isappdata(app.UIFigure, 'StudioMouseRouter')
                     router = getappdata(app.UIFigure, 'StudioMouseRouter');
+                end
+            catch
+            end
+        end
+
+        function studio = lookupStudioApp(app)
+            studio = [];
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
+                        && isappdata(app.UIFigure, 'FlightReviewStudioApp')
+                    studio = getappdata(app.UIFigure, 'FlightReviewStudioApp');
                 end
             catch
             end

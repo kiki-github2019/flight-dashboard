@@ -69,6 +69,18 @@ classdef ProjectSerializer
                     end
                 end
 
+                % --- results/<ResultId>.json ---
+                if ~isempty(project.Results)
+                    resultsRoot = fullfile(tmpDir, 'results');
+                    mkdir(resultsRoot);
+                    for k = 1:numel(project.Results)
+                        rr = project.Results(k);
+                        rStruct = flightdash.project.ProjectSerializer.resultToStruct(rr);
+                        flightdash.project.ProjectSerializer.writeJson( ...
+                            fullfile(resultsRoot, [char(rr.ResultId) '.json']), rStruct);
+                    end
+                end
+
                 % --- external_links.json (linked mode v1: enumerate session asset paths) ---
                 links = flightdash.project.ProjectSerializer.collectExternalLinks(project);
                 flightdash.project.ProjectSerializer.writeJson( ...
@@ -145,6 +157,18 @@ classdef ProjectSerializer
                 end
             end
             project.AnalysisThemes = themes;
+
+            % --- results/* ---
+            resultsRoot = fullfile(tmpDir, 'results');
+            results = flightdash.project.ReviewResultModel.empty;
+            if isfolder(resultsRoot)
+                files = dir(fullfile(resultsRoot, '*.json'));
+                for k = 1:numel(files)
+                    r = flightdash.project.ProjectSerializer.readJson(fullfile(resultsRoot, files(k).name));
+                    results(end+1) = flightdash.project.ProjectSerializer.structToResult(r); %#ok<AGROW>
+                end
+            end
+            project.Results = results;
 
             project.DirtyFlag = false;
             clear cleaner;
@@ -266,6 +290,59 @@ classdef ProjectSerializer
             th.IsDefault   = flightdash.project.ProjectSerializer.fieldLogical(s, 'IsDefault', false);
             th.CreatedAt   = flightdash.project.ProjectSerializer.fieldChar(s, 'CreatedAt',  th.CreatedAt);
             th.ModifiedAt  = flightdash.project.ProjectSerializer.fieldChar(s, 'ModifiedAt', th.ModifiedAt);
+        end
+
+        % ===== Result ↔ struct =====
+        function s = resultToStruct(r)
+            s = struct( ...
+                'SchemaVersion',    double(r.SchemaVersion), ...
+                'ResultId',         char(r.ResultId), ...
+                'SessionId',        char(r.SessionId), ...
+                'ResultType',       char(r.ResultType), ...
+                'ChannelIdx',       double(r.ChannelIdx), ...
+                'TimeRange',        r.TimeRange, ...
+                'FrameRange',       r.FrameRange, ...
+                'Variables',        {r.Variables}, ...
+                'ComputedValues',   {r.ComputedValues}, ...
+                'UserComment',      char(r.UserComment), ...
+                'LinkedFigureId',   char(r.LinkedFigureId), ...
+                'SourceDataHash',   char(r.SourceDataHash), ...
+                'SyncStateHash',    char(r.SyncStateHash), ...
+                'AnalysisThemeId',  char(r.AnalysisThemeId), ...
+                'RecalculateMode',  char(r.RecalculateMode), ...
+                'DirtyFlag',        logical(r.DirtyFlag), ...
+                'DependsOn',        {r.DependsOn}, ...
+                'NodeKind',         char(r.NodeKind), ...
+                'DirtyState',       char(r.DirtyState), ...
+                'ComputeFnSpec',    {r.ComputeFnSpec}, ...
+                'CreatedAt',        char(r.CreatedAt), ...
+                'LastCalculatedAt', char(r.LastCalculatedAt));
+        end
+
+        function r = structToResult(s)
+            r = flightdash.project.ReviewResultModel( ...
+                flightdash.project.ProjectSerializer.fieldChar(s, 'SessionId', ''), ...
+                flightdash.project.ProjectSerializer.fieldChar(s, 'ResultType', 'ROI'), ...
+                flightdash.project.ProjectSerializer.fieldNum(s, 'ChannelIdx', 1));
+            r.SchemaVersion    = uint32(flightdash.project.ProjectSerializer.fieldNum(s, 'SchemaVersion', 1));
+            r.ResultId         = flightdash.project.ProjectSerializer.fieldChar(s, 'ResultId', r.ResultId);
+            r.TimeRange        = flightdash.project.ProjectSerializer.fieldNumPair(s, 'TimeRange', [NaN NaN]);
+            r.FrameRange       = flightdash.project.ProjectSerializer.fieldNumPair(s, 'FrameRange', [NaN NaN]);
+            r.Variables        = flightdash.project.ProjectSerializer.fieldCellList(s, 'Variables');
+            if isfield(s, 'ComputedValues') && isstruct(s.ComputedValues), r.ComputedValues = s.ComputedValues; end
+            r.UserComment      = flightdash.project.ProjectSerializer.fieldChar(s, 'UserComment', '');
+            r.LinkedFigureId   = flightdash.project.ProjectSerializer.fieldChar(s, 'LinkedFigureId', '');
+            r.SourceDataHash   = flightdash.project.ProjectSerializer.fieldChar(s, 'SourceDataHash', '');
+            r.SyncStateHash    = flightdash.project.ProjectSerializer.fieldChar(s, 'SyncStateHash', '');
+            r.AnalysisThemeId  = flightdash.project.ProjectSerializer.fieldChar(s, 'AnalysisThemeId', '');
+            r.RecalculateMode  = flightdash.project.ProjectSerializer.fieldChar(s, 'RecalculateMode', 'Auto');
+            r.DirtyFlag        = flightdash.project.ProjectSerializer.fieldLogical(s, 'DirtyFlag', false);
+            r.DependsOn        = flightdash.project.ProjectSerializer.fieldCellList(s, 'DependsOn');
+            r.NodeKind         = flightdash.project.ProjectSerializer.fieldChar(s, 'NodeKind', 'derived');
+            r.DirtyState       = flightdash.project.ProjectSerializer.fieldChar(s, 'DirtyState', 'clean');
+            if isfield(s, 'ComputeFnSpec') && isstruct(s.ComputeFnSpec), r.ComputeFnSpec = s.ComputeFnSpec; end
+            r.CreatedAt        = flightdash.project.ProjectSerializer.fieldChar(s, 'CreatedAt', r.CreatedAt);
+            r.LastCalculatedAt = flightdash.project.ProjectSerializer.fieldChar(s, 'LastCalculatedAt', '');
         end
 
         % ===== Manifest =====
@@ -483,6 +560,29 @@ classdef ProjectSerializer
                 end
             catch
                 v = dflt;
+            end
+        end
+
+        function v = fieldCellList(s, name)
+            v = {};
+            try
+                if ~isstruct(s) || ~isfield(s, name) || isempty(s.(name)), return; end
+                raw = s.(name);
+                if iscell(raw)
+                    v = raw;
+                elseif isstring(raw)
+                    v = cellstr(raw);
+                elseif ischar(raw)
+                    v = {raw};
+                elseif isstruct(raw)
+                    fields = fieldnames(raw);
+                    v = cell(1, numel(fields));
+                    for k = 1:numel(fields)
+                        v{k} = raw.(fields{k});
+                    end
+                end
+            catch
+                v = {};
             end
         end
 
