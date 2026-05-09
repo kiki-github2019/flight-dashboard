@@ -145,7 +145,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
     methods (Access = public)
         % ---------------------------------------------------------------------
-        % ?앹꽦??諛?珥덇린??
+        % Construction and initialization
         % ---------------------------------------------------------------------
         function app = FlightDataDashboard(parentContainer, sessionId)
             % [PHASE 3a/3b] Constructor accepts optional embedding parameters.
@@ -184,11 +184,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 'TotalFrames',  {0, 0}, ...             % 영상 총 프레임 수
                 'CurrentFrame', {1, 1});                % 현재 프레임 위치
 
-            % [REFACTOR Step 1] FrameCacheModel ?몄뒪?댁뒪 ?앹꽦 (梨꾨꼸蹂?1媛쒖뵫)
+            % [REFACTOR Step 1] Create one FrameCacheModel per channel.
             app.CacheModel = [flightdash.model.FrameCacheModel(app.CacheBudgetMB), ...
                               flightdash.model.FrameCacheModel(app.CacheBudgetMB)];
 
-            % [REFACTOR Step 2] VideoModel/SyncModel ?몄뒪?댁뒪 ?앹꽦 (梨꾨꼸蹂?1媛쒖뵫)
+            % [REFACTOR Step 2] Create one VideoModel/SyncModel per channel.
             app.VideoMdl = [flightdash.model.VideoModel(), flightdash.model.VideoModel()];
             app.SyncMdl  = [flightdash.model.SyncModel(),  flightdash.model.SyncModel()];
             app.PlaybackState = flightdash.model.PlaybackStateModel();

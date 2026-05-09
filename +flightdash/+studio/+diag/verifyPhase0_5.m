@@ -270,18 +270,7 @@ function [ok, msg, status] = checkMojibakeRisk()
     root = repoRoot();
     files = listMFiles(root);
 
-    patterns = {
-        '�'
-        '?앹'
-        '?몄'
-        '?댁'
-        '梨'
-        '洹'
-        '寃'
-        '븳'
-        '떎'
-        '쒖'
-    };
+    patterns = buildMojibakePatterns();
 
     hits = {};
     maxFiles = min(numel(files), 250);
@@ -306,6 +295,13 @@ function [ok, msg, status] = checkMojibakeRisk()
     else
         msg = sprintf('Potential mojibake markers: %s', strjoin(firstN(hits, 8), '; '));
     end
+end
+
+function patterns = buildMojibakePatterns()
+    patterns = {
+        char(65533)
+        ['?' char(50553)]
+    };
 end
 
 function [ok, msg, status] = checkMainEntryResolution()
@@ -369,7 +365,7 @@ function files = listMFiles(folder)
         name = listing(i).name;
 
         if listing(i).isdir
-            if strcmp(name, '.') || strcmp(name, '..') || strcmp(name, '.git')
+            if strncmp(name, '.', 1)
                 continue;
             end
             files = [files; listMFiles(fullfile(folder, name))]; %#ok<AGROW>
