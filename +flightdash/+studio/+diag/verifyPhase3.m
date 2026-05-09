@@ -554,6 +554,14 @@ function n = countWorkspaceDashboards(ws)
     n = 0;
 
     try
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries)
+            n = ws.DashboardEntries.Count;
+            return;
+        end
+    catch
+    end
+
+    try
         if isprop(ws, 'DashboardMap') && ~isempty(ws.DashboardMap)
             n = ws.DashboardMap.Count;
             return;
@@ -571,8 +579,13 @@ function n = countWorkspaceDashboards(ws)
 
     try
         if isprop(ws, 'TabGroup') && isgraphics(ws.TabGroup)
-            tabs = findall(ws.TabGroup, 'Type', 'uitab');
-            n = numel(tabs);
+            tabs = directWorkspaceTabs(ws.TabGroup);
+            for i = 1:numel(tabs)
+                sid = tabSessionIdForDiag(tabs(i));
+                if ~isempty(sid) && ~strcmp(sid, 'standalone')
+                    n = n + 1;
+                end
+            end
         end
     catch
         n = 0;
@@ -581,6 +594,17 @@ end
 
 function tf = workspaceHasSession(ws, sessionId)
     tf = false;
+    sessionId = char(sessionId);
+
+    try
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries)
+            tf = isKey(ws.DashboardEntries, sessionId);
+            if tf
+                return;
+            end
+        end
+    catch
+    end
 
     try
         if isprop(ws, 'DashboardMap') && ~isempty(ws.DashboardMap)
@@ -604,13 +628,25 @@ function tf = workspaceHasSession(ws, sessionId)
 
     try
         if isprop(ws, 'TabGroup') && isgraphics(ws.TabGroup)
-            tabs = findall(ws.TabGroup, 'Type', 'uitab');
+            tabs = directWorkspaceTabs(ws.TabGroup);
             for i = 1:numel(tabs)
-                if isprop(tabs(i), 'UserData') && isequal(tabs(i).UserData, sessionId)
+                if strcmp(tabSessionIdForDiag(tabs(i)), sessionId)
                     tf = true;
                     return;
                 end
-                if contains(string(tabs(i).Title), string(sessionId))
+            end
+        end
+    catch
+    end
+
+    try
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries)
+            keys_ = ws.DashboardEntries.keys;
+            for i = 1:numel(keys_)
+                entry = ws.DashboardEntries(keys_{i});
+                if isfield(entry, 'Dashboard') && ~isempty(entry.Dashboard) && ...
+                        isvalid(entry.Dashboard) && isprop(entry.Dashboard, 'ActiveSessionId') && ...
+                        strcmp(char(entry.Dashboard.ActiveSessionId), sessionId)
                     tf = true;
                     return;
                 end
@@ -618,6 +654,50 @@ function tf = workspaceHasSession(ws, sessionId)
         end
     catch
         tf = false;
+    end
+end
+
+function tabs = directWorkspaceTabs(tabGroup)
+    tabs = gobjects(0);
+    try
+        kids = tabGroup.Children;
+        for i = 1:numel(kids)
+            if isgraphics(kids(i), 'uitab')
+                tabs(end+1) = kids(i); %#ok<AGROW>
+            end
+        end
+    catch
+        try
+            allTabs = findall(tabGroup, 'Type', 'uitab');
+            for i = 1:numel(allTabs)
+                if isequal(allTabs(i).Parent, tabGroup)
+                    tabs(end+1) = allTabs(i); %#ok<AGROW>
+                end
+            end
+        catch
+            tabs = gobjects(0);
+        end
+    end
+end
+
+function id = tabSessionIdForDiag(tab)
+    id = '';
+    try
+        if isempty(tab) || ~isvalid(tab), return; end
+        if isappdata(tab, 'SessionId')
+            id = char(getappdata(tab, 'SessionId'));
+            if ~isempty(id), return; end
+        end
+        if isprop(tab, 'UserData')
+            ud = tab.UserData;
+            if isstruct(ud) && isfield(ud, 'SessionId')
+                id = char(ud.SessionId);
+            elseif ischar(ud) || isstring(ud)
+                id = char(ud);
+            end
+        end
+    catch
+        id = '';
     end
 end
 

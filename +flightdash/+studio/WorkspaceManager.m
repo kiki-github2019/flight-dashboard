@@ -188,9 +188,12 @@ classdef WorkspaceManager < handle
                 if isempty(sessId) || ~obj.DashboardEntries.isKey(sessId), return; end
                 entry = obj.DashboardEntries(sessId);
                 dash = entry.Dashboard;
-                if ~isempty(dash) && isvalid(dash) && ~isempty(dash.LayoutMgr) ...
-                        && isvalid(dash.LayoutMgr)
-                    dash.LayoutMgr.applyLayout(dash, char(reason));
+                if ~isempty(dash) && isvalid(dash)
+                    if ismethod(dash, 'refreshLayout')
+                        dash.refreshLayout(reason);
+                    elseif ~isempty(dash.LayoutMgr) && isvalid(dash.LayoutMgr)
+                        dash.LayoutMgr.applyLayout(dash, char(reason));
+                    end
                 end
             catch
             end

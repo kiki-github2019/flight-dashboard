@@ -3962,8 +3962,23 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         % [FIX] UIFigure 리사이즈 시 두 채널 plot row 동시 갱신
         function onUIFigureResized(app)
-            if app.IsDeleting, return; end
-            app.LayoutMgr.applyLayout(app, 'resize');
+            app.refreshLayout('resize');
+        end
+
+        function refreshLayout(app, reason)
+            if nargin < 2 || isempty(reason)
+                reason = 'refreshLayout';
+            end
+            try
+                if app.IsDeleting, return; end
+                if isempty(app.LayoutMgr) || ~isvalid(app.LayoutMgr), return; end
+                if isempty(app.UIFigure) || ~isvalid(app.UIFigure), return; end
+                if ~isempty(app.RootContainer) && ~isvalid(app.RootContainer), return; end
+                if isempty(app.UI), return; end
+                app.LayoutMgr.applyLayout(app, char(reason));
+            catch ME
+                try, app.logCaught(ME, 'Layout:refreshLayout'); catch, end
+            end
         end
 
 
