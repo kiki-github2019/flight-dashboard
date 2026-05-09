@@ -52,6 +52,13 @@ classdef SessionModel
         ModifiedAt          char     = ''
     end
 
+    properties (Dependent)
+        FlightFiles
+        VideoFiles
+        FlightFilePaths
+        VideoFilePaths
+    end
+
     methods
         function obj = SessionModel(displayName)
             if nargin < 1 || isempty(displayName)
@@ -104,6 +111,42 @@ classdef SessionModel
             obj.ModifiedAt = flightdash.project.ProjectModel.nowIso();
             obj.DirtyFlag  = true;
         end
+
+        function v = get.FlightFiles(obj)
+            v = obj.FlightFilePath;
+        end
+
+        function obj = set.FlightFiles(obj, value)
+            obj.FlightFilePath = flightdash.project.SessionModel.coercePathPair(value);
+            obj = obj.touch();
+        end
+
+        function v = get.VideoFiles(obj)
+            v = obj.VideoFilePath;
+        end
+
+        function obj = set.VideoFiles(obj, value)
+            obj.VideoFilePath = flightdash.project.SessionModel.coercePathPair(value);
+            obj = obj.touch();
+        end
+
+        function v = get.FlightFilePaths(obj)
+            v = obj.FlightFilePath;
+        end
+
+        function obj = set.FlightFilePaths(obj, value)
+            obj.FlightFilePath = flightdash.project.SessionModel.coercePathPair(value);
+            obj = obj.touch();
+        end
+
+        function v = get.VideoFilePaths(obj)
+            v = obj.VideoFilePath;
+        end
+
+        function obj = set.VideoFilePaths(obj, value)
+            obj.VideoFilePath = flightdash.project.SessionModel.coercePathPair(value);
+            obj = obj.touch();
+        end
     end
 
     methods (Static, Access = private)
@@ -129,7 +172,27 @@ classdef SessionModel
                 s = '';
             else
                 error('SessionModel:InvalidPath', ...
-                    'path must be a char vector or string scalar.');
+                'path must be a char vector or string scalar.');
+            end
+        end
+
+        function out = coercePathPair(value)
+            out = {'', ''};
+            if isempty(value)
+                return;
+            elseif iscell(value)
+                for k = 1:min(2, numel(value))
+                    out{k} = flightdash.project.SessionModel.coercePath(value{k});
+                end
+            elseif isstring(value)
+                for k = 1:min(2, numel(value))
+                    out{k} = flightdash.project.SessionModel.coercePath(value(k));
+                end
+            elseif ischar(value)
+                out{1} = value;
+            else
+                error('SessionModel:InvalidPathPair', ...
+                    'path pair must be a cell, string array, char vector, or empty.');
             end
         end
 

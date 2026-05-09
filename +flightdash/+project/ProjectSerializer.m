@@ -337,16 +337,66 @@ classdef ProjectSerializer
             raw = s.(name);
             if iscell(raw)
                 for k = 1:min(2, numel(raw))
-                    if ischar(raw{k}) || isstring(raw{k})
-                        v{k} = char(raw{k});
-                    end
+                    v{k} = flightdash.project.ProjectSerializer.coercePathText(raw{k});
                 end
             elseif isstring(raw)
                 for k = 1:min(2, numel(raw))
-                    v{k} = char(raw(k));
+                    v{k} = flightdash.project.ProjectSerializer.coercePathText(raw(k));
                 end
             elseif ischar(raw)
                 v{1} = char(raw);
+            elseif isstruct(raw)
+                if numel(raw) > 1
+                    for k = 1:min(2, numel(raw))
+                        v{k} = flightdash.project.ProjectSerializer.coerceStructPathText(raw(k));
+                    end
+                else
+                    fields = fieldnames(raw);
+                    preferred = {'ch1', 'ch2'; 'channel1', 'channel2'; 'flight1', 'flight2'; 'video1', 'video2'};
+                    usedPreferred = false;
+                    for row = 1:size(preferred, 1)
+                        if all(isfield(raw, preferred(row, :)))
+                            for k = 1:2
+                                v{k} = flightdash.project.ProjectSerializer.coercePathText(raw.(preferred{row, k}));
+                            end
+                            usedPreferred = true;
+                            break;
+                        end
+                    end
+                    if ~usedPreferred
+                        for k = 1:min(2, numel(fields))
+                            v{k} = flightdash.project.ProjectSerializer.coercePathText(raw.(fields{k}));
+                        end
+                    end
+                end
+            end
+        end
+
+        function text = coerceStructPathText(raw)
+            text = '';
+            fields = fieldnames(raw);
+            if isempty(fields), return; end
+            text = flightdash.project.ProjectSerializer.coercePathText(raw.(fields{1}));
+        end
+
+        function text = coercePathText(raw)
+            text = '';
+            if isempty(raw)
+                return;
+            elseif ischar(raw)
+                text = raw;
+            elseif isstring(raw)
+                if isscalar(raw)
+                    text = char(raw);
+                elseif numel(raw) >= 1
+                    text = char(raw(1));
+                end
+            elseif isnumeric(raw) || islogical(raw)
+                text = char(string(raw));
+            elseif iscell(raw) && ~isempty(raw)
+                text = flightdash.project.ProjectSerializer.coercePathText(raw{1});
+            elseif isstruct(raw)
+                text = flightdash.project.ProjectSerializer.coerceStructPathText(raw);
             end
         end
 

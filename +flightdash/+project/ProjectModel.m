@@ -88,6 +88,10 @@ classdef ProjectModel
             end
         end
 
+        function s = getSession(obj, sessionId)
+            s = obj.findSession(sessionId);
+        end
+
         function obj = updateSession(obj, sessionId, updatedSession)
             mustBeA(updatedSession, 'flightdash.project.SessionModel');
             mask = arrayfun(@(x) strcmp(x.SessionId, char(sessionId)), obj.Sessions);
@@ -120,6 +124,14 @@ classdef ProjectModel
             mustBeA(theme, 'flightdash.project.AnalysisThemeModel');
             obj.AnalysisThemes = [obj.AnalysisThemes, theme];
             obj = obj.touch();
+        end
+
+        function obj = addAnalysisTheme(obj, theme)
+            obj = obj.addTheme(theme);
+        end
+
+        function obj = addAnalysisThemeModel(obj, theme)
+            obj = obj.addTheme(theme);
         end
 
         % --- Internal ---
