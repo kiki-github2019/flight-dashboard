@@ -527,6 +527,7 @@ end
 function [ok, msg, status] = checkGuiModeFieldAndPreferenceSmoke()
     status = '';
     app = [];
+    tmpFile = '';
 
     try
         app = createStudioApp();
@@ -536,17 +537,58 @@ function [ok, msg, status] = checkGuiModeFieldAndPreferenceSmoke()
                         ismethod(app, 'setMode') || ismethod(app, 'applyMode');
 
         if hasModeMethod
-            try
-                callGuiMode(app, 'Studio');
-                callGuiMode(app, 'Review');
-                callGuiMode(app, 'Studio');
-                callOk = true;
-            catch
-                callOk = false;
+            addSessionToStudio(app, 'P6_MODE_SESSION', 'Mode Session');
+            selectWorkspaceSession(app.Workspace, 'P6_MODE_SESSION');
+            activeBefore = '';
+            try, activeBefore = char(app.Workspace.activeSessionId()); catch, end
+            dashBefore = getActiveDashboard(app);
+
+            profilesOk = true;
+            profileMsgs = {};
+            modes = {'Classic', 'Studio', 'Review', 'Analysis'};
+            for i = 1:numel(modes)
+                mode = modes{i};
+                callGuiMode(app, mode);
+                [profileOk, profileMsg] = verifyGuiModeProfile(app, mode);
+                profilesOk = profilesOk && profileOk;
+                if ~profileOk
+                    profileMsgs{end+1} = profileMsg; %#ok<AGROW>
+                end
             end
 
-            ok = hasProjectGuiMode && callOk;
-            msg = sprintf('GUI mode field/method smoke: field=%d callOk=%d', hasProjectGuiMode, callOk);
+            activeAfter = '';
+            try, activeAfter = char(app.Workspace.activeSessionId()); catch, end
+            dashAfter = getActiveDashboard(app);
+            activeOk = strcmp(activeBefore, activeAfter) && ...
+                ~isempty(dashBefore) && isvalid(dashBefore) && ...
+                ~isempty(dashAfter) && isvalid(dashAfter);
+
+            dirtyOk = hasProp(app.Project, 'DirtyFlag') && app.Project.DirtyFlag;
+
+            tmpFile = [tempname() flightdash.project.ProjectSerializer.FileExt];
+            saveOk = false;
+            loadOk = false;
+            if ismethod(app, 'saveProject') && ismethod(app, 'openProject')
+                saveOk = app.saveProject(tmpFile);
+                callGuiMode(app, 'Studio');
+                loadOk = app.openProject(tmpFile);
+            end
+            restoreOk = loadOk && strcmp(char(app.Project.GuiMode), 'Analysis');
+            sessionRestoreOk = loadOk && projectHasSession(app.Project, 'P6_MODE_SESSION');
+            tabRestoreOk = loadOk && strcmp(char(app.Workspace.activeSessionId()), 'P6_MODE_SESSION');
+            [restoreProfileOk, restoreProfileMsg] = verifyGuiModeProfile(app, 'Analysis');
+
+            ok = hasProjectGuiMode && profilesOk && activeOk && dirtyOk && saveOk && ...
+                restoreOk && sessionRestoreOk && tabRestoreOk && restoreProfileOk;
+            if ok
+                msg = 'GUI mode MVP profiles, active session, menu state, and save/load restoration verified';
+            else
+                details = strjoin([profileMsgs, {restoreProfileMsg}], '; ');
+                msg = sprintf(['GUI mode MVP failed: field=%d profiles=%d active=%d dirty=%d ' ...
+                    'save=%d restore=%d sessionRestore=%d tabRestore=%d restoreProfile=%d %s'], ...
+                    hasProjectGuiMode, profilesOk, activeOk, dirtyOk, saveOk, ...
+                    restoreOk, sessionRestoreOk, tabRestoreOk, restoreProfileOk, details);
+            end
         elseif hasProjectGuiMode
             status = 'SKIP_NOT_IMPLEMENTED';
             ok = true;
@@ -561,6 +603,7 @@ function [ok, msg, status] = checkGuiModeFieldAndPreferenceSmoke()
         msg = sprintf('GUI mode smoke check failed: %s', ME.message);
     end
 
+    cleanupPath(tmpFile);
     safeDelete(app);
 end
 
@@ -758,7 +801,9 @@ function tf = callIfMethod(obj, methodNames)
 end
 
 function callGuiMode(app, modeName)
-    if ismethod(app, 'setGuiMode')
+    if ismethod(app, 'dispatchCommand')
+        app.dispatchCommand(['Pref:Mode:' char(modeName)], 'verifyPhase6');
+    elseif ismethod(app, 'setGuiMode')
         app.setGuiMode(modeName);
     elseif ismethod(app, 'applyGuiMode')
         app.applyGuiMode(modeName);
@@ -771,6 +816,145 @@ function callGuiMode(app, modeName)
     end
 
     drawnow limitrate;
+end
+
+function [ok, msg] = verifyGuiModeProfile(app, modeName)
+    mode = char(modeName);
+    expected = expectedGuiModeProfile(mode);
+
+    modeOk = hasProp(app, 'Project') && isprop(app.Project, 'GuiMode') && ...
+        strcmp(char(app.Project.GuiMode), mode);
+    toolbarOk = componentVisible(app.ToolbarMgr.Panel) == expected.ToolbarVisible;
+    explorerOk = managerPanelVisible(app.ProjectExplorer) == expected.ExplorerVisible;
+    dockOk = managerPanelVisible(app.RightDock) == expected.RightDockVisible;
+    columnsOk = bodyColumnsMatchMode(app, expected);
+    menuOk = guiModeMenuChecked(app, mode);
+
+    ok = modeOk && toolbarOk && explorerOk && dockOk && columnsOk && menuOk;
+    msg = sprintf('%s mode: state=%d toolbar=%d explorer=%d dock=%d columns=%d menu=%d', ...
+        mode, modeOk, toolbarOk, explorerOk, dockOk, columnsOk, menuOk);
+end
+
+function expected = expectedGuiModeProfile(modeName)
+    mode = char(modeName);
+    expected = struct( ...
+        'ToolbarVisible', true, ...
+        'ExplorerVisible', true, ...
+        'RightDockVisible', true);
+    switch mode
+        case 'Review'
+            expected.ExplorerVisible = false;
+            expected.RightDockVisible = false;
+        case 'Analysis'
+            expected.ExplorerVisible = false;
+            expected.RightDockVisible = true;
+        case 'Classic'
+            expected.ExplorerVisible = true;
+            expected.RightDockVisible = true;
+        case 'Studio'
+            expected.ExplorerVisible = true;
+            expected.RightDockVisible = true;
+        otherwise
+            % Phase 6 MVP verifies the four requested modes. Other modes
+            % are intentionally covered only by app.applyGuiMode smoke.
+    end
+end
+
+function tf = managerPanelVisible(manager)
+    tf = false;
+    try
+        if ~isempty(manager) && isvalid(manager) && isprop(manager, 'Panel')
+            tf = componentVisible(manager.Panel);
+        end
+    catch
+        tf = false;
+    end
+end
+
+function tf = componentVisible(component)
+    tf = false;
+    try
+        tf = ~isempty(component) && isgraphics(component) && strcmpi(char(component.Visible), 'on');
+    catch
+        tf = false;
+    end
+end
+
+function tf = bodyColumnsMatchMode(app, expected)
+    tf = true;
+    try
+        if ~hasProp(app, 'BodyGrid') || isempty(app.BodyGrid) || ~isvalid(app.BodyGrid)
+            return;
+        end
+        widths = app.BodyGrid.ColumnWidth;
+        if numel(widths) < 3
+            tf = false;
+            return;
+        end
+        leftOk = columnWidthMatchesVisibility(widths{1}, expected.ExplorerVisible);
+        rightOk = columnWidthMatchesVisibility(widths{3}, expected.RightDockVisible);
+        tf = leftOk && rightOk;
+    catch
+        tf = false;
+    end
+end
+
+function tf = columnWidthMatchesVisibility(widthValue, isVisible)
+    try
+        if isnumeric(widthValue)
+            if isVisible
+                tf = double(widthValue) > 0;
+            else
+                tf = double(widthValue) == 0;
+            end
+        elseif ischar(widthValue) || isstring(widthValue)
+            if isVisible
+                tf = ~strcmp(char(widthValue), '0');
+            else
+                tf = strcmp(char(widthValue), '0');
+            end
+        else
+            tf = isVisible;
+        end
+    catch
+        tf = false;
+    end
+end
+
+function tf = guiModeMenuChecked(app, modeName)
+    tf = true;
+    try
+        if ~hasProp(app, 'MenuMgr') || isempty(app.MenuMgr) || ~isvalid(app.MenuMgr) || ...
+                ~isprop(app.MenuMgr, 'ModeMenus') || ~isfield(app.MenuMgr.ModeMenus, modeName)
+            return;
+        end
+        item = app.MenuMgr.ModeMenus.(modeName);
+        tf = ~isempty(item) && isvalid(item) && strcmpi(char(item.Checked), 'on');
+    catch
+        tf = false;
+    end
+end
+
+function tf = projectHasSession(project, sessionId)
+    tf = false;
+    try
+        if ismethod(project, 'hasSession')
+            tf = project.hasSession(sessionId);
+            return;
+        end
+        if ~isprop(project, 'Sessions') || isempty(project.Sessions)
+            return;
+        end
+        for i = 1:numel(project.Sessions)
+            if isprop(project.Sessions(i), 'SessionId') && ...
+                    strcmp(char(project.Sessions(i).SessionId), char(sessionId))
+                tf = true;
+                return;
+            end
+        end
+    catch
+        tf = false;
+    end
 end
 
 % -------------------------------------------------------------------------
@@ -943,6 +1127,22 @@ function safeDelete(obj)
     end
 
     drawnow limitrate;
+end
+
+function cleanupPath(filePath)
+    if isempty(filePath)
+        return;
+    end
+
+    candidates = {char(filePath), [char(filePath) '.zip']};
+    for i = 1:numel(candidates)
+        try
+            if exist(candidates{i}, 'file') == 2
+                delete(candidates{i});
+            end
+        catch
+        end
+    end
 end
 
 function label = phase6CheckLabel(fn)

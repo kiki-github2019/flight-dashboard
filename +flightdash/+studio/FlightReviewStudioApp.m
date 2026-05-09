@@ -66,6 +66,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 % Initialize an empty project before any UI accesses it.
                 app.Project = flightdash.project.ProjectModel('Untitled');
                 app.buildShell();
+                app.applyGuiMode(app.Project.GuiMode, false);
                 app.refreshTitle();
             catch ME
                 % If shell construction fails, ensure no orphan figure
@@ -247,6 +248,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             try, app.removeAllSessions(); catch, end
             app.Project = flightdash.project.ProjectModel('Untitled');
             app.ProjectFolder = '';
+            app.applyGuiMode(app.Project.GuiMode, false);
             app.refreshExplorer();
             app.refreshTitle();
             if ~isempty(app.StatusBar)
@@ -272,6 +274,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.Project.ProjectFolderPath = fileparts(filePath);
                 app.Project.DirtyFlag = false;
                 app.ProjectFolder = fileparts(filePath);
+                app.applyGuiMode(app.Project.GuiMode, false);
                 app.refreshTitle();
                 if ~isempty(app.StatusBar)
                     app.StatusBar.setMessage(sprintf('Saved: %s', filePath));
@@ -321,6 +324,8 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.Project.ProjectFolderPath = fileparts(filePath);
                 app.ProjectFolder = fileparts(filePath);
                 app.restoreProjectSessionTabs();
+                app.applyGuiMode(app.Project.GuiMode, false);
+                app.Project.DirtyFlag = false;
                 app.refreshExplorer();
                 app.refreshTitle();
                 if ~isempty(app.StatusBar)
@@ -404,47 +409,194 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.applyGuiMode(modeName);
         end
 
-        function applyGuiMode(app, modeName)
+        function applyGuiMode(app, modeName, markDirty)
             if nargin < 2 || isempty(modeName)
                 modeName = 'Review';
             end
-            mode = char(modeName);
-            valid = {'Classic', 'Studio', 'Review', 'Analysis', 'Plot', 'Report', 'Compact'};
-            hit = find(strcmpi(mode, valid), 1);
-            if isempty(hit)
-                error('FlightReviewStudio:InvalidGuiMode', ...
-                    'Unsupported GUI mode "%s".', mode);
+            if nargin < 3 || isempty(markDirty)
+                markDirty = true;
             end
-            mode = valid{hit};
+            mode = app.normalizeGuiMode(modeName);
 
             try
                 app.Project.GuiMode = mode;
-                app.Project.DirtyFlag = true;
+                if markDirty
+                    app.Project.DirtyFlag = true;
+                end
             catch ME
                 try, app.logCaught(ME, 'Studio:guiMode:project'); catch, end
                 rethrow(ME);
             end
 
             try
-                compact = strcmpi(mode, 'Compact');
-                sideVisible = 'on';
-                if compact, sideVisible = 'off'; end
-                if ~isempty(app.ProjectExplorer) && isvalid(app.ProjectExplorer) && ...
-                        isprop(app.ProjectExplorer, 'Panel') && isgraphics(app.ProjectExplorer.Panel)
-                    app.ProjectExplorer.Panel.Visible = sideVisible;
-                end
-                if ~isempty(app.RightDock) && isvalid(app.RightDock) && ...
-                        isprop(app.RightDock, 'Panel') && isgraphics(app.RightDock.Panel)
-                    app.RightDock.Panel.Visible = sideVisible;
-                end
+                profile = app.guiModeProfile(mode);
+                app.applyGuiModeProfile(profile);
                 if ~isempty(app.Workspace) && isvalid(app.Workspace)
                     app.Workspace.refreshActiveLayout(['guiMode:' mode]);
                 end
+                app.syncGuiModeMenuState(mode);
+                app.refreshTitle();
                 if ~isempty(app.StatusBar)
                     app.StatusBar.setMessage(sprintf('GUI mode: %s', mode));
                 end
             catch ME
                 try, app.logCaught(ME, 'Studio:guiMode:layout'); catch, end
+            end
+        end
+
+        function mode = currentGuiMode(app)
+            mode = 'Review';
+            try
+                if ~isempty(app.Project) && isprop(app.Project, 'GuiMode')
+                    mode = app.normalizeGuiMode(app.Project.GuiMode);
+                end
+            catch
+                mode = 'Review';
+            end
+        end
+
+        function profile = guiModeProfile(app, modeName)
+            mode = app.normalizeGuiMode(modeName);
+            profile = struct( ...
+                'Mode',          mode, ...
+                'ToolbarVisible', true, ...
+                'ExplorerVisible', true, ...
+                'RightDockVisible', true, ...
+                'ExplorerWidth',  200, ...
+                'RightDockWidth', 260);
+
+            switch mode
+                case 'Classic'
+                    profile.ExplorerVisible = true;
+                    profile.RightDockVisible = true;
+                    profile.ToolbarVisible = true;
+                    profile.ExplorerWidth = 220;
+                    profile.RightDockWidth = 300;
+                case 'Studio'
+                    profile.ExplorerVisible = true;
+                    profile.RightDockVisible = true;
+                    profile.ToolbarVisible = true;
+                    profile.ExplorerWidth = 200;
+                    profile.RightDockWidth = 260;
+                case 'Review'
+                    profile.ExplorerVisible = false;
+                    profile.RightDockVisible = false;
+                    profile.ToolbarVisible = true;
+                    profile.ExplorerWidth = 0;
+                    profile.RightDockWidth = 0;
+                case 'Analysis'
+                    profile.ExplorerVisible = false;
+                    profile.RightDockVisible = true;
+                    profile.ToolbarVisible = true;
+                    profile.ExplorerWidth = 0;
+                    profile.RightDockWidth = 300;
+                case 'Plot'
+                    profile.ExplorerVisible = false;
+                    profile.RightDockVisible = true;
+                    profile.ToolbarVisible = true;
+                    profile.ExplorerWidth = 0;
+                    profile.RightDockWidth = 300;
+                case 'Report'
+                    profile.ExplorerVisible = false;
+                    profile.RightDockVisible = false;
+                    profile.ToolbarVisible = false;
+                    profile.ExplorerWidth = 0;
+                    profile.RightDockWidth = 0;
+                case 'Compact'
+                    profile.ExplorerVisible = false;
+                    profile.RightDockVisible = false;
+                    profile.ToolbarVisible = true;
+                    profile.ExplorerWidth = 0;
+                    profile.RightDockWidth = 0;
+            end
+        end
+
+        function mode = normalizeGuiMode(~, modeName)
+            if nargin < 2 || isempty(modeName)
+                modeName = 'Review';
+            end
+            requested = char(modeName);
+            valid = {'Classic', 'Studio', 'Review', 'Analysis', 'Plot', 'Report', 'Compact'};
+            hit = find(strcmpi(requested, valid), 1);
+            if isempty(hit)
+                error('FlightReviewStudio:InvalidGuiMode', ...
+                    'Unsupported GUI mode "%s".', requested);
+            end
+            mode = valid{hit};
+        end
+
+        function applyGuiModeProfile(app, profile)
+            try
+                app.setToolbarVisible(profile.ToolbarVisible);
+                app.setManagerPanelVisible(app.ProjectExplorer, profile.ExplorerVisible);
+                app.setManagerPanelVisible(app.RightDock, profile.RightDockVisible);
+                app.setBodyColumnWidths(profile);
+            catch ME
+                try, app.logCaught(ME, 'Studio:applyGuiModeProfile'); catch, end
+            end
+        end
+
+        function setToolbarVisible(app, tf)
+            try
+                if isempty(app.ToolbarMgr) || ~isvalid(app.ToolbarMgr) || ...
+                        ~isprop(app.ToolbarMgr, 'Panel') || ~isgraphics(app.ToolbarMgr.Panel)
+                    return;
+                end
+                app.ToolbarMgr.Panel.Visible = app.onOff(tf);
+
+                headerGrid = app.ToolbarMgr.Panel.Parent;
+                if ~isempty(headerGrid) && isvalid(headerGrid) && isprop(headerGrid, 'RowHeight')
+                    if tf
+                        headerGrid.RowHeight = {flightdash.util.UIScale.px(28), flightdash.util.UIScale.px(36)};
+                    else
+                        headerGrid.RowHeight = {flightdash.util.UIScale.px(28), 0};
+                    end
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:setToolbarVisible'); catch, end
+            end
+        end
+
+        function setManagerPanelVisible(app, manager, tf)
+            try
+                if isempty(manager) || ~isvalid(manager) || ...
+                        ~isprop(manager, 'Panel') || ~isgraphics(manager.Panel)
+                    return;
+                end
+                manager.Panel.Visible = app.onOff(tf);
+            catch ME
+                try, app.logCaught(ME, 'Studio:setManagerPanelVisible'); catch, end
+            end
+        end
+
+        function setBodyColumnWidths(app, profile)
+            try
+                if isempty(app.BodyGrid) || ~isvalid(app.BodyGrid), return; end
+                leftW = profile.ExplorerWidth;
+                rightW = profile.RightDockWidth;
+                if ~profile.ExplorerVisible, leftW = 0; end
+                if ~profile.RightDockVisible, rightW = 0; end
+                app.BodyGrid.ColumnWidth = {leftW, '1x', rightW};
+            catch ME
+                try, app.logCaught(ME, 'Studio:setBodyColumnWidths'); catch, end
+            end
+        end
+
+        function syncGuiModeMenuState(app, mode)
+            try
+                if ~isempty(app.MenuMgr) && isvalid(app.MenuMgr) && ismethod(app.MenuMgr, 'syncGuiMode')
+                    app.MenuMgr.syncGuiMode(mode);
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:syncGuiModeMenuState'); catch, end
+            end
+        end
+
+        function value = onOff(~, tf)
+            if tf
+                value = 'on';
+            else
+                value = 'off';
             end
         end
 

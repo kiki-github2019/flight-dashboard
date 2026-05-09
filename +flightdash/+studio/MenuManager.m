@@ -9,6 +9,7 @@ classdef MenuManager < handle
     properties (Access = public)
         App
         Roots struct = struct()    % Map of menu name -> root uimenu
+        ModeMenus struct = struct()
     end
 
     methods
@@ -20,6 +21,24 @@ classdef MenuManager < handle
         function delete(obj)
             % Menus auto-delete when uifigure is deleted.
             obj.Roots = struct();
+            obj.ModeMenus = struct();
+        end
+
+        function syncGuiMode(obj, modeName)
+            try
+                mode = char(modeName);
+                names = fieldnames(obj.ModeMenus);
+                for k = 1:numel(names)
+                    item = obj.ModeMenus.(names{k});
+                    if isempty(item) || ~isvalid(item), continue; end
+                    if strcmpi(names{k}, mode)
+                        item.Checked = 'on';
+                    else
+                        item.Checked = 'off';
+                    end
+                end
+            catch
+            end
         end
     end
 
@@ -114,11 +133,13 @@ classdef MenuManager < handle
 
             obj.Roots.Preferences = obj.makeRoot(fig, 'Preferences');
             modeRoot = obj.addSubmenu(obj.Roots.Preferences, 'GUI Mode');
-            obj.addLeaf(modeRoot, 'Review Mode',     'Pref:Mode:Review');
-            obj.addLeaf(modeRoot, 'Analysis Mode',   'Pref:Mode:Analysis');
-            obj.addLeaf(modeRoot, 'Plot Mode',       'Pref:Mode:Plot');
-            obj.addLeaf(modeRoot, 'Report Mode',     'Pref:Mode:Report');
-            obj.addLeaf(modeRoot, 'Compact Mode',    'Pref:Mode:Compact');
+            obj.ModeMenus.Classic  = obj.addLeaf(modeRoot, 'Classic Mode',    'Pref:Mode:Classic');
+            obj.ModeMenus.Studio   = obj.addLeaf(modeRoot, 'Studio Mode',     'Pref:Mode:Studio');
+            obj.ModeMenus.Review   = obj.addLeaf(modeRoot, 'Review Mode',     'Pref:Mode:Review');
+            obj.ModeMenus.Analysis = obj.addLeaf(modeRoot, 'Analysis Mode',   'Pref:Mode:Analysis');
+            obj.ModeMenus.Plot     = obj.addLeaf(modeRoot, 'Plot Mode',       'Pref:Mode:Plot');
+            obj.ModeMenus.Report   = obj.addLeaf(modeRoot, 'Report Mode',     'Pref:Mode:Report');
+            obj.ModeMenus.Compact  = obj.addLeaf(modeRoot, 'Compact Mode',    'Pref:Mode:Compact');
             obj.addLeaf(obj.Roots.Preferences, 'Auto Update Mode',     'Pref:AutoUpdate');
             obj.addLeaf(obj.Roots.Preferences, 'Toolbar Customize',    'Pref:ToolbarCustomize');
             obj.addLeaf(obj.Roots.Preferences, 'Shortcut Settings',    'Pref:Shortcuts');
@@ -134,13 +155,13 @@ classdef MenuManager < handle
             m = uimenu(fig, 'Text', label);
         end
 
-        function addLeaf(obj, parent, label, cmdId)
-            uimenu(parent, 'Text', label, ...
+        function m = addLeaf(obj, parent, label, cmdId)
+            m = uimenu(parent, 'Text', label, ...
                 'MenuSelectedFcn', @(~,~) obj.dispatch(cmdId));
         end
 
-        function addSeparator(obj, parent, label, cmdId)
-            uimenu(parent, 'Text', label, 'Separator', 'on', ...
+        function m = addSeparator(obj, parent, label, cmdId)
+            m = uimenu(parent, 'Text', label, 'Separator', 'on', ...
                 'MenuSelectedFcn', @(~,~) obj.dispatch(cmdId));
         end
 
