@@ -341,6 +341,12 @@ classdef ProjectSerializer
                         v{k} = char(raw{k});
                     end
                 end
+            elseif isstring(raw)
+                for k = 1:min(2, numel(raw))
+                    v{k} = char(raw(k));
+                end
+            elseif ischar(raw)
+                v{1} = char(raw);
             end
         end
 
@@ -370,23 +376,48 @@ classdef ProjectSerializer
             end
 
             tempBase = tempname(targetDir);
-            tempZip = [tempBase '.zip'];
+            tempZipBase = [tempBase '_archive'];
+            tempZip = [tempZipBase '.zip'];
+            stagingPath = [tempBase '.frsproj'];
             backupPath = [tempBase '.bak'];
-            candidates = {tempZip, [tempZip '.zip'], [filePath '.zip']};
-            existedBefore = cellfun(@(p) exist(p, 'file') == 2, candidates);
-            tempCreated = '';
+            zipCandidates = { ...
+                tempZip, ...
+                [tempZip '.zip'], ...
+                tempZipBase, ...
+                [tempZipBase '.zip'], ...
+                [filePath '.zip']};
+            cleanupCandidates = [zipCandidates, {stagingPath, [stagingPath '.zip']}];
+            existedBefore = cellfun(@(p) exist(p, 'file') == 2, cleanupCandidates);
             backupMade = false;
 
             cleanup = onCleanup(@() flightdash.project.ProjectSerializer.cleanupZipWrite( ...
-                candidates, existedBefore, tempCreated));
+                cleanupCandidates, existedBefore, ''));
 
             zip(tempZip, entries, rootDir);
-            tempCreated = flightdash.project.ProjectSerializer.firstCreatedFile(candidates, existedBefore);
-            if isempty(tempCreated)
+            zipExistedBefore = existedBefore(1:numel(zipCandidates));
+            zipCreated = flightdash.project.ProjectSerializer.firstCreatedFile(zipCandidates, zipExistedBefore);
+            if isempty(zipCreated)
                 error('ProjectSerializer:WriteFailed', 'zip() did not create a project archive.');
             end
 
             try
+                [ok, msg] = movefile(zipCreated, stagingPath, 'f');
+                if ~ok
+                    error('ProjectSerializer:WriteFailed', ...
+                        'Cannot stage project archive: %s', msg);
+                end
+                if ~isfile(stagingPath) && isfile([stagingPath '.zip'])
+                    [ok, msg] = movefile([stagingPath '.zip'], stagingPath, 'f');
+                    if ~ok
+                        error('ProjectSerializer:WriteFailed', ...
+                            'Cannot normalize staged project archive: %s', msg);
+                    end
+                end
+                if ~flightdash.project.ProjectSerializer.isNonemptyFile(stagingPath)
+                    error('ProjectSerializer:WriteFailed', ...
+                        'Staged project archive is missing or empty: %s', stagingPath);
+                end
+
                 if exist(filePath, 'file') == 2
                     [ok, msg] = movefile(filePath, backupPath, 'f');
                     if ~ok
@@ -396,7 +427,7 @@ classdef ProjectSerializer
                     backupMade = true;
                 end
 
-                [ok, msg] = movefile(tempCreated, filePath, 'f');
+                [ok, msg] = movefile(stagingPath, filePath, 'f');
                 if ~ok
                     if backupMade && exist(backupPath, 'file') == 2 && exist(filePath, 'file') ~= 2
                         movefile(backupPath, filePath, 'f');
@@ -405,9 +436,16 @@ classdef ProjectSerializer
                     error('ProjectSerializer:WriteFailed', ...
                         'Cannot move project archive into place: %s', msg);
                 end
-                tempCreated = '';
 
-                if ~isfile(filePath)
+                if ~isfile(filePath) && isfile([filePath '.zip'])
+                    [ok, msg] = movefile([filePath '.zip'], filePath, 'f');
+                    if ~ok
+                        error('ProjectSerializer:WriteFailed', ...
+                            'Cannot normalize final project archive: %s', msg);
+                    end
+                end
+
+                if ~flightdash.project.ProjectSerializer.isNonemptyFile(filePath)
                     if backupMade && exist(backupPath, 'file') == 2 && exist(filePath, 'file') ~= 2
                         movefile(backupPath, filePath, 'f');
                         backupMade = false;
@@ -435,6 +473,18 @@ classdef ProjectSerializer
             end
 
             clear cleanup;
+        end
+
+        function tf = isNonemptyFile(filePath)
+            tf = false;
+            try
+                if isfile(filePath)
+                    info = dir(filePath);
+                    tf = ~isempty(info) && info.bytes > 0;
+                end
+            catch
+                tf = false;
+            end
         end
 
         function p = firstCreatedFile(candidates, existedBefore)

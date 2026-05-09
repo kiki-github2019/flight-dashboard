@@ -81,11 +81,14 @@ function [ok, msg, status] = checkSaveProducesFrsprojFile()
         p = makeSampleProject();
         flightdash.project.ProjectSerializer.save(p, tmpFile);
 
-        ok = isfile(tmpFile);
+        zipResidue = isfile([tmpFile '.zip']);
+        ok = isfile(tmpFile) && ~zipResidue;
 
         if ok
             info = dir(tmpFile);
             msg = sprintf('save() produced .frsproj file, size=%d bytes', info.bytes);
+        elseif isfile(tmpFile)
+            msg = sprintf('save() produced .frsproj but left zip residue: %s', [tmpFile '.zip']);
         else
             candidates = findLikelyZipCandidates(tmpFile);
             msg = sprintf('save() did not produce requested file. Candidates: %s', ...
@@ -136,8 +139,8 @@ function [ok, msg, status] = checkSessionMetadataRoundTrip()
 
     try
         p = makeSampleProject();
-        s1 = flightdash.project.SessionModel('P9_S001', 'Phase9 Session 1');
-        s2 = flightdash.project.SessionModel('P9_S002', 'Phase9 Session 2');
+        s1 = makeSession('P9_S001', 'Phase9 Session 1');
+        s2 = makeSession('P9_S002', 'Phase9 Session 2');
 
         s1 = safeSetFlightFile(s1, 1, fullfile(tempdir, 'p9_flight1.csv'));
         s1 = safeSetVideoFile(s1, 1, fullfile(tempdir, 'p9_video1.avi'));
@@ -186,7 +189,7 @@ function [ok, msg, status] = checkAnalysisThemeRoundTrip()
         t = setIfProp(t, 'AnalysisType', 'ROIStatistics');
         t = setIfProp(t, 'IsDefault', true);
 
-        p = p.addAnalysisTheme(t);
+        p = addThemeToProject(p, t);
 
         flightdash.project.ProjectSerializer.save(p, tmpFile);
         loaded = flightdash.project.ProjectSerializer.load(tmpFile);
@@ -223,7 +226,7 @@ function [ok, msg, status] = checkExternalLinksRoundTrip()
         cleanupPath(missingFlight);
         cleanupPath(missingVideo);
 
-        s = flightdash.project.SessionModel('P9_LINKS', 'Phase9 Links');
+        s = makeSession('P9_LINKS', 'Phase9 Links');
         s = safeSetFlightFile(s, 1, missingFlight);
         s = safeSetVideoFile(s, 1, missingVideo);
         p = p.addSession(s);
@@ -236,8 +239,8 @@ function [ok, msg, status] = checkExternalLinksRoundTrip()
         videoOk = false;
 
         if ~isempty(loadedSession)
-            flightOk = cellStringContains(getPropOrEmpty(loadedSession, 'FlightFiles'), missingFlight);
-            videoOk = cellStringContains(getPropOrEmpty(loadedSession, 'VideoFiles'), missingVideo);
+            flightOk = cellStringContains(getSessionFlightPaths(loadedSession), missingFlight);
+            videoOk = cellStringContains(getSessionVideoPaths(loadedSession), missingVideo);
         end
 
         ok = flightOk && videoOk;
@@ -263,7 +266,7 @@ function [ok, msg, status] = checkManifestAndZipContents()
 
     try
         p = makeSampleProject();
-        s = flightdash.project.SessionModel('P9_ZIP_SESSION', 'Phase9 Zip Session');
+        s = makeSession('P9_ZIP_SESSION', 'Phase9 Zip Session');
         p = p.addSession(s);
 
         flightdash.project.ProjectSerializer.save(p, tmpFile);
@@ -330,14 +333,15 @@ function [ok, msg, status] = checkOverwriteExistingFile()
 
         loaded = flightdash.project.ProjectSerializer.load(tmpFile);
 
-        ok = isfile(tmpFile) && firstInfo.bytes > 0 && secondInfo.bytes > 0 && ...
+        zipResidueGone = ~isfile([tmpFile '.zip']);
+        ok = isfile(tmpFile) && zipResidueGone && firstInfo.bytes > 0 && secondInfo.bytes > 0 && ...
              strcmp(char(loaded.ProjectName), 'Phase9 Overwrite 2');
 
         if ok
             msg = 'save() safely overwrites an existing .frsproj file';
         else
-            msg = sprintf('Overwrite mismatch: exists=%d firstBytes=%d secondBytes=%d loadedName=%s', ...
-                isfile(tmpFile), firstInfo.bytes, secondInfo.bytes, safeChar(loaded.ProjectName));
+            msg = sprintf('Overwrite mismatch: exists=%d zipResidueGone=%d firstBytes=%d secondBytes=%d loadedName=%s', ...
+                isfile(tmpFile), zipResidueGone, firstInfo.bytes, secondInfo.bytes, safeChar(loaded.ProjectName));
         end
     catch ME
         ok = false;
@@ -345,6 +349,7 @@ function [ok, msg, status] = checkOverwriteExistingFile()
     end
 
     cleanupPath(tmpFile);
+    cleanupPath([tmpFile '.zip']);
 end
 
 function [ok, msg, status] = checkLoadRejectsMissingFile()
@@ -431,8 +436,8 @@ function [ok, msg, status] = checkOpenProjectSessionTabRestoreSmoke()
 
     try
         p = makeSampleProject();
-        p = p.addSession(flightdash.project.SessionModel('P9_OPEN_S001', 'Phase9 Open Session 1'));
-        p = p.addSession(flightdash.project.SessionModel('P9_OPEN_S002', 'Phase9 Open Session 2'));
+        p = p.addSession(makeSession('P9_OPEN_S001', 'Phase9 Open Session 1'));
+        p = p.addSession(makeSession('P9_OPEN_S002', 'Phase9 Open Session 2'));
 
         flightdash.project.ProjectSerializer.save(p, tmpFile);
 
@@ -442,6 +447,8 @@ function [ok, msg, status] = checkOpenProjectSessionTabRestoreSmoke()
             app.loadProjectFromFile(tmpFile);
         elseif ismethod(app, 'openProjectFile')
             app.openProjectFile(tmpFile);
+        elseif ismethod(app, 'openProject')
+            app.openProject(tmpFile);
         else
             status = 'SKIP_MANUAL';
             ok = true;
@@ -492,9 +499,61 @@ function p = makeSampleProject()
     end
 end
 
+function s = makeSession(sessionId, displayName)
+    try
+        s = flightdash.project.SessionModel(displayName);
+    catch
+        s = flightdash.project.SessionModel();
+        s = setDisplayNameSafe(s, displayName);
+    end
+    s = setSessionIdSafe(s, sessionId);
+end
+
+function s = setSessionIdSafe(s, sessionId)
+    if isempty(sessionId), return; end
+    if isprop(s, 'SessionId')
+        s.SessionId = char(sessionId);
+    elseif isprop(s, 'Id')
+        s.Id = char(sessionId);
+    end
+end
+
+function s = setDisplayNameSafe(s, displayName)
+    if ismethod(s, 'setDisplayName')
+        s = s.setDisplayName(displayName);
+    elseif isprop(s, 'DisplayName')
+        s.DisplayName = strtrim(char(displayName));
+    elseif isprop(s, 'Name')
+        s.Name = strtrim(char(displayName));
+    end
+end
+
+function p = addThemeToProject(p, theme)
+    if ismethod(p, 'addAnalysisTheme')
+        try
+            p = p.addAnalysisTheme(theme);
+            return;
+        catch ME
+            if ~strcmp(ME.identifier, 'MATLAB:TooManyInputs')
+                rethrow(ME);
+            end
+        end
+    end
+
+    if ismethod(p, 'addTheme')
+        p = p.addTheme(theme);
+    elseif isprop(p, 'AnalysisThemes')
+        p.AnalysisThemes = [p.AnalysisThemes, theme];
+    else
+        error('verifyPhase9:NoThemeApi', 'ProjectModel has no supported analysis theme API');
+    end
+end
+
 function s = safeSetFlightFile(s, channelIdx, pathValue)
     if ismethod(s, 'setFlightFile')
         s = s.setFlightFile(channelIdx, pathValue);
+    elseif isprop(s, 'FlightFilePath')
+        s.FlightFilePath{channelIdx} = char(pathValue);
     elseif isprop(s, 'FlightFiles')
         s.FlightFiles{channelIdx} = char(pathValue);
     end
@@ -503,6 +562,8 @@ end
 function s = safeSetVideoFile(s, channelIdx, pathValue)
     if ismethod(s, 'setVideoFile')
         s = s.setVideoFile(channelIdx, pathValue);
+    elseif isprop(s, 'VideoFilePath')
+        s.VideoFilePath{channelIdx} = char(pathValue);
     elseif isprop(s, 'VideoFiles')
         s.VideoFiles{channelIdx} = char(pathValue);
     end
@@ -527,6 +588,11 @@ function session = getProjectSession(project, sessionId)
             return;
         end
 
+        if ismethod(project, 'findSession')
+            session = project.findSession(sessionId);
+            return;
+        end
+
         if ~isprop(project, 'Sessions')
             return;
         end
@@ -540,6 +606,30 @@ function session = getProjectSession(project, sessionId)
         end
     catch
         session = [];
+    end
+end
+
+function value = getSessionFlightPaths(session)
+    value = {};
+    if isempty(session), return; end
+    if isprop(session, 'FlightFilePath')
+        value = session.FlightFilePath;
+    elseif isprop(session, 'FlightFiles')
+        value = session.FlightFiles;
+    elseif isprop(session, 'FlightFile')
+        value = session.FlightFile;
+    end
+end
+
+function value = getSessionVideoPaths(session)
+    value = {};
+    if isempty(session), return; end
+    if isprop(session, 'VideoFilePath')
+        value = session.VideoFilePath;
+    elseif isprop(session, 'VideoFiles')
+        value = session.VideoFiles;
+    elseif isprop(session, 'VideoFile')
+        value = session.VideoFile;
     end
 end
 
@@ -579,6 +669,17 @@ end
 
 function tf = workspaceHasSession(ws, sessionId)
     tf = false;
+    sessionId = char(sessionId);
+
+    try
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries)
+            tf = isKey(ws.DashboardEntries, sessionId);
+            if tf
+                return;
+            end
+        end
+    catch
+    end
 
     try
         if isprop(ws, 'DashboardMap') && ~isempty(ws.DashboardMap)
@@ -604,7 +705,8 @@ function tf = workspaceHasSession(ws, sessionId)
         if isprop(ws, 'TabGroup') && isgraphics(ws.TabGroup)
             tabs = findall(ws.TabGroup, 'Type', 'uitab');
             for i = 1:numel(tabs)
-                if isprop(tabs(i), 'UserData') && isequal(tabs(i).UserData, sessionId)
+                tabId = tabSessionIdForDiag(tabs(i));
+                if strcmp(tabId, sessionId)
                     tf = true;
                     return;
                 end
@@ -616,6 +718,27 @@ function tf = workspaceHasSession(ws, sessionId)
         end
     catch
         tf = false;
+    end
+end
+
+function id = tabSessionIdForDiag(tab)
+    id = '';
+    try
+        if isempty(tab) || ~isvalid(tab), return; end
+        if isappdata(tab, 'SessionId')
+            id = char(getappdata(tab, 'SessionId'));
+            if ~isempty(id), return; end
+        end
+        if isprop(tab, 'UserData')
+            ud = tab.UserData;
+            if isstruct(ud) && isfield(ud, 'SessionId')
+                id = char(ud.SessionId);
+            elseif ischar(ud) || isstring(ud)
+                id = char(ud);
+            end
+        end
+    catch
+        id = '';
     end
 end
 

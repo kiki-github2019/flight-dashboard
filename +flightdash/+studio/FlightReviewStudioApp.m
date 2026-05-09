@@ -302,6 +302,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.Project.ProjectFilePath   = filePath;
                 app.Project.ProjectFolderPath = fileparts(filePath);
                 app.ProjectFolder = fileparts(filePath);
+                app.restoreProjectSessionTabs();
                 app.refreshExplorer();
                 app.refreshTitle();
                 if ~isempty(app.StatusBar)
@@ -328,6 +329,14 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
         end
 
+        function tf = loadProjectFromFile(app, filePath)
+            tf = app.openProject(filePath);
+        end
+
+        function tf = openProjectFile(app, filePath)
+            tf = app.openProject(filePath);
+        end
+
         function dash = getActiveDashboard(app)
             dash = [];
             try
@@ -345,6 +354,31 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 end
             catch
                 dash = [];
+            end
+        end
+
+        function restoreProjectSessionTabs(app)
+            try
+                if isempty(app.Workspace) || ~isvalid(app.Workspace), return; end
+                if isempty(app.Project) || isempty(app.Project.Sessions), return; end
+                for k = 1:numel(app.Project.Sessions)
+                    sess = app.Project.Sessions(k);
+                    sessionId = char(sess.SessionId);
+                    displayName = char(sess.DisplayName);
+                    if isempty(sessionId), continue; end
+                    if isprop(app.Workspace, 'DashboardEntries') && ...
+                            ~isempty(app.Workspace.DashboardEntries) && ...
+                            isKey(app.Workspace.DashboardEntries, sessionId)
+                        continue;
+                    end
+                    try
+                        app.Workspace.addDashboardTab(sessionId, displayName);
+                    catch ME
+                        try, app.logCaught(ME, 'Studio:restoreSessionTab'); catch, end
+                    end
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:restoreProjectSessionTabs'); catch, end
             end
         end
 
