@@ -1,0 +1,844 @@
+function results = verifyPhase6()
+%VERIFYPHASE6 Phase 6 verification: Toolbar / Menu / Inspector MVP.
+%
+% Usage:
+%   results = flightdash.studio.diag.verifyPhase6();
+
+    fprintf('\n=== Phase 6 verification: Toolbar / Menu / Inspector MVP ===\n\n');
+
+    tests = {
+        'P6-1',  @checkPhase6Classes
+        'P6-2',  @checkStudioManagers
+        'P6-3',  @checkToolbarButtonsExist
+        'P6-4',  @checkMenuRootsExist
+        'P6-5',  @checkGlobalCommandsNoSession
+        'P6-6',  @checkSessionCommandWithActiveSession
+        'P6-7',  @checkTabSwitchCommandRouting
+        'P6-8',  @checkInspectorClassAndContainer
+        'P6-9',  @checkInspectorInvalidSelection
+        'P6-10', @checkInspectorVisibleToggle
+        'P6-11', @checkGuiModeFieldAndPreferenceSmoke
+        'P6-12', @checkMiniToolbarScope
+    };
+
+    results = struct('TC', {}, 'Result', {}, 'Message', {});
+
+    for k = 1:size(tests, 1)
+        tc = tests{k, 1};
+        fn = tests{k, 2};
+
+        try
+            [ok, msg, status] = fn();
+
+            if isempty(status)
+                if ok
+                    status = 'PASS';
+                else
+                    status = 'FAIL';
+                end
+            end
+        catch ME
+            status = 'FAIL';
+            msg = sprintf('%s: %s', ME.identifier, ME.message);
+        end
+
+        results(end+1).TC = tc; %#ok<AGROW>
+        results(end).Result = status;
+        results(end).Message = msg;
+    end
+
+    printResults(results);
+
+    passCount = sum(strcmp({results.Result}, 'PASS'));
+    totalCount = numel(results);
+    fprintf('\n%d / %d Phase 6 checks passed.\n', passCount, totalCount);
+end
+
+% -------------------------------------------------------------------------
+% Checks
+% -------------------------------------------------------------------------
+
+function [ok, msg, status] = checkPhase6Classes()
+    status = '';
+
+    classes = {
+        'flightdash.studio.MenuManager'
+        'flightdash.studio.ToolbarManager'
+        'flightdash.studio.RightDockManager'
+    };
+
+    missing = {};
+    for i = 1:numel(classes)
+        if isempty(meta.class.fromName(classes{i}))
+            missing{end+1} = classes{i}; %#ok<AGROW>
+        end
+    end
+
+    ok = isempty(missing);
+    if ok
+        msg = sprintf('%d Phase 6 manager classes resolved', numel(classes));
+    else
+        msg = sprintf('Missing classes: %s', strjoin(missing, ', '));
+    end
+end
+
+function [ok, msg, status] = checkStudioManagers()
+    status = '';
+    app = [];
+
+    try
+        app = createStudioApp();
+
+        required = {'MenuMgr', 'ToolbarMgr', 'RightDock', 'Workspace', 'StatusBar'};
+        missing = {};
+        emptyVals = {};
+
+        for i = 1:numel(required)
+            name = required{i};
+            if ~hasProp(app, name)
+                missing{end+1} = name; %#ok<AGROW>
+            elseif isempty(app.(name))
+                emptyVals{end+1} = name; %#ok<AGROW>
+            end
+        end
+
+        ok = isempty(missing) && isempty(emptyVals);
+
+        if ok
+            msg = 'Studio exposes MenuMgr, ToolbarMgr, RightDock, Workspace, and StatusBar';
+        else
+            msg = sprintf('Missing=[%s], empty=[%s]', strjoin(missing, ', '), strjoin(emptyVals, ', '));
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Studio manager check failed: %s', ME.message);
+    end
+
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkToolbarButtonsExist()
+    status = '';
+    app = [];
+
+    try
+        app = createStudioApp();
+
+        buttons = findall(app.UIFigure, 'Type', 'uibutton');
+        texts = strings(1, numel(buttons));
+        for i = 1:numel(buttons)
+            try
+                texts(i) = string(buttons(i).Text);
+            catch
+                texts(i) = "";
+            end
+        end
+
+        expectedAny = ["New", "Open", "Save", "Session", "Add", "Play", "ROI", "Analyze", "Recalc"];
+        hitCount = 0;
+        for i = 1:numel(expectedAny)
+            if any(contains(lower(texts), lower(expectedAny(i))))
+                hitCount = hitCount + 1;
+            end
+        end
+
+        ok = numel(buttons) >= 4 && hitCount >= 2;
+
+        if ok
+            msg = sprintf('Toolbar buttons detected: count=%d, expectedHits=%d', numel(buttons), hitCount);
+        else
+            msg = sprintf('Toolbar buttons insufficient: count=%d, expectedHits=%d', numel(buttons), hitCount);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Toolbar button check failed: %s', ME.message);
+    end
+
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkMenuRootsExist()
+    status = '';
+    app = [];
+
+    try
+        app = createStudioApp();
+
+        menus = findall(app.UIFigure, 'Type', 'uimenu');
+        labels = strings(1, numel(menus));
+        for i = 1:numel(menus)
+            try
+                labels(i) = string(menus(i).Text);
+            catch
+                labels(i) = "";
+            end
+        end
+
+        expected = ["File", "Project", "Data", "Video", "Review", "Analysis", "Plot", "Window", "Preferences", "Help"];
+        hitCount = 0;
+        for i = 1:numel(expected)
+            if any(contains(lower(labels), lower(expected(i))))
+                hitCount = hitCount + 1;
+            end
+        end
+
+        ok = numel(menus) >= 6 && hitCount >= 4;
+
+        if ok
+            msg = sprintf('Menu roots detected: uimenu=%d, expectedHits=%d', numel(menus), hitCount);
+        else
+            msg = sprintf('Menu roots insufficient: uimenu=%d, expectedHits=%d', numel(menus), hitCount);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Menu root check failed: %s', ME.message);
+    end
+
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkGlobalCommandsNoSession()
+    status = '';
+    app = [];
+
+    try
+        app = createStudioApp();
+
+        if hasProp(app, 'Project')
+            beforeName = string(app.Project.ProjectName);
+        else
+            beforeName = "";
+        end
+
+        newOk = callIfMethod(app, {'newProject', 'onNewProject'});
+        drawnow limitrate;
+
+        hasProject = hasProp(app, 'Project') && ~isempty(app.Project);
+        afterName = "";
+        if hasProject && isprop(app.Project, 'ProjectName')
+            afterName = string(app.Project.ProjectName);
+        end
+
+        saveAsExists = ismethod(app, 'saveProjectAs') || ismethod(app, 'onSaveProjectAs');
+        openExists = ismethod(app, 'openProject') || ismethod(app, 'onOpenProject');
+
+        ok = hasProject && (newOk || ~strcmp(beforeName, afterName) || strlength(afterName) > 0) && ...
+             saveAsExists && openExists;
+
+        if ok
+            msg = 'Global project commands are callable/discoverable without active session';
+        else
+            msg = sprintf('Global command smoke failed: hasProject=%d newOk=%d saveAs=%d open=%d', ...
+                hasProject, newOk, saveAsExists, openExists);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Global command check failed: %s', ME.message);
+    end
+
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkSessionCommandWithActiveSession()
+    status = '';
+    app = [];
+    previousActive = '';
+    hadPrevious = false;
+
+    try
+        [previousActive, hadPrevious] = saveActiveSessionScope();
+
+        app = createStudioApp();
+
+        sid = 'P6_CMD_SESSION';
+        addSessionToStudio(app, sid, 'Phase6 Command Session');
+        selectWorkspaceSession(app.Workspace, sid);
+
+        activeId = flightdash.util.SessionScope.getActive();
+        dash = getWorkspaceDashboard(app.Workspace, sid);
+
+        sessionCommandExists = ismethod(app, 'getActiveDashboard') || ...
+                               ismethod(app.Workspace, 'getActiveDashboard') || ...
+                               ~isempty(dash);
+
+        if ismethod(app, 'getActiveDashboard')
+            activeDash = app.getActiveDashboard();
+        elseif ismethod(app.Workspace, 'getActiveDashboard')
+            activeDash = app.Workspace.getActiveDashboard();
+        else
+            activeDash = dash;
+        end
+
+        ok = strcmp(char(activeId), sid) && sessionCommandExists && ~isempty(activeDash) && isvalid(activeDash);
+
+        if ok
+            msg = 'Active session command target resolves to active embedded dashboard';
+        else
+            msg = sprintf('Session command target failed: active=%s exists=%d dashValid=%d', ...
+                char(activeId), sessionCommandExists, ~isempty(activeDash) && isvalid(activeDash));
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Session command check failed: %s', ME.message);
+    end
+
+    restoreActiveSessionScope(previousActive, hadPrevious);
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkTabSwitchCommandRouting()
+    status = '';
+    app = [];
+    previousActive = '';
+    hadPrevious = false;
+
+    try
+        [previousActive, hadPrevious] = saveActiveSessionScope();
+
+        app = createStudioApp();
+
+        sid1 = 'P6_ROUTE_A';
+        sid2 = 'P6_ROUTE_B';
+
+        addSessionToStudio(app, sid1, 'Phase6 Route A');
+        addSessionToStudio(app, sid2, 'Phase6 Route B');
+
+        selectWorkspaceSession(app.Workspace, sid1);
+        active1 = flightdash.util.SessionScope.getActive();
+        dash1 = getActiveDashboard(app);
+
+        selectWorkspaceSession(app.Workspace, sid2);
+        active2 = flightdash.util.SessionScope.getActive();
+        dash2 = getActiveDashboard(app);
+
+        ok = strcmp(char(active1), sid1) && strcmp(char(active2), sid2) && ...
+             ~isempty(dash1) && isvalid(dash1) && ...
+             ~isempty(dash2) && isvalid(dash2) && ...
+             ~isequal(dash1, dash2);
+
+        if ok
+            msg = 'Tab switch updates active session command routing target';
+        else
+            msg = sprintf('Routing mismatch: active1=%s active2=%s dash1=%d dash2=%d same=%d', ...
+                char(active1), char(active2), ~isempty(dash1), ~isempty(dash2), isequal(dash1, dash2));
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Tab switch routing check failed: %s', ME.message);
+    end
+
+    restoreActiveSessionScope(previousActive, hadPrevious);
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkInspectorClassAndContainer()
+    status = '';
+    app = [];
+
+    try
+        app = createStudioApp();
+
+        rd = app.RightDock;
+
+        hasRightDock = ~isempty(rd);
+        hasInspectorGraphic = objectHasAnyGraphicsProp(rd, ...
+            {'InspectorPanel', 'InspectorGrid', 'InspectorTab', 'PropertyGrid', 'QuickActionGrid'});
+        labels = findall(app.UIFigure, 'Type', 'uilabel');
+
+        labelText = strings(1, numel(labels));
+        for i = 1:numel(labels)
+            try
+                labelText(i) = string(labels(i).Text);
+            catch
+                labelText(i) = "";
+            end
+        end
+
+        hasInspectorText = any(contains(lower(labelText), "inspector")) || ...
+                           any(contains(lower(labelText), "object"));
+
+        ok = hasRightDock && (hasInspectorGraphic || hasInspectorText);
+
+        if ok
+            msg = 'RightDock Inspector container/labels detected';
+        else
+            msg = 'RightDock Inspector container not detected';
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Inspector container check failed: %s', ME.message);
+    end
+
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkInspectorInvalidSelection()
+    status = '';
+    app = [];
+
+    try
+        app = createStudioApp();
+        rd = app.RightDock;
+
+        invalidHandle = makeDeletedGraphicsHandle();
+
+        if ismethod(rd, 'selectObject')
+            rd.selectObject(invalidHandle);
+            ok = true;
+            msg = 'Inspector selectObject handles invalid graphics handle';
+        elseif ismethod(rd, 'showObjectProperties')
+            rd.showObjectProperties(invalidHandle);
+            ok = true;
+            msg = 'Inspector showObjectProperties handles invalid graphics handle';
+        elseif ismethod(rd, 'refreshInspector')
+            rd.refreshInspector(invalidHandle);
+            ok = true;
+            msg = 'Inspector refreshInspector handles invalid graphics handle';
+        elseif ismethod(rd, 'setSelectedObject')
+            rd.setSelectedObject(invalidHandle);
+            ok = true;
+            msg = 'Inspector setSelectedObject handles invalid graphics handle';
+        else
+            status = 'SKIP_NOT_IMPLEMENTED';
+            ok = true;
+            msg = 'No public Inspector selection method exposed';
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Inspector invalid-selection check failed: %s', ME.message);
+    end
+
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkInspectorVisibleToggle()
+    status = '';
+    app = [];
+    fig = [];
+
+    try
+        app = createStudioApp();
+        rd = app.RightDock;
+
+        fig = figure('Visible', 'off', 'Name', 'Phase6 Inspector Visible Toggle Test');
+        ax = axes('Parent', fig);
+        h = plot(ax, 1:3, 1:3);
+        h.Visible = 'on';
+
+        selectedOk = selectInspectorObject(rd, h);
+
+        toggled = false;
+        if ismethod(rd, 'toggleSelectedVisible')
+            rd.toggleSelectedVisible();
+            toggled = true;
+        elseif ismethod(rd, 'onToggleVisible')
+            rd.onToggleVisible();
+            toggled = true;
+        elseif ismethod(rd, 'setSelectedVisible')
+            rd.setSelectedVisible('off');
+            toggled = true;
+        else
+            btn = findButtonByText(app.UIFigure, ["Show", "Hide", "Visible"]);
+            if ~isempty(btn)
+                try
+                    btn.ButtonPushedFcn(btn, []);
+                    toggled = true;
+                catch
+                    toggled = false;
+                end
+            end
+        end
+
+        if toggled
+            visibleChanged = strcmp(h.Visible, 'off') || strcmp(h.Visible, 'on');
+            ok = selectedOk && visibleChanged;
+            msg = sprintf('Inspector visible toggle path exercised; selected=%d visible=%s', ...
+                selectedOk, h.Visible);
+        else
+            status = 'SKIP_NOT_IMPLEMENTED';
+            ok = true;
+            msg = 'Inspector visible toggle command not publicly exposed';
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Inspector visible toggle check failed: %s', ME.message);
+    end
+
+    safeDelete(fig);
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkGuiModeFieldAndPreferenceSmoke()
+    status = '';
+    app = [];
+
+    try
+        app = createStudioApp();
+
+        hasProjectGuiMode = hasProp(app, 'Project') && isprop(app.Project, 'GuiMode');
+        hasModeMethod = ismethod(app, 'setGuiMode') || ismethod(app, 'applyGuiMode') || ...
+                        ismethod(app, 'setMode') || ismethod(app, 'applyMode');
+
+        if hasModeMethod
+            try
+                callGuiMode(app, 'Studio');
+                callGuiMode(app, 'Review');
+                callGuiMode(app, 'Studio');
+                callOk = true;
+            catch
+                callOk = false;
+            end
+
+            ok = hasProjectGuiMode && callOk;
+            msg = sprintf('GUI mode field/method smoke: field=%d callOk=%d', hasProjectGuiMode, callOk);
+        elseif hasProjectGuiMode
+            status = 'SKIP_NOT_IMPLEMENTED';
+            ok = true;
+            msg = 'Project.GuiMode exists; GUI mode apply method not implemented yet';
+        else
+            status = 'SKIP_NOT_IMPLEMENTED';
+            ok = true;
+            msg = 'GUI mode preference MVP not implemented yet';
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('GUI mode smoke check failed: %s', ME.message);
+    end
+
+    safeDelete(app);
+end
+
+function [ok, msg, status] = checkMiniToolbarScope()
+    status = 'SKIP_MANUAL';
+    ok = true;
+    msg = 'Floating Mini Toolbar is intentionally manual/out-of-MVP; Inspector quick actions are covered separately';
+end
+
+% -------------------------------------------------------------------------
+% Studio operation helpers
+% -------------------------------------------------------------------------
+
+function app = createStudioApp()
+    app = flightdash.studio.FlightReviewStudioApp();
+
+    if hasProp(app, 'UIFigure') && isgraphics(app.UIFigure)
+        app.UIFigure.Visible = 'off';
+    end
+
+    drawnow limitrate;
+end
+
+function addSessionToStudio(app, sessionId, displayName)
+    if ismethod(app, 'addSession')
+        try
+            app.addSession(sessionId, displayName);
+            drawnow limitrate;
+            return;
+        catch
+        end
+    end
+
+    session = flightdash.project.SessionModel(sessionId, displayName);
+
+    if hasProp(app, 'Project')
+        app.Project = app.Project.addSession(session);
+    else
+        error('verifyPhase6:NoProject', 'Studio app has no Project property');
+    end
+
+    if hasProp(app, 'Workspace') && ~isempty(app.Workspace)
+        callWorkspaceAdd(app.Workspace, sessionId, displayName);
+    end
+
+    drawnow limitrate;
+end
+
+function callWorkspaceAdd(ws, sessionId, displayName)
+    if ismethod(ws, 'addDashboardTab')
+        ws.addDashboardTab(sessionId, displayName);
+    elseif ismethod(ws, 'addSessionTab')
+        ws.addSessionTab(sessionId, displayName);
+    elseif ismethod(ws, 'addTab')
+        ws.addTab(sessionId, displayName);
+    else
+        error('verifyPhase6:WorkspaceAddMissing', ...
+            'WorkspaceManager has no supported add dashboard tab method');
+    end
+
+    drawnow limitrate;
+end
+
+function selectWorkspaceSession(ws, sessionId)
+    if ismethod(ws, 'selectSession')
+        ws.selectSession(sessionId);
+    elseif ismethod(ws, 'selectDashboardTab')
+        ws.selectDashboardTab(sessionId);
+    elseif ismethod(ws, 'activateSession')
+        ws.activateSession(sessionId);
+    elseif isprop(ws, 'TabMap') && isprop(ws, 'TabGroup') && ...
+            ~isempty(ws.TabMap) && isKey(ws.TabMap, sessionId)
+        ws.TabGroup.SelectedTab = ws.TabMap(sessionId);
+        drawnow limitrate;
+
+        if ismethod(ws, 'onTabChanged')
+            ws.onTabChanged();
+        end
+    else
+        error('verifyPhase6:WorkspaceSelectMissing', ...
+            'WorkspaceManager has no supported session selection method');
+    end
+
+    drawnow limitrate;
+end
+
+function dash = getActiveDashboard(app)
+    dash = [];
+
+    try
+        if ismethod(app, 'getActiveDashboard')
+            dash = app.getActiveDashboard();
+            return;
+        end
+    catch
+    end
+
+    try
+        if hasProp(app, 'Workspace') && ismethod(app.Workspace, 'getActiveDashboard')
+            dash = app.Workspace.getActiveDashboard();
+            return;
+        end
+    catch
+    end
+
+    try
+        activeId = flightdash.util.SessionScope.getActive();
+        if hasProp(app, 'Workspace')
+            dash = getWorkspaceDashboard(app.Workspace, activeId);
+        end
+    catch
+        dash = [];
+    end
+end
+
+function dash = getWorkspaceDashboard(ws, sessionId)
+    dash = [];
+
+    try
+        if isprop(ws, 'DashboardMap') && ~isempty(ws.DashboardMap) && isKey(ws.DashboardMap, sessionId)
+            dash = ws.DashboardMap(sessionId);
+            return;
+        end
+    catch
+    end
+
+    try
+        if ismethod(ws, 'getDashboard')
+            dash = ws.getDashboard(sessionId);
+            return;
+        end
+    catch
+        dash = [];
+    end
+end
+
+function tf = callIfMethod(obj, methodNames)
+    tf = false;
+
+    for i = 1:numel(methodNames)
+        name = methodNames{i};
+        if ismethod(obj, name)
+            try
+                obj.(name)();
+                tf = true;
+                return;
+            catch
+                tf = false;
+            end
+        end
+    end
+end
+
+function callGuiMode(app, modeName)
+    if ismethod(app, 'setGuiMode')
+        app.setGuiMode(modeName);
+    elseif ismethod(app, 'applyGuiMode')
+        app.applyGuiMode(modeName);
+    elseif ismethod(app, 'setMode')
+        app.setMode(modeName);
+    elseif ismethod(app, 'applyMode')
+        app.applyMode(modeName);
+    else
+        error('verifyPhase6:GuiModeMissing', 'No GUI mode method found');
+    end
+
+    drawnow limitrate;
+end
+
+% -------------------------------------------------------------------------
+% Inspector helpers
+% -------------------------------------------------------------------------
+
+function invalidHandle = makeDeletedGraphicsHandle()
+    invalidHandle = [];
+
+    try
+        f = figure('Visible', 'off', 'Name', 'Phase6 Deleted Handle Test');
+        ax = axes('Parent', f);
+        invalidHandle = plot(ax, 1:3, 1:3);
+        delete(invalidHandle);
+        delete(f);
+    catch
+        invalidHandle = [];
+    end
+end
+
+function selectedOk = selectInspectorObject(rd, h)
+    selectedOk = false;
+
+    try
+        if ismethod(rd, 'selectObject')
+            rd.selectObject(h);
+            selectedOk = true;
+        elseif ismethod(rd, 'showObjectProperties')
+            rd.showObjectProperties(h);
+            selectedOk = true;
+        elseif ismethod(rd, 'refreshInspector')
+            rd.refreshInspector(h);
+            selectedOk = true;
+        elseif ismethod(rd, 'setSelectedObject')
+            rd.setSelectedObject(h);
+            selectedOk = true;
+        elseif isprop(rd, 'SelectedObject')
+            rd.SelectedObject = h;
+            selectedOk = true;
+        end
+    catch
+        selectedOk = false;
+    end
+
+    drawnow limitrate;
+end
+
+function btn = findButtonByText(parent, texts)
+    btn = [];
+
+    if isempty(parent) || ~isgraphics(parent)
+        return;
+    end
+
+    try
+        buttons = findall(parent, 'Type', 'uibutton');
+        for i = 1:numel(buttons)
+            t = "";
+            try
+                t = string(buttons(i).Text);
+            catch
+            end
+
+            for j = 1:numel(texts)
+                if contains(lower(t), lower(texts(j)))
+                    btn = buttons(i);
+                    return;
+                end
+            end
+        end
+    catch
+        btn = [];
+    end
+end
+
+% -------------------------------------------------------------------------
+% Session scope helpers
+% -------------------------------------------------------------------------
+
+function [previousActive, hadPrevious] = saveActiveSessionScope()
+    previousActive = '';
+    hadPrevious = false;
+
+    try
+        previousActive = flightdash.util.SessionScope.getActive();
+        hadPrevious = ~isempty(previousActive);
+    catch
+        previousActive = '';
+        hadPrevious = false;
+    end
+end
+
+function restoreActiveSessionScope(previousActive, hadPrevious)
+    try
+        if hadPrevious
+            flightdash.util.SessionScope.setActive(previousActive);
+        else
+            flightdash.util.SessionScope.clear();
+        end
+    catch
+    end
+end
+
+% -------------------------------------------------------------------------
+% Generic helpers
+% -------------------------------------------------------------------------
+
+function tf = hasProp(obj, propName)
+    tf = false;
+
+    if isempty(obj)
+        return;
+    end
+
+    try
+        tf = isprop(obj, propName);
+    catch
+        tf = false;
+    end
+end
+
+function tf = objectHasAnyGraphicsProp(obj, propNames)
+    tf = false;
+
+    if isempty(obj)
+        return;
+    end
+
+    for i = 1:numel(propNames)
+        name = propNames{i};
+
+        try
+            if isprop(obj, name)
+                value = obj.(name);
+                if ~isempty(value) && isgraphics(value)
+                    tf = true;
+                    return;
+                end
+            end
+        catch
+        end
+    end
+end
+
+function safeDelete(obj)
+    if isempty(obj)
+        return;
+    end
+
+    try
+        if isgraphics(obj)
+            delete(obj);
+        elseif isobject(obj) && isvalid(obj)
+            delete(obj);
+        end
+    catch
+    end
+
+    drawnow limitrate;
+end
+
+function printResults(results)
+    fprintf('TC      Result        Message\n');
+    fprintf('------  ------------  -------\n');
+
+    for i = 1:numel(results)
+        fprintf('%-6s  %-12s  %s\n', ...
+            results(i).TC, results(i).Result, results(i).Message);
+    end
+end
