@@ -5,6 +5,7 @@ function results = verifyPhase5()
 %   results = flightdash.studio.diag.verifyPhase5();
 
     fprintf('\n=== Phase 5 verification: Project Explorer / Object Manager MVP ===\n\n');
+    fprintf('Progress is printed before and after each GUI-heavy check.\n\n');
 
     tests = {
         'P5-1',  @checkStudioShellForPhase5
@@ -27,6 +28,9 @@ function results = verifyPhase5()
     for k = 1:size(tests, 1)
         tc = tests{k, 1};
         fn = tests{k, 2};
+        label = phase5CheckLabel(fn);
+        progressStart(tc, label, k, size(tests, 1));
+        tStart = tic;
 
         try
             [ok, msg, status] = fn();
@@ -42,6 +46,9 @@ function results = verifyPhase5()
             status = 'FAIL';
             msg = sprintf('%s: %s', ME.identifier, ME.message);
         end
+
+        elapsed = toc(tStart);
+        progressDone(tc, status, msg, elapsed);
 
         results(end+1).TC = tc; %#ok<AGROW>
         results(end).Result = status;
@@ -1007,6 +1014,35 @@ function safeDelete(obj)
     end
 
     drawnow limitrate;
+end
+
+function label = phase5CheckLabel(fn)
+    try
+        label = func2str(fn);
+        if startsWith(label, '@')
+            label = extractAfter(label, 1);
+            label = char(label);
+        end
+    catch
+        label = 'unknownCheck';
+    end
+end
+
+function progressStart(tc, label, idx, total)
+    fprintf('[%02d/%02d] %s START  %s\n', idx, total, tc, label);
+    flushProgressOutput();
+end
+
+function progressDone(tc, status, msg, elapsed)
+    fprintf('        %s %-12s %.2fs  %s\n', tc, status, elapsed, msg);
+    flushProgressOutput();
+end
+
+function flushProgressOutput()
+    try
+        drawnow limitrate;
+    catch
+    end
 end
 
 function printResults(results)
