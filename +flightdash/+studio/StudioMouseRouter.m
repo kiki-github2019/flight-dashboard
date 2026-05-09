@@ -71,7 +71,7 @@ classdef StudioMouseRouter < handle
                     return;  % another drag still owns the lock
                 end
                 activeId = '';
-                if ~isempty(obj.Workspace) && isvalid(obj.Workspace)
+                if ~isempty(obj.Workspace) && (~isa(obj.Workspace, 'handle') || isvalid(obj.Workspace))
                     activeId = char(obj.Workspace.activeSessionId());
                 end
                 if ~isempty(activeId) && ~strcmp(activeId, sessionId)

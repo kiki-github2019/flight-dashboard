@@ -66,7 +66,10 @@ classdef SessionScope
                     return;  % rule 1
                 end
                 appId = '';
-                if ~isempty(app) && isvalid(app) && isprop(app, 'ActiveSessionId')
+                if isstruct(app) && isfield(app, 'ActiveSessionId')
+                    appId = char(app.ActiveSessionId);
+                elseif ~isempty(app) && (~isa(app, 'handle') || isvalid(app)) ...
+                        && isprop(app, 'ActiveSessionId')
                     appId = char(app.ActiveSessionId);
                 end
                 if isempty(appId) || strcmp(appId, 'standalone')
