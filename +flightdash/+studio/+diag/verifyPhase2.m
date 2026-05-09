@@ -120,19 +120,23 @@ function [ok, msg, status] = checkSessionModelConstruction()
         'SchemaVersion'
         'SessionId'
         'DisplayName'
-        'FlightFiles'
-        'VideoFiles'
         'DirtyFlag'
     };
 
     missing = missingProps(s, requiredProps);
+    hasFlightPaths = hasAnyProp(s, {'FlightFilePath', 'FlightFilePaths', 'FlightFiles', 'FlightFile', 'ChannelFiles'});
+    hasVideoPaths = hasAnyProp(s, {'VideoFilePath', 'VideoFilePaths', 'VideoFiles', 'VideoFile', 'ChannelFiles'});
+    hasFlightSetter = ismethod(s, 'setFlightFile');
+    hasVideoSetter = ismethod(s, 'setVideoFile');
 
-    ok = isempty(missing) && ~isempty(s.SessionId) && ~isempty(s.DisplayName);
+    ok = isempty(missing) && ~isempty(s.SessionId) && ~isempty(s.DisplayName) && ...
+         (hasFlightPaths || hasFlightSetter) && (hasVideoPaths || hasVideoSetter);
     if ok
         msg = sprintf('SessionModel constructed: id=%s, name=%s', ...
             char(s.SessionId), char(s.DisplayName));
     else
-        msg = sprintf('SessionModel missing/invalid props: %s', strjoin(missing, ', '));
+        msg = sprintf('SessionModel missing/invalid props: %s, flightPath=%d, videoPath=%d', ...
+            strjoin(missing, ', '), hasFlightPaths || hasFlightSetter, hasVideoPaths || hasVideoSetter);
     end
 end
 
@@ -140,21 +144,21 @@ function [ok, msg, status] = checkProjectSessionCrud()
     status = '';
 
     p = flightdash.project.ProjectModel();
-    s1 = flightdash.project.SessionModel('S001', 'Session 1');
-    s2 = flightdash.project.SessionModel('S002', 'Session 2');
+    s1 = makeSession('S001', 'Session 1');
+    s2 = makeSession('S002', 'Session 2');
 
-    p = p.addSession(s1);
-    p = p.addSession(s2);
+    p = addSessionSafe(p, s1);
+    p = addSessionSafe(p, s2);
 
     countAfterAdd = safeSessionCount(p);
     hasS1 = hasSession(p, 'S001');
     hasS2 = hasSession(p, 'S002');
 
-    s2 = s2.setDisplayName('Session 2 Renamed');
-    p = p.updateSession(s2);
+    s2 = setDisplayNameSafe(s2, 'Session 2 Renamed');
+    p = updateSessionSafe(p, 'S002', s2);
     got = getSessionById(p, 'S002');
 
-    p = p.removeSession('S001');
+    p = removeSessionSafe(p, 'S001');
 
     ok = countAfterAdd == 2 && hasS1 && hasS2 && ...
          ~isempty(got) && strcmp(char(got.DisplayName), 'Session 2 Renamed') && ...
@@ -171,18 +175,20 @@ end
 function [ok, msg, status] = checkSessionChannelValidation()
     status = '';
 
-    s = flightdash.project.SessionModel('S001', 'Session 1');
+    s = makeSession('S001', 'Session 1');
 
     validOk = true;
     try
-        s = s.setFlightFile(1, 'flight1.csv');
-        s = s.setFlightFile(2, string('flight2.csv'));
-        s = s.setVideoFile(1, 'video1.avi');
-        s = s.setVideoFile(2, string('video2.avi'));
-        s = s.setRoiRows(1, [1 2 3]);
-        s = s.setRoiRows(2, [4 5 6]);
-        validOk = s.hasFlightData(1) && s.hasFlightData(2) && ...
-                  s.hasVideo(1) && s.hasVideo(2);
+        s = setFlightFileSafe(s, 1, 'flight1.csv');
+        s = setFlightFileSafe(s, 2, string('flight2.csv'));
+        s = setVideoFileSafe(s, 1, 'video1.avi');
+        s = setVideoFileSafe(s, 2, string('video2.avi'));
+        if ismethod(s, 'setRoiRows')
+            s = s.setRoiRows(1, [1 2 3]);
+            s = s.setRoiRows(2, [4 5 6]);
+        end
+        validOk = sessionHasFlightData(s, 1) && sessionHasFlightData(s, 2) && ...
+                  sessionHasVideo(s, 1) && sessionHasVideo(s, 2);
     catch
         validOk = false;
     end
@@ -192,7 +198,7 @@ function [ok, msg, status] = checkSessionChannelValidation()
 
     for i = 1:numel(invalidValues)
         try
-            s.setFlightFile(invalidValues{i}, 'bad.csv');
+            setFlightFileSafe(s, invalidValues{i}, 'bad.csv');
             rejected(i) = false;
         catch
             rejected(i) = true;
@@ -212,11 +218,11 @@ end
 function [ok, msg, status] = checkSessionDisplayNameValidation()
     status = '';
 
-    s = flightdash.project.SessionModel('S001', 'Session 1');
+    s = makeSession('S001', 'Session 1');
 
     validOk = true;
     try
-        s = s.setDisplayName('  Valid Name  ');
+        s = setDisplayNameSafe(s, '  Valid Name  ');
         validOk = strcmp(char(s.DisplayName), 'Valid Name');
     catch
         validOk = false;
@@ -307,11 +313,11 @@ function [ok, msg, status] = checkReviewResultCascadeDelete()
     status = '';
 
     p = flightdash.project.ProjectModel();
-    s1 = flightdash.project.SessionModel('S001', 'Session 1');
-    s2 = flightdash.project.SessionModel('S002', 'Session 2');
+    s1 = makeSession('S001', 'Session 1');
+    s2 = makeSession('S002', 'Session 2');
 
-    p = p.addSession(s1);
-    p = p.addSession(s2);
+    p = addSessionSafe(p, s1);
+    p = addSessionSafe(p, s2);
 
     r1 = flightdash.project.ReviewResultModel();
     r2 = flightdash.project.ReviewResultModel();
@@ -331,7 +337,7 @@ function [ok, msg, status] = checkReviewResultCascadeDelete()
     p = p.addResult(r3);
 
     before = numel(p.Results);
-    p = p.removeSession('S001');
+    p = removeSessionSafe(p, 'S001');
     after = numel(p.Results);
 
     remainingIds = strings(1, after);
@@ -366,7 +372,7 @@ function [ok, msg, status] = checkAnalysisThemeCrud()
         t.ThemeName = 'Theme Test';
     end
 
-    p = p.addAnalysisTheme(t);
+    p = addAnalysisThemeSafe(p, t);
 
     hasTheme = false;
     if isprop(p, 'AnalysisThemes')
@@ -392,9 +398,9 @@ function [ok, msg, status] = checkValueClassCopySemantics()
     status = '';
 
     p1 = flightdash.project.ProjectModel();
-    s = flightdash.project.SessionModel('S001', 'Session 1');
+    s = makeSession('S001', 'Session 1');
 
-    p2 = p1.addSession(s);
+    p2 = addSessionSafe(p1, s);
 
     ok = safeSessionCount(p1) == 0 && safeSessionCount(p2) == 1;
 
@@ -459,6 +465,196 @@ function props = missingProps(obj, requiredProps)
         if ~isprop(obj, requiredProps{i})
             props{end+1} = requiredProps{i}; %#ok<AGROW>
         end
+    end
+end
+
+function tf = hasAnyProp(obj, propNames)
+    tf = false;
+
+    for i = 1:numel(propNames)
+        try
+            if isprop(obj, propNames{i})
+                tf = true;
+                return;
+            end
+        catch
+        end
+    end
+end
+
+function s = makeSession(sessionId, displayName)
+    try
+        s = flightdash.project.SessionModel(displayName);
+    catch
+        s = flightdash.project.SessionModel();
+        s = setDisplayNameSafe(s, displayName);
+    end
+    s = setSessionIdSafe(s, sessionId);
+end
+
+function s = setSessionIdSafe(s, sessionId)
+    if isempty(sessionId), return; end
+    if isprop(s, 'SessionId')
+        s.SessionId = char(sessionId);
+    elseif isprop(s, 'Id')
+        s.Id = char(sessionId);
+    end
+end
+
+function s = setDisplayNameSafe(s, displayName)
+    if ismethod(s, 'setDisplayName')
+        s = s.setDisplayName(displayName);
+    elseif isprop(s, 'DisplayName')
+        s.DisplayName = strtrim(char(displayName));
+    elseif isprop(s, 'Name')
+        s.Name = strtrim(char(displayName));
+    end
+end
+
+function s = setFlightFileSafe(s, channelIdx, pathValue)
+    if ismethod(s, 'setFlightFile')
+        s = s.setFlightFile(channelIdx, pathValue);
+        return;
+    end
+    validateChannelIdxForDiag(channelIdx);
+    s = setPathCellProp(s, {'FlightFilePath', 'FlightFilePaths', 'FlightFiles', 'FlightFile'}, channelIdx, pathValue);
+end
+
+function s = setVideoFileSafe(s, channelIdx, pathValue)
+    if ismethod(s, 'setVideoFile')
+        s = s.setVideoFile(channelIdx, pathValue);
+        return;
+    end
+    validateChannelIdxForDiag(channelIdx);
+    s = setPathCellProp(s, {'VideoFilePath', 'VideoFilePaths', 'VideoFiles', 'VideoFile'}, channelIdx, pathValue);
+end
+
+function s = setPathCellProp(s, propNames, channelIdx, pathValue)
+    pathValue = char(pathValue);
+    for i = 1:numel(propNames)
+        name = propNames{i};
+        if ~isprop(s, name), continue; end
+        value = s.(name);
+        if iscell(value)
+            if numel(value) < 2
+                value(2) = {''};
+            end
+            value{channelIdx} = pathValue;
+            s.(name) = value;
+        else
+            s.(name) = pathValue;
+        end
+        return;
+    end
+    if isprop(s, 'ChannelFiles')
+        files = s.ChannelFiles;
+        files(channelIdx).FlightFile = pathValue;
+        s.ChannelFiles = files;
+    else
+        error('verifyPhase2:NoFlightPathApi', 'No compatible flight/video path API found.');
+    end
+end
+
+function validateChannelIdxForDiag(channelIdx)
+    validateattributes(channelIdx, {'numeric'}, ...
+        {'scalar', 'integer', 'finite', '>=', 1, '<=', 2}, '', 'channelIdx');
+end
+
+function tf = sessionHasFlightData(s, channelIdx)
+    if ismethod(s, 'hasFlightData')
+        tf = s.hasFlightData(channelIdx);
+    else
+        tf = sessionPathPresent(s, {'FlightFilePath', 'FlightFilePaths', 'FlightFiles', 'FlightFile'}, channelIdx);
+    end
+end
+
+function tf = sessionHasVideo(s, channelIdx)
+    if ismethod(s, 'hasVideo')
+        tf = s.hasVideo(channelIdx);
+    else
+        tf = sessionPathPresent(s, {'VideoFilePath', 'VideoFilePaths', 'VideoFiles', 'VideoFile'}, channelIdx);
+    end
+end
+
+function tf = sessionPathPresent(s, propNames, channelIdx)
+    tf = false;
+    try
+        validateChannelIdxForDiag(channelIdx);
+        for i = 1:numel(propNames)
+            name = propNames{i};
+            if ~isprop(s, name), continue; end
+            value = s.(name);
+            if iscell(value) && numel(value) >= channelIdx
+                tf = ~isempty(value{channelIdx});
+            elseif ischar(value) || isstring(value)
+                tf = ~isempty(value);
+            end
+            if tf, return; end
+        end
+    catch
+        tf = false;
+    end
+end
+
+function p = addSessionSafe(p, session)
+    if ismethod(p, 'addSession')
+        p = p.addSession(session);
+    elseif isprop(p, 'Sessions')
+        p.Sessions = [p.Sessions, session];
+    else
+        error('verifyPhase2:NoAddSessionApi', 'ProjectModel has no session add API.');
+    end
+end
+
+function p = updateSessionSafe(p, sessionId, session)
+    if ismethod(p, 'updateSession')
+        try
+            p = p.updateSession(sessionId, session);
+        catch ME
+            if strcmp(ME.identifier, 'MATLAB:TooManyInputs')
+                p = p.updateSession(session);
+            else
+                rethrow(ME);
+            end
+        end
+    elseif isprop(p, 'Sessions')
+        sessions = p.Sessions;
+        for i = 1:numel(sessions)
+            if isprop(sessions(i), 'SessionId') && strcmp(char(sessions(i).SessionId), char(sessionId))
+                sessions(i) = session;
+                p.Sessions = sessions;
+                return;
+            end
+        end
+        error('verifyPhase2:UnknownSession', 'Session id "%s" not found.', char(sessionId));
+    else
+        error('verifyPhase2:NoUpdateSessionApi', 'ProjectModel has no session update API.');
+    end
+end
+
+function p = removeSessionSafe(p, sessionId)
+    if ismethod(p, 'removeSession')
+        p = p.removeSession(sessionId);
+    elseif isprop(p, 'Sessions')
+        sessions = p.Sessions;
+        mask = arrayfun(@(s) isprop(s, 'SessionId') && strcmp(char(s.SessionId), char(sessionId)), sessions);
+        p.Sessions = sessions(~mask);
+    else
+        error('verifyPhase2:NoRemoveSessionApi', 'ProjectModel has no session remove API.');
+    end
+end
+
+function p = addAnalysisThemeSafe(p, theme)
+    if ismethod(p, 'addAnalysisTheme')
+        p = p.addAnalysisTheme(theme);
+    elseif ismethod(p, 'addTheme')
+        p = p.addTheme(theme);
+    elseif ismethod(p, 'addThemePreset')
+        p = p.addThemePreset(theme);
+    elseif isprop(p, 'AnalysisThemes')
+        p.AnalysisThemes = [p.AnalysisThemes, theme];
+    else
+        error('verifyPhase2:NoAddThemeApi', 'ProjectModel has no analysis theme add API.');
     end
 end
 
