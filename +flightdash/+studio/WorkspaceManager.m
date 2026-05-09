@@ -265,6 +265,38 @@ classdef WorkspaceManager < handle
                     flightdash.util.SessionScope.setActive(newId);
                 end
                 obj.refreshActiveLayout('tabActivated');
+                obj.refreshActiveInspector();
+            catch
+            end
+        end
+
+        function refreshActiveInspector(obj)
+            % [PHASE 6b] Repopulate Object Manager + clear Inspector for
+            % whichever dashboard owns the active workspace tab.
+            try
+                if isempty(obj.App) || ~isvalid(obj.App), return; end
+                if isempty(obj.App.RightDock) || ~isvalid(obj.App.RightDock), return; end
+                dash = obj.activeDashboard();
+                obj.App.RightDock.refreshObjectsFor(dash);
+            catch
+            end
+        end
+
+        function dash = activeDashboard(obj)
+            % [PHASE 6b] Return the FlightDataDashboard handle bound to
+            % the currently selected workspace tab, or [] if Welcome.
+            dash = [];
+            try
+                if isempty(obj.TabGroup) || ~isvalid(obj.TabGroup), return; end
+                t = obj.TabGroup.SelectedTab;
+                sid = obj.tabSessionId(t);
+                if isempty(sid), return; end
+                if obj.DashboardEntries.isKey(sid)
+                    e = obj.DashboardEntries(sid);
+                    if isfield(e, 'Dashboard') && ~isempty(e.Dashboard) && isvalid(e.Dashboard)
+                        dash = e.Dashboard;
+                    end
+                end
             catch
             end
         end
