@@ -328,6 +328,74 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
         end
 
+        function dash = getActiveDashboard(app)
+            dash = [];
+            try
+                if isempty(app.Workspace) || ~isvalid(app.Workspace), return; end
+                sessionId = app.Workspace.activeSessionId();
+                if isempty(sessionId) || strcmp(char(sessionId), 'standalone'), return; end
+                if isprop(app.Workspace, 'DashboardEntries') && ...
+                        ~isempty(app.Workspace.DashboardEntries) && ...
+                        isKey(app.Workspace.DashboardEntries, char(sessionId))
+                    entry = app.Workspace.DashboardEntries(char(sessionId));
+                    if isfield(entry, 'Dashboard') && ~isempty(entry.Dashboard) && ...
+                            isvalid(entry.Dashboard)
+                        dash = entry.Dashboard;
+                    end
+                end
+            catch
+                dash = [];
+            end
+        end
+
+        function setGuiMode(app, modeName)
+            app.applyGuiMode(modeName);
+        end
+
+        function applyGuiMode(app, modeName)
+            if nargin < 2 || isempty(modeName)
+                modeName = 'Review';
+            end
+            mode = char(modeName);
+            valid = {'Classic', 'Studio', 'Review', 'Analysis', 'Plot', 'Report', 'Compact'};
+            hit = find(strcmpi(mode, valid), 1);
+            if isempty(hit)
+                error('FlightReviewStudio:InvalidGuiMode', ...
+                    'Unsupported GUI mode "%s".', mode);
+            end
+            mode = valid{hit};
+
+            try
+                app.Project.GuiMode = mode;
+                app.Project.DirtyFlag = true;
+            catch ME
+                try, app.logCaught(ME, 'Studio:guiMode:project'); catch, end
+                rethrow(ME);
+            end
+
+            try
+                compact = strcmpi(mode, 'Compact');
+                sideVisible = 'on';
+                if compact, sideVisible = 'off'; end
+                if ~isempty(app.ProjectExplorer) && isvalid(app.ProjectExplorer) && ...
+                        isprop(app.ProjectExplorer, 'Panel') && isgraphics(app.ProjectExplorer.Panel)
+                    app.ProjectExplorer.Panel.Visible = sideVisible;
+                end
+                if ~isempty(app.RightDock) && isvalid(app.RightDock) && ...
+                        isprop(app.RightDock, 'Panel') && isgraphics(app.RightDock.Panel)
+                    app.RightDock.Panel.Visible = sideVisible;
+                end
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    app.Workspace.refreshActiveLayout(['guiMode:' mode]);
+                end
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(sprintf('GUI mode: %s', mode));
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:guiMode:layout'); catch, end
+            end
+        end
+
         function removeSession(app, sessionId)
             % [PHASE 3c] Remove a session everywhere it lives:
             %   1) ProjectModel (so cascades drop dependent results too)

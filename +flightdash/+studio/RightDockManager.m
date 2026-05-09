@@ -157,8 +157,57 @@ classdef RightDockManager < handle
             obj.refreshInspector(h);
         end
 
+        function setSelectedObject(obj, h)
+            obj.refreshInspector(h);
+        end
+
         function showObjectProperties(obj, h)
             obj.refreshInspector(h);
+        end
+
+        function toggleSelectedVisible(obj)
+            try
+                h = obj.SelectedHandle;
+                if isempty(h) || ~all(isgraphics(h))
+                    obj.flashStatus('Select an object first');
+                    return;
+                end
+                current = 'on';
+                try, current = char(h(1).Visible); catch, end
+                if strcmpi(current, 'on')
+                    obj.setSelectedVisible('off');
+                else
+                    obj.setSelectedVisible('on');
+                end
+            catch ME
+                try, obj.App.logCaught(ME, 'Inspector:toggleVisible'); catch, end
+            end
+        end
+
+        function setSelectedVisible(obj, value)
+            try
+                h = obj.SelectedHandle;
+                if isempty(h) || ~all(isgraphics(h))
+                    obj.flashStatus('Select an object first');
+                    return;
+                end
+                if islogical(value)
+                    if value
+                        visible = 'on';
+                    else
+                        visible = 'off';
+                    end
+                else
+                    visible = char(value);
+                end
+                if ~any(strcmpi(visible, {'on', 'off'}))
+                    visible = 'on';
+                end
+                try, set(h, 'Visible', lower(visible)); catch, return; end
+                obj.refreshInspector(h);
+            catch ME
+                try, obj.App.logCaught(ME, 'Inspector:setVisible'); catch, end
+            end
         end
 
         function refreshInspector(obj, h)

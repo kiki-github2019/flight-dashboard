@@ -450,7 +450,7 @@ function [ok, msg, status] = checkInspectorVisibleToggle()
         end
 
         if toggled
-            visibleChanged = strcmp(h.Visible, 'off') || strcmp(h.Visible, 'on');
+            visibleChanged = isVisibleOff(h);
             ok = selectedOk && visibleChanged;
             msg = sprintf('Inspector visible toggle path exercised; selected=%d visible=%s', ...
                 selectedOk, h.Visible);
@@ -529,16 +529,7 @@ function app = createStudioApp()
 end
 
 function addSessionToStudio(app, sessionId, displayName)
-    if ismethod(app, 'addSession')
-        try
-            app.addSession(sessionId, displayName);
-            drawnow limitrate;
-            return;
-        catch
-        end
-    end
-
-    session = flightdash.project.SessionModel(sessionId, displayName);
+    session = makeSession(sessionId, displayName);
 
     if hasProp(app, 'Project')
         app.Project = app.Project.addSession(session);
@@ -551,6 +542,35 @@ function addSessionToStudio(app, sessionId, displayName)
     end
 
     drawnow limitrate;
+end
+
+function session = makeSession(sessionId, displayName)
+    try
+        session = flightdash.project.SessionModel(displayName);
+    catch
+        session = flightdash.project.SessionModel();
+        session = setDisplayNameSafe(session, displayName);
+    end
+    session = setSessionIdSafe(session, sessionId);
+end
+
+function session = setSessionIdSafe(session, sessionId)
+    if isempty(sessionId), return; end
+    if isprop(session, 'SessionId')
+        session.SessionId = char(sessionId);
+    elseif isprop(session, 'Id')
+        session.Id = char(sessionId);
+    end
+end
+
+function session = setDisplayNameSafe(session, displayName)
+    if ismethod(session, 'setDisplayName')
+        session = session.setDisplayName(displayName);
+    elseif isprop(session, 'DisplayName')
+        session.DisplayName = strtrim(char(displayName));
+    elseif isprop(session, 'Name')
+        session.Name = strtrim(char(displayName));
+    end
 end
 
 function callWorkspaceAdd(ws, sessionId, displayName)
@@ -575,6 +595,16 @@ function selectWorkspaceSession(ws, sessionId)
         ws.selectDashboardTab(sessionId);
     elseif ismethod(ws, 'activateSession')
         ws.activateSession(sessionId);
+    elseif isprop(ws, 'DashboardEntries') && isprop(ws, 'TabGroup') && ...
+            ~isempty(ws.DashboardEntries) && isKey(ws.DashboardEntries, char(sessionId))
+        entry = ws.DashboardEntries(char(sessionId));
+        if isfield(entry, 'Tab') && ~isempty(entry.Tab) && isvalid(entry.Tab)
+            ws.TabGroup.SelectedTab = entry.Tab;
+            drawnow limitrate;
+        else
+            error('verifyPhase6:WorkspaceSelectInvalidTab', ...
+                'Workspace DashboardEntries has no valid tab for %s', char(sessionId));
+        end
     elseif isprop(ws, 'TabMap') && isprop(ws, 'TabGroup') && ...
             ~isempty(ws.TabMap) && isKey(ws.TabMap, sessionId)
         ws.TabGroup.SelectedTab = ws.TabMap(sessionId);
@@ -622,6 +652,19 @@ end
 
 function dash = getWorkspaceDashboard(ws, sessionId)
     dash = [];
+    sessionId = char(sessionId);
+
+    try
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries) && ...
+                isKey(ws.DashboardEntries, sessionId)
+            entry = ws.DashboardEntries(sessionId);
+            if isfield(entry, 'Dashboard')
+                dash = entry.Dashboard;
+                return;
+            end
+        end
+    catch
+    end
 
     try
         if isprop(ws, 'DashboardMap') && ~isempty(ws.DashboardMap) && isKey(ws.DashboardMap, sessionId)
@@ -840,5 +883,14 @@ function printResults(results)
     for i = 1:numel(results)
         fprintf('%-6s  %-12s  %s\n', ...
             results(i).TC, results(i).Result, results(i).Message);
+    end
+end
+
+function tf = isVisibleOff(h)
+    tf = false;
+    try
+        tf = strcmp(char(h.Visible), 'off');
+    catch
+        tf = false;
     end
 end
