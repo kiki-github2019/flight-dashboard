@@ -478,17 +478,85 @@ function app = createStudioApp()
     drawnow limitrate;
 end
 
-function addSessionToStudio(app, sessionId, displayName)
-    if ismethod(app, 'addSession')
+function session = makeSession(sessionId, displayName)
+    try
+        session = flightdash.project.SessionModel(displayName);
+    catch
+        session = flightdash.project.SessionModel();
+        session = setDisplayNameSafe(session, displayName);
+    end
+    session = setSessionIdSafe(session, sessionId);
+end
+
+function session = setSessionIdSafe(session, sessionId)
+    if isempty(sessionId), return; end
+    if isprop(session, 'SessionId')
+        session.SessionId = char(sessionId);
+    elseif isprop(session, 'Id')
+        session.Id = char(sessionId);
+    end
+end
+
+function session = setDisplayNameSafe(session, displayName)
+    if ismethod(session, 'setDisplayName')
+        session = session.setDisplayName(displayName);
+    elseif isprop(session, 'DisplayName')
+        session.DisplayName = strtrim(char(displayName));
+    elseif isprop(session, 'Name')
+        session.Name = strtrim(char(displayName));
+    end
+end
+
+function project = updateProjectSessionSafe(project, sessionId, session)
+    if ismethod(project, 'updateSession')
         try
-            app.addSession(sessionId, displayName);
-            drawnow limitrate;
+            project = project.updateSession(sessionId, session);
             return;
-        catch
+        catch ME
+            if ~strcmp(ME.identifier, 'MATLAB:TooManyInputs')
+                rethrow(ME);
+            end
         end
     end
 
-    session = flightdash.project.SessionModel(sessionId, displayName);
+    if ~isprop(project, 'Sessions')
+        error('verifyPhase5:NoUpdateSessionApi', 'ProjectModel has no session update API.');
+    end
+
+    sessions = project.Sessions;
+    for i = 1:numel(sessions)
+        if isprop(sessions(i), 'SessionId') && strcmp(char(sessions(i).SessionId), char(sessionId))
+            sessions(i) = session;
+            project.Sessions = sessions;
+            return;
+        end
+    end
+    error('verifyPhase5:SessionMissing', 'Session %s not found', char(sessionId));
+end
+
+function renameWorkspaceSession(ws, sessionId, newName)
+    try
+        if ismethod(ws, 'renameDashboardTab')
+            ws.renameDashboardTab(sessionId, newName);
+            return;
+        end
+    catch
+    end
+
+    try
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries) && ...
+                isKey(ws.DashboardEntries, char(sessionId))
+            entry = ws.DashboardEntries(char(sessionId));
+            if isfield(entry, 'Tab') && ~isempty(entry.Tab) && isvalid(entry.Tab)
+                entry.Tab.Title = char(newName);
+            end
+        end
+    catch
+    end
+end
+
+function addSessionToStudio(app, sessionId, displayName)
+    session = makeSession(sessionId, displayName);
 
     if hasProp(app, 'Project')
         app.Project = app.Project.addSession(session);
@@ -505,37 +573,22 @@ function addSessionToStudio(app, sessionId, displayName)
 end
 
 function renameSessionInStudio(app, sessionId, newName)
-    if ismethod(app, 'renameSession')
-        try
-            app.renameSession(sessionId, newName);
-            drawnow limitrate;
-            return;
-        catch
-        end
-    end
-
     session = getProjectSession(app.Project, sessionId);
     if isempty(session)
         error('verifyPhase5:SessionMissing', 'Session %s not found', sessionId);
     end
 
-    session = session.setDisplayName(newName);
-    app.Project = app.Project.updateSession(session);
+    session = setDisplayNameSafe(session, newName);
+    app.Project = updateProjectSessionSafe(app.Project, sessionId, session);
+    if hasProp(app, 'Workspace') && ~isempty(app.Workspace)
+        renameWorkspaceSession(app.Workspace, sessionId, newName);
+    end
 
     refreshProjectExplorer(app);
     drawnow limitrate;
 end
 
 function duplicateSessionInStudio(app, sourceId)
-    if ismethod(app, 'duplicateSession')
-        try
-            app.duplicateSession(sourceId);
-            drawnow limitrate;
-            return;
-        catch
-        end
-    end
-
     source = getProjectSession(app.Project, sourceId);
     if isempty(source)
         error('verifyPhase5:SessionMissing', 'Source session %s not found', sourceId);
@@ -544,13 +597,13 @@ function duplicateSessionInStudio(app, sourceId)
     newId = char(flightdash.project.ProjectModel.newId('SESS'));
     newName = sprintf('%s Copy', char(source.DisplayName));
 
-    dup = flightdash.project.SessionModel(newId, newName);
+    dup = makeSession(newId, newName);
 
-    if isprop(source, 'FlightFiles') && isprop(dup, 'FlightFiles')
-        dup.FlightFiles = source.FlightFiles;
+    if isprop(source, 'FlightFilePath') && isprop(dup, 'FlightFilePath')
+        dup.FlightFilePath = source.FlightFilePath;
     end
-    if isprop(source, 'VideoFiles') && isprop(dup, 'VideoFiles')
-        dup.VideoFiles = source.VideoFiles;
+    if isprop(source, 'VideoFilePath') && isprop(dup, 'VideoFilePath')
+        dup.VideoFilePath = source.VideoFilePath;
     end
 
     app.Project = app.Project.addSession(dup);
@@ -564,15 +617,6 @@ function duplicateSessionInStudio(app, sourceId)
 end
 
 function removeSessionFromStudio(app, sessionId)
-    if ismethod(app, 'removeSession')
-        try
-            app.removeSession(sessionId);
-            drawnow limitrate;
-            return;
-        catch
-        end
-    end
-
     if hasProp(app, 'Workspace') && ~isempty(app.Workspace)
         try
             callWorkspaceRemove(app.Workspace, sessionId);
@@ -596,7 +640,9 @@ function refreshProjectExplorer(app)
     pe = app.ProjectExplorer;
 
     try
-        if ismethod(pe, 'refresh')
+        if ismethod(pe, 'refreshFromProject')
+            pe.refreshFromProject(app.Project);
+        elseif ismethod(pe, 'refresh')
             pe.refresh();
         elseif ismethod(pe, 'refreshTree')
             pe.refreshTree();
@@ -648,6 +694,16 @@ function selectWorkspaceSession(ws, sessionId)
         ws.selectDashboardTab(sessionId);
     elseif ismethod(ws, 'activateSession')
         ws.activateSession(sessionId);
+    elseif isprop(ws, 'DashboardEntries') && isprop(ws, 'TabGroup') && ...
+            ~isempty(ws.DashboardEntries) && isKey(ws.DashboardEntries, char(sessionId))
+        entry = ws.DashboardEntries(char(sessionId));
+        if isfield(entry, 'Tab') && ~isempty(entry.Tab) && isvalid(entry.Tab)
+            ws.TabGroup.SelectedTab = entry.Tab;
+            drawnow limitrate;
+        else
+            error('verifyPhase5:WorkspaceSelectInvalidTab', ...
+                'Workspace DashboardEntries has no valid tab for %s', char(sessionId));
+        end
     elseif isprop(ws, 'TabMap') && isprop(ws, 'TabGroup') && ...
             ~isempty(ws.TabMap) && isKey(ws.TabMap, sessionId)
         ws.TabGroup.SelectedTab = ws.TabMap(sessionId);
@@ -734,6 +790,17 @@ end
 
 function tf = workspaceHasSession(ws, sessionId)
     tf = false;
+    sessionId = char(sessionId);
+
+    try
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries)
+            tf = isKey(ws.DashboardEntries, sessionId);
+            if tf
+                return;
+            end
+        end
+    catch
+    end
 
     try
         if isprop(ws, 'DashboardMap') && ~isempty(ws.DashboardMap)
@@ -757,9 +824,9 @@ function tf = workspaceHasSession(ws, sessionId)
 
     try
         if isprop(ws, 'TabGroup') && isgraphics(ws.TabGroup)
-            tabs = findall(ws.TabGroup, 'Type', 'uitab');
+            tabs = directWorkspaceTabs(ws.TabGroup);
             for i = 1:numel(tabs)
-                if isprop(tabs(i), 'UserData') && isequal(tabs(i).UserData, sessionId)
+                if strcmp(tabSessionIdForDiag(tabs(i)), sessionId)
                     tf = true;
                     return;
                 end
@@ -776,6 +843,19 @@ end
 
 function dash = getWorkspaceDashboard(ws, sessionId)
     dash = [];
+    sessionId = char(sessionId);
+
+    try
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries) && ...
+                isKey(ws.DashboardEntries, sessionId)
+            entry = ws.DashboardEntries(sessionId);
+            if isfield(entry, 'Dashboard')
+                dash = entry.Dashboard;
+                return;
+            end
+        end
+    catch
+    end
 
     try
         if isprop(ws, 'DashboardMap') && ~isempty(ws.DashboardMap) && isKey(ws.DashboardMap, sessionId)
@@ -792,6 +872,50 @@ function dash = getWorkspaceDashboard(ws, sessionId)
         end
     catch
         dash = [];
+    end
+end
+
+function tabs = directWorkspaceTabs(tabGroup)
+    tabs = gobjects(0);
+    try
+        kids = tabGroup.Children;
+        for i = 1:numel(kids)
+            if isgraphics(kids(i), 'uitab')
+                tabs(end+1) = kids(i); %#ok<AGROW>
+            end
+        end
+    catch
+        try
+            allTabs = findall(tabGroup, 'Type', 'uitab');
+            for i = 1:numel(allTabs)
+                if isequal(allTabs(i).Parent, tabGroup)
+                    tabs(end+1) = allTabs(i); %#ok<AGROW>
+                end
+            end
+        catch
+            tabs = gobjects(0);
+        end
+    end
+end
+
+function id = tabSessionIdForDiag(tab)
+    id = '';
+    try
+        if isempty(tab) || ~isvalid(tab), return; end
+        if isappdata(tab, 'SessionId')
+            id = char(getappdata(tab, 'SessionId'));
+            if ~isempty(id), return; end
+        end
+        if isprop(tab, 'UserData')
+            ud = tab.UserData;
+            if isstruct(ud) && isfield(ud, 'SessionId')
+                id = char(ud.SessionId);
+            elseif ischar(ud) || isstring(ud)
+                id = char(ud);
+            end
+        end
+    catch
+        id = '';
     end
 end
 

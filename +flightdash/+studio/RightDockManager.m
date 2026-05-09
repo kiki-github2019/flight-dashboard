@@ -145,6 +145,46 @@ classdef RightDockManager < handle
             obj.rebuildInspector([]);
         end
 
+        function refreshObjectManager(obj, dashboard)
+            obj.refreshObjectsFor(dashboard);
+        end
+
+        function refreshForDashboard(obj, dashboard)
+            obj.refreshObjectsFor(dashboard);
+        end
+
+        function selectObject(obj, h)
+            obj.refreshInspector(h);
+        end
+
+        function showObjectProperties(obj, h)
+            obj.refreshInspector(h);
+        end
+
+        function refreshInspector(obj, h)
+            try
+                if isempty(h) || ~all(isgraphics(h))
+                    obj.SelectedHandle = [];
+                    obj.rebuildInspector([]);
+                    return;
+                end
+                obj.SelectedHandle = h;
+                obj.rebuildInspector(struct( ...
+                    'Kind',       'handle', ...
+                    'ChannelIdx', 0, ...
+                    'Field',      class(h), ...
+                    'Label',      class(h), ...
+                    'Handle',     h));
+            catch ME
+                try, obj.App.logCaught(ME, 'Inspector:refreshPublic'); catch, end
+                try
+                    obj.SelectedHandle = [];
+                    obj.rebuildInspector([]);
+                catch
+                end
+            end
+        end
+
     end
 
     methods (Access = private)
