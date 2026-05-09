@@ -135,6 +135,19 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
         end
 
+        function onUIFigureResized(app)
+            % [PHASE 4 review] When the Studio uifigure changes size
+            % (window resize, browser viewport change), ask the active
+            % embedded dashboard to recompute its responsive layout.
+            if app.IsDeleting, return; end
+            try
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    app.Workspace.refreshActiveLayout('studioResize');
+                end
+            catch
+            end
+        end
+
         function removeSession(app, sessionId)
             % [PHASE 3c] Remove a session everywhere it lives:
             %   1) ProjectModel (so cascades drop dependent results too)
@@ -240,6 +253,11 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             catch
             end
             app.UIFigure.CloseRequestFcn = @(~,~) app.onCloseRequest();
+            % [PHASE 4 review] Forward figure resize to whichever
+            % dashboard is currently active so its responsive layout
+            % recomputes column widths/profile when the user resizes
+            % the Studio window or the browser viewport changes.
+            app.UIFigure.SizeChangedFcn = @(~,~) app.onUIFigureResized();
 
             % --- Top-level grid: header / body / status bar ---
             shellGrid = uigridlayout(app.UIFigure, [3 1], ...

@@ -23,11 +23,11 @@ classdef PanelToggleController < handle
         end
         
         function onPanelToggled(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.togglePanel(d.ChannelIdx, d.Payload);
         end
         function onDebugToggled(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.toggleDebugMode(d.Payload);
         end
         function onSyncToggled(obj)
@@ -39,7 +39,7 @@ classdef PanelToggleController < handle
             obj.App.toggleWindowMaximized();
         end
         function onChannelViewChanged(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.setChannelViewMode(d.Payload);
         end
         

@@ -382,31 +382,47 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.LayoutMgr     = [];
             catch ME, app.logCaught(ME, 'silent'); end
 
-            % [PATCH / V3.22 #6 / FIX] 워커 persistent VR 명시 해제 - 2s timeout으로 hang 차단
-            try
-                if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
-                    fCleanup = parfevalOnAll(app.AsyncPool, @cleanupAsyncDecodeCache, 0);
-                    cleanupOk = false;
-                    try
-                        wait(fCleanup, 'finished', 5);
-                        cleanupOk = true;
-                    catch ME
-                        app.logCaught(ME, 'Async:cleanupWait');
+            % [PHASE 4 review] Process-global resources MUST NOT be torn
+            % down when this dashboard is just an embedded session being
+            % closed inside a still-running Studio. Other embedded
+            % dashboards share MATLAB's parpool — calling delete() on
+            % it would kill their async decode workers. Only the
+            % standalone path or the final dashboard in a Studio (which
+            % is impossible to detect here without coordination) should
+            % perform the global cleanup. Studio is responsible for
+            % running parpool teardown via FlightReviewStudioApp.delete
+            % once the entire shell is closing.
+            if ~app.IsEmbedded
+                % [PATCH / V3.22 #6 / FIX] 워커 persistent VR 명시 해제 - 2s timeout으로 hang 차단
+                try
+                    if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
+                        fCleanup = parfevalOnAll(app.AsyncPool, @cleanupAsyncDecodeCache, 0);
+                        cleanupOk = false;
+                        try
+                            wait(fCleanup, 'finished', 5);
+                            cleanupOk = true;
+                        catch ME
+                            app.logCaught(ME, 'Async:cleanupWait');
+                        end
+                        if ~cleanupOk
+                            % [FIX] timeout 시 pending future cancel
+                            try, cancel(fCleanup); catch, end
+                        end
                     end
-                    if ~cleanupOk
-                        % [FIX] timeout 시 pending future cancel (worker hang 차단)
-                        try, cancel(fCleanup); catch, end
-                    end
-                end
-            catch ME, app.logCaught(ME, 'silent'); end
+                catch ME, app.logCaught(ME, 'silent'); end
 
-            % [FIX] pool 명시 삭제 - 다음 실행에서 깨끗한 환경 보장
-            try
-                if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
-                    delete(app.AsyncPool);
-                end
+                % [FIX] pool 명시 삭제 - 다음 실행에서 깨끗한 환경 보장
+                try
+                    if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
+                        delete(app.AsyncPool);
+                    end
+                    app.AsyncPool = [];
+                catch ME, app.logCaught(ME, 'silent'); end
+            else
+                % Embedded session unload: drop only this dashboard's
+                % handle to the pool. Do NOT delete the pool itself.
                 app.AsyncPool = [];
-            catch ME, app.logCaught(ME, 'silent'); end
+            end
 
             try
                 app.closeAllAuxFigures();
@@ -510,13 +526,29 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function tf = isActiveSession(app)
-            % [PHASE 4] Returns true when this dashboard is the one the
-            % user is currently looking at. Standalone dashboards always
-            % return true. Embedded dashboards return true only when
-            % their session id matches the Studio's active workspace
-            % tab. Controllers consult this in their EventBus listener
-            % entry to skip broadcasts that target a different session.
+        function tf = isActiveSession(app, eventData)
+            % [PHASE 4 review] Two-layer session check:
+            %   1) If the EventBus payload carries a non-empty SessionId,
+            %      use it as the authoritative source — only the
+            %      dashboard whose ActiveSessionId matches handles it.
+            %   2) Otherwise fall back to the global SessionScope (active
+            %      workspace tab). This keeps standalone single-instance
+            %      runs and legacy publishers working without changes.
+            try
+                if nargin >= 2 && ~isempty(eventData) ...
+                        && isprop(eventData, 'SessionId') ...
+                        && ~isempty(eventData.SessionId)
+                    appId = '';
+                    if isprop(app, 'ActiveSessionId'), appId = char(app.ActiveSessionId); end
+                    if isempty(appId) || strcmp(appId, 'standalone')
+                        tf = true;
+                        return;
+                    end
+                    tf = strcmp(char(eventData.SessionId), appId);
+                    return;
+                end
+            catch
+            end
             tf = flightdash.util.SessionScope.isOwner(app);
         end
 

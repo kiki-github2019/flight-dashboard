@@ -131,10 +131,18 @@ classdef ProjectModel
 
     methods (Static)
         function id = newId(prefix)
+            % [PHASE 4 review] Persistent monotonic counter combined
+            % with a millisecond timestamp guarantees uniqueness within
+            % a MATLAB session and makes test runs reproducible. The
+            % previous randi(9999) approach risked rare collisions when
+            % many sessions/results were created back-to-back.
+            persistent counter
+            if isempty(counter), counter = uint64(0); end
+            counter = counter + 1;
             if nargin < 1, prefix = 'OBJ'; end
-            id = sprintf('%s_%s_%04d', prefix, ...
+            id = sprintf('%s_%s_%06d', prefix, ...
                 datestr(now, 'yyyymmddHHMMSSFFF'), ...
-                randi(9999));
+                counter);
         end
 
         function s = nowIso()

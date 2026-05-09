@@ -25,7 +25,7 @@ classdef RoiController < handle
         end
 
         function gated(obj, fn, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             fn(d);
         end
 

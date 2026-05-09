@@ -155,6 +155,34 @@ classdef WorkspaceManager < handle
             end
         end
 
+        function refreshActiveLayout(obj, reason)
+            % [PHASE 4 review] Notify the active session's dashboard to
+            % rerun its responsive layout. Called when:
+            %   - Studio's UIFigure changes size
+            %   - The user switches tabs
+            %   - Side dock widths change
+            % Without this, the embedded dashboard keeps the column
+            % widths it computed when the tab was first opened.
+            if nargin < 2, reason = 'workspace'; end
+            try
+                if isempty(obj.DashboardEntries) || obj.DashboardEntries.Count == 0
+                    return;
+                end
+                if isempty(obj.TabGroup) || ~isvalid(obj.TabGroup), return; end
+                activeTab = obj.TabGroup.SelectedTab;
+                if isempty(activeTab) || ~isvalid(activeTab), return; end
+                sessId = obj.tabSessionId(activeTab);
+                if isempty(sessId) || ~obj.DashboardEntries.isKey(sessId), return; end
+                entry = obj.DashboardEntries(sessId);
+                dash = entry.Dashboard;
+                if ~isempty(dash) && isvalid(dash) && ~isempty(dash.LayoutMgr) ...
+                        && isvalid(dash.LayoutMgr)
+                    dash.LayoutMgr.applyLayout(dash, char(reason));
+                end
+            catch
+            end
+        end
+
         function id = activeSessionId(obj)
             % Phase 1: returns 'standalone' since no real sessions exist.
             % Phase 3: returns the SessionId stored on the active tab's UserData.
@@ -206,7 +234,10 @@ classdef WorkspaceManager < handle
         function onTabChanged(obj)
             % Update active session id (Phase 0.8 prep) and notify status.
             % [PHASE 4] Also publish the session id to SessionScope so
-            % every per-session controller's EventBus gate can read it.
+            % every per-session controller's EventBus gate can read it,
+            % and ask the newly active dashboard to recompute its
+            % responsive layout (the tab area may have changed size
+            % while it was hidden).
             try
                 newId = obj.activeSessionId();
                 if ~isempty(obj.App) && isvalid(obj.App)
@@ -220,6 +251,7 @@ classdef WorkspaceManager < handle
                 else
                     flightdash.util.SessionScope.setActive(newId);
                 end
+                obj.refreshActiveLayout('tabActivated');
             catch
             end
         end

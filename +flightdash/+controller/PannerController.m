@@ -26,7 +26,7 @@ classdef PannerController < handle
         end
 
         function gated(obj, fn, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             fn(d);
         end
 
@@ -102,6 +102,11 @@ classdef PannerController < handle
         function handleDragMotion(obj)
             app = obj.App;
             if ~obj.IsDragging, return; end
+            % [PHASE 4 review] Same figure-level callback hazard as
+            % MarkerDragController.plotMarkerDragMotion: if the active
+            % tab changed mid-drag, ignore motion until the user
+            % switches back or releases the mouse.
+            if ~app.isActiveSession(), return; end
             try
                 fIdx = obj.DragFIdx;
                 if fIdx < 1 || fIdx > numel(app.UI), return; end

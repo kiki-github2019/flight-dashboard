@@ -20,11 +20,11 @@ classdef DragController < handle
         end
         
         function onPanelSplitterStart(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.startPanelSplitterDrag(d.ChannelIdx, d.Payload);
         end
         function onSplitterStart(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.startHISplitterDrag(d.ChannelIdx);
         end
         

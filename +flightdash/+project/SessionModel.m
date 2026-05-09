@@ -64,36 +64,89 @@ classdef SessionModel
         end
 
         function obj = setFlightFile(obj, channelIdx, path)
-            obj.FlightFilePath{channelIdx} = char(path);
+            flightdash.project.SessionModel.validateChannelIdx(channelIdx);
+            obj.FlightFilePath{channelIdx} = flightdash.project.SessionModel.coercePath(path);
             obj = obj.touch();
         end
 
         function obj = setVideoFile(obj, channelIdx, path)
-            obj.VideoFilePath{channelIdx} = char(path);
+            flightdash.project.SessionModel.validateChannelIdx(channelIdx);
+            obj.VideoFilePath{channelIdx} = flightdash.project.SessionModel.coercePath(path);
             obj = obj.touch();
         end
 
         function obj = setRoiRows(obj, channelIdx, rows)
+            flightdash.project.SessionModel.validateChannelIdx(channelIdx);
             obj.RoiRows{channelIdx} = rows;
             obj = obj.touch();
         end
 
         function obj = setDisplayName(obj, name)
-            obj.DisplayName = char(name);
+            name = flightdash.project.SessionModel.coerceName(name);
+            if isempty(name)
+                error('SessionModel:EmptyName', 'DisplayName cannot be empty.');
+            end
+            obj.DisplayName = name;
             obj = obj.touch();
         end
 
         function tf = hasFlightData(obj, channelIdx)
+            flightdash.project.SessionModel.validateChannelIdx(channelIdx);
             tf = ~isempty(obj.FlightFilePath{channelIdx});
         end
 
         function tf = hasVideo(obj, channelIdx)
+            flightdash.project.SessionModel.validateChannelIdx(channelIdx);
             tf = ~isempty(obj.VideoFilePath{channelIdx});
         end
 
         function obj = touch(obj)
             obj.ModifiedAt = flightdash.project.ProjectModel.nowIso();
             obj.DirtyFlag  = true;
+        end
+    end
+
+    methods (Static, Access = private)
+        function validateChannelIdx(channelIdx)
+            % [PHASE 4 review] Reject non-integer / out-of-range channel
+            % indices early instead of letting cell indexing die with a
+            % cryptic error 200ms later.
+            validateattributes(channelIdx, {'numeric'}, ...
+                {'scalar', 'integer', 'finite', '>=', 1, '<=', 2}, ...
+                '', 'channelIdx');
+        end
+
+        function s = coercePath(path)
+            if isstring(path)
+                if isscalar(path)
+                    s = char(path);
+                else
+                    s = '';
+                end
+            elseif ischar(path)
+                s = path;
+            elseif isempty(path)
+                s = '';
+            else
+                error('SessionModel:InvalidPath', ...
+                    'path must be a char vector or string scalar.');
+            end
+        end
+
+        function s = coerceName(name)
+            if isstring(name)
+                if isscalar(name)
+                    s = strtrim(char(name));
+                else
+                    s = '';
+                end
+            elseif ischar(name)
+                s = strtrim(name);
+            elseif isempty(name)
+                s = '';
+            else
+                s = '';
+            end
         end
     end
 end

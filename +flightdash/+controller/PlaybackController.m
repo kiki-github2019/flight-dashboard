@@ -30,43 +30,43 @@ classdef PlaybackController < handle
         end
         
         function onSliderChanging(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.onVdubSliderChanging(d.ChannelIdx, d.Payload);
         end
         function onSliderChanged(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.onVdubSliderChanged(d.ChannelIdx, d.Payload);
         end
         function onNav(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.onVdubNav(d.ChannelIdx, d.Payload);
         end
         function onSpinner(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.handleSpinnerChange(d.ChannelIdx, d.Payload);
         end
         function onTableSelect(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.InfoCtrl.handleTableSelection(d.ChannelIdx, d.Payload);
         end
         function onInfoFormat(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.setInfoFormatMode(d.ChannelIdx, d.Payload);
         end
         function onInfoOrderMove(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.InfoCtrl.moveSelectedRow(d.ChannelIdx, d.Payload);
         end
         function onFlightPlay(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.startFlightPlayback(d.ChannelIdx);
         end
         function onFlightStop(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.stopFlightPlayback(d.ChannelIdx);
         end
         function onFlightPlayInterval(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.setFlightPlayInterval(d.ChannelIdx, d.Payload);
         end
         

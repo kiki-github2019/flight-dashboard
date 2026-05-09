@@ -23,11 +23,11 @@ classdef FileController < handle
         end
         
         function onFlightFile(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.handleFlightFile(d.ChannelIdx);
         end
         function onAviFile(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.loadAviFile(d.ChannelIdx);
         end
         function onCoastFile(obj)

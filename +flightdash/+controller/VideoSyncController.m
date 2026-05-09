@@ -22,7 +22,7 @@ classdef VideoSyncController < handle
         end
         
         function onApplySync(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.applyVideoSync(d.ChannelIdx);
         end
         function onHzAdjust(obj, d)
@@ -36,7 +36,7 @@ classdef VideoSyncController < handle
             obj.App.onHzInputChanged(d.ChannelIdx, p.target, p.value);
         end
         function onCacheBudget(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.setCacheBudget(d.Payload);
         end
         

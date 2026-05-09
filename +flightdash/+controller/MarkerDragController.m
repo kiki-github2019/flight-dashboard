@@ -98,6 +98,12 @@ classdef MarkerDragController < handle
         function plotMarkerDragMotion(obj, fIdx)
             app = obj.App;
             if ~obj.IsDraggingMarker, return; end
+            % [PHASE 4 review] Figure-level WindowButtonMotionFcn is a
+            % single slot. If the user switched workspace tabs after the
+            % drag started, this controller's motion fcn keeps firing
+            % for the new tab's mouse events. Guard against acting on
+            % the wrong session.
+            if ~app.isActiveSession(), return; end
             try
                 if isempty(obj.DraggedMarker) || ~isvalid(obj.DraggedMarker), return; end
                 ax = obj.DraggedMarker.Parent;
@@ -118,6 +124,7 @@ classdef MarkerDragController < handle
         function videoFrameDragMotion(obj, fIdx)
             app = obj.App;
             if ~obj.IsDraggingMarker, return; end
+            if ~app.isActiveSession(), return; end
             try
                 if isempty(obj.DraggedMarker) || ~isvalid(obj.DraggedMarker), return; end
                 ax = obj.DraggedMarker.Parent;

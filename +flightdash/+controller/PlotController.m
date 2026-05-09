@@ -28,49 +28,49 @@ classdef PlotController < handle
         end
 
         function onPlotSelected(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             if obj.App.hasPlotView(d.ChannelIdx)
                 obj.App.PlotView(d.ChannelIdx).addSelectedVariable();
             end
         end
         function onAddTab(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             if obj.App.hasPlotView(d.ChannelIdx)
                 obj.App.PlotView(d.ChannelIdx).addTab();
             end
         end
         function onClearTab(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             if obj.App.hasPlotView(d.ChannelIdx)
                 obj.App.PlotView(d.ChannelIdx).clearCurrentTab();
             end
         end
         function onTabChanged(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.updateTabTimeLines(d.ChannelIdx);
         end
         function onPlotVisibility(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.onPlotVisibilityChanged(d.ChannelIdx, d.Payload);
         end
         function onPlotManagerSelected(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.onPlotManagerSelected(d.ChannelIdx, d.Payload);
         end
         function onPlotDetailChanged(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.onPlotDetailChanged(d.ChannelIdx, d.Payload);
         end
         function onPlotAxisChanged(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.onPlotAxisChanged(d.ChannelIdx, d.Payload);
         end
         function onPlotManagerToggled(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.togglePlotManager(d.ChannelIdx);
         end
         function onPlotDetailsToggled(obj, d)
-            if ~obj.App.isActiveSession(), return; end
+            if ~obj.App.isActiveSession(d), return; end
             obj.App.togglePlotDetails(d.ChannelIdx);
         end
 
