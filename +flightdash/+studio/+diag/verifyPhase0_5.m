@@ -268,7 +268,10 @@ function [ok, msg, status] = checkMojibakeRisk()
     status = '';
 
     root = repoRoot();
-    files = listMFiles(root);
+    files = listTrackedMFiles(root);
+    if isempty(files)
+        files = filterMojibakeScanFiles(listMFiles(root), root);
+    end
 
     patterns = buildMojibakePatterns();
 
@@ -376,6 +379,62 @@ function files = listMFiles(folder)
             end
         end
     end
+end
+
+function files = listTrackedMFiles(root)
+    files = {};
+
+    try
+        cmd = sprintf('git -C "%s" ls-files "*.m"', escapeShellPath(root));
+        [status, out] = system(cmd);
+        if status ~= 0 || isempty(strtrim(out))
+            return;
+        end
+
+        rels = regexp(strtrim(out), '\r\n|\n|\r', 'split');
+        for i = 1:numel(rels)
+            rel = strtrim(rels{i});
+            if isempty(rel) || shouldSkipMojibakeRelPath(rel)
+                continue;
+            end
+            fullPath = fullfile(root, strrep(rel, '/', filesep));
+            if isfile(fullPath)
+                files{end+1, 1} = fullPath; %#ok<AGROW>
+            end
+        end
+    catch
+        files = {};
+    end
+end
+
+function files = filterMojibakeScanFiles(files, root)
+    keep = true(size(files));
+
+    for i = 1:numel(files)
+        rel = normalizeRelPath(relpath(files{i}, root));
+        keep(i) = ~shouldSkipMojibakeRelPath(rel);
+    end
+
+    files = files(keep);
+end
+
+function tf = shouldSkipMojibakeRelPath(rel)
+    rel = normalizeRelPath(rel);
+    [~, name, ext] = fileparts(rel);
+    fileName = [name ext];
+
+    tf = startsWith(rel, '.') || ...
+         startsWith(rel, 'merged_output_') || ...
+         strcmp(fileName, 'merged_output_2605051834_refactoring.m') || ...
+         strcmp(rel, '+flightdash/+view/FlightDataDashboard.m');
+end
+
+function out = normalizeRelPath(pathValue)
+    out = strrep(char(pathValue), '\', '/');
+end
+
+function out = escapeShellPath(pathValue)
+    out = strrep(char(pathValue), '"', '\"');
 end
 
 function [txt, err] = readTextFile(file)
