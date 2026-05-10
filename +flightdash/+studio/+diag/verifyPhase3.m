@@ -23,6 +23,7 @@ function results = verifyPhase3()
         'P3-13', @checkStudioMouseRouterHardening
         'P3-14', @checkWorkspaceCloseReleasesRouterLock
         'P3-15', @checkCleanupAllControllersHook
+        'P3-16', @checkControllerBasePresence
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -605,6 +606,30 @@ function [ok, msg, status] = checkCleanupAllControllersHook()
     safeDelete(fig);
 end
 
+function [ok, msg, status] = checkControllerBasePresence()
+    status = '';
+    try
+        metaObj = meta.class.fromName('flightdash.controller.ControllerBase');
+        required = {'requestDragLock','releaseDragLock','handleDragMotion', ...
+            'stopDrag','cleanup','trackListener'};
+        missing = {};
+        for k = 1:numel(required)
+            if ~hasMetaMethod(metaObj, required{k})
+                missing{end+1} = required{k}; %#ok<AGROW>
+            end
+        end
+        ok = ~isempty(metaObj) && isempty(missing);
+        if ok
+            msg = 'ControllerBase optional future-use API resolved';
+        else
+            msg = sprintf('ControllerBase missing API: %s', strjoin(missing, ', '));
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('ControllerBase check failed: %s', ME.message);
+    end
+end
+
 % -------------------------------------------------------------------------
 % Helpers
 % -------------------------------------------------------------------------
@@ -645,6 +670,22 @@ function tf = hasProp(obj, propName)
 
     try
         tf = isprop(obj, propName);
+    catch
+        tf = false;
+    end
+end
+
+function tf = hasMetaMethod(metaObj, methodName)
+    tf = false;
+    try
+        if isempty(metaObj), return; end
+        methods_ = metaObj.MethodList;
+        for k = 1:numel(methods_)
+            if strcmp(methods_(k).Name, methodName)
+                tf = true;
+                return;
+            end
+        end
     catch
         tf = false;
     end
