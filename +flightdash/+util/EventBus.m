@@ -79,15 +79,18 @@ classdef EventBus < handle
             inst = singleton;
         end
 
-        function publish(eventName, data)
+        function publish(eventName, data, targetSessionId)
             % In Studio mode, older view callbacks may omit SessionId.
             % Fill it from SessionScope so controller guards can reliably
             % reject events from inactive embedded tabs.
             if nargin < 2
                 data = [];
             end
+            if nargin < 3
+                targetSessionId = '';
+            end
             data = flightdash.util.EventBus.normalizePayload(data);
-            data = flightdash.util.EventBus.attachActiveSessionIfMissing(data);
+            data = flightdash.util.EventBus.attachSession(data, targetSessionId);
 
             eventName = char(eventName);
             inst = flightdash.util.EventBus.instance();
@@ -108,14 +111,31 @@ classdef EventBus < handle
             end
         end
 
-        function listener = subscribe(eventName, callback)
+        function listener = subscribe(eventName, callback, sessionId)
             eventName = char(eventName);
+            if nargin < 3
+                sessionId = '';
+            end
             if ~flightdash.util.EventBus.isKnownEvent(eventName)
                 error('flightdash:EventBus:UnknownEvent', ...
                     'Unknown EventBus event: %s', eventName);
             end
             inst = flightdash.util.EventBus.instance();
-            listener = addlistener(inst, eventName, callback);
+            sessionId = char(sessionId);
+            if isempty(sessionId)
+                listener = addlistener(inst, eventName, callback);
+            else
+                listener = addlistener(inst, eventName, ...
+                    @(src, data) flightdash.util.EventBus.safeSessionCallback( ...
+                    sessionId, eventName, callback, src, data));
+            end
+        end
+
+        function tf = acceptsSession(listenerSessionId, eventSessionId)
+            listenerSessionId = char(listenerSessionId);
+            eventSessionId = char(eventSessionId);
+            tf = isempty(listenerSessionId) || isempty(eventSessionId) || ...
+                strcmp(listenerSessionId, eventSessionId);
         end
     end
 
@@ -125,14 +145,21 @@ classdef EventBus < handle
                 data = flightdash.util.AppEventData();
             elseif isa(data, 'event.EventData')
                 return;
+            elseif isstruct(data) && isfield(data, 'SessionId')
+                data = flightdash.util.AppEventData(0, data, data.SessionId);
             else
                 data = flightdash.util.AppEventData(0, data);
             end
         end
 
-        function data = attachActiveSessionIfMissing(data)
+        function data = attachSession(data, targetSessionId)
             try
                 if ~isa(data, 'flightdash.util.AppEventData')
+                    return;
+                end
+                targetSessionId = char(targetSessionId);
+                if ~isempty(targetSessionId)
+                    data.SessionId = targetSessionId;
                     return;
                 end
                 if ~isempty(data.SessionId)
@@ -143,6 +170,32 @@ classdef EventBus < handle
                     data.SessionId = char(activeId);
                 end
             catch
+            end
+        end
+
+        function safeSessionCallback(listenerSessionId, eventName, callback, src, data)
+            try
+                eventSessionId = flightdash.util.EventBus.payloadSessionId(data);
+                if ~flightdash.util.EventBus.acceptsSession(listenerSessionId, eventSessionId)
+                    return;
+                end
+                callback(src, data);
+            catch ME
+                flightdash.util.ErrorLog.log(ME, ['EventBus:' char(eventName) ':SessionCallback'], false);
+            end
+        end
+
+        function sessionId = payloadSessionId(data)
+            sessionId = '';
+            try
+                if isa(data, 'flightdash.util.AppEventData') || ...
+                        (isobject(data) && isprop(data, 'SessionId'))
+                    sessionId = char(data.SessionId);
+                elseif isstruct(data) && isfield(data, 'SessionId')
+                    sessionId = char(data.SessionId);
+                end
+            catch
+                sessionId = '';
             end
         end
 

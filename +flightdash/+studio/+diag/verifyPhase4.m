@@ -21,6 +21,8 @@ function results = verifyPhase4()
 %     P4-6  SessionModel.setDisplayName rejects empty / whitespace
 %     P4-7  ProjectModel.removeSession cascades dependent results
 %     P4-8  StudioMouseRouter lock semantics (Phase 3.5)
+%     P4-9  EventBus session-filtered subscriptions and target publish
+%     P4-10 SessionScopedListener / ControllerBase helper presence
 %     P9-1  ProjectSerializer save+load round-trip (Phase 9)
 
     fprintf('\n=== Phase 4 verification ===\n');
@@ -34,6 +36,8 @@ function results = verifyPhase4()
         'P4-6', @p46_displayNameValidator; ...
         'P4-7', @p47_removeSessionCascade; ...
         'P4-8', @p48_studioMouseRouter; ...
+        'P4-9', @p49_eventBusSessionFilters; ...
+        'P4-10', @p410_sessionScopedListenerApi; ...
         'P9-1', @p91_serializerRoundTrip ...
     };
 
@@ -412,6 +416,100 @@ function r = p48_studioMouseRouter()
     if ~isempty(fig) && isvalid(fig), try, delete(fig); catch, end, end
 end
 
+function r = p49_eventBusSessionFilters()
+    r = struct('Passed', false, 'Message', '', 'Details', struct());
+    la = [];
+    lb = [];
+    lAll = [];
+    flightdash.util.SessionScope.clear();
+    cleaner = onCleanup(@cleanup);
+    try
+        hitsA = 0;
+        hitsB = 0;
+        hitsAll = 0;
+        la = flightdash.util.EventBus.subscribe('FlightStopRequested', @(~,~) bumpA(), 'P4_A');
+        lb = flightdash.util.EventBus.subscribe('FlightStopRequested', @(~,~) bumpB(), 'P4_B');
+        lAll = flightdash.util.EventBus.subscribe('FlightStopRequested', @(~,~) bumpAll());
+
+        flightdash.util.EventBus.publish('FlightStopRequested', flightdash.util.AppEventData(1, [], 'P4_A'));
+        if hitsA ~= 1 || hitsB ~= 0 || hitsAll ~= 1
+            r.Message = sprintf('Session P4_A routing mismatch: A=%d B=%d All=%d', hitsA, hitsB, hitsAll);
+            return;
+        end
+
+        flightdash.util.EventBus.publish('FlightStopRequested', flightdash.util.AppEventData(1), 'P4_B');
+        if hitsA ~= 1 || hitsB ~= 1 || hitsAll ~= 2
+            r.Message = sprintf('Target publish P4_B mismatch: A=%d B=%d All=%d', hitsA, hitsB, hitsAll);
+            return;
+        end
+
+        flightdash.util.EventBus.publish('FlightStopRequested', struct('SessionId', 'P4_A', 'Payload', 42));
+        if hitsA ~= 2 || hitsB ~= 1 || hitsAll ~= 3
+            r.Message = sprintf('Struct payload SessionId mismatch: A=%d B=%d All=%d', hitsA, hitsB, hitsAll);
+            return;
+        end
+
+        flightdash.util.EventBus.publish('FlightStopRequested', flightdash.util.AppEventData(1));
+        if hitsA ~= 3 || hitsB ~= 2 || hitsAll ~= 4
+            r.Message = sprintf('Legacy broadcast mismatch: A=%d B=%d All=%d', hitsA, hitsB, hitsAll);
+            return;
+        end
+
+        if ~flightdash.util.EventBus.acceptsSession('P4_A', 'P4_A') || ...
+                flightdash.util.EventBus.acceptsSession('P4_A', 'P4_B') || ...
+                ~flightdash.util.EventBus.acceptsSession('', 'P4_B') || ...
+                ~flightdash.util.EventBus.acceptsSession('P4_A', '')
+            r.Message = 'acceptsSession semantics mismatch';
+            return;
+        end
+
+        r.Passed = true;
+        r.Message = 'EventBus session filters, target publish, struct SessionId, and broadcast semantics correct';
+    catch ME
+        r.Message = sprintf('EventBus session filter check errored: %s', ME.message);
+    end
+
+    function bumpA()
+        hitsA = hitsA + 1;
+    end
+
+    function bumpB()
+        hitsB = hitsB + 1;
+    end
+
+    function bumpAll()
+        hitsAll = hitsAll + 1;
+    end
+
+    function cleanup()
+        try, if ~isempty(la) && isvalid(la), delete(la); end, catch, end
+        try, if ~isempty(lb) && isvalid(lb), delete(lb); end, catch, end
+        try, if ~isempty(lAll) && isvalid(lAll), delete(lAll); end, catch, end
+        flightdash.util.SessionScope.clear();
+    end
+end
+
+function r = p410_sessionScopedListenerApi()
+    r = struct('Passed', false, 'Message', '', 'Details', struct());
+    try
+        listenerMeta = meta.class.fromName('flightdash.event.SessionScopedListener');
+        baseMeta = meta.class.fromName('flightdash.controller.ControllerBase');
+        ok = ~isempty(listenerMeta) && ~isempty(baseMeta) && ...
+            hasMetaMethod(listenerMeta, 'safeCallback') && ...
+            hasMetaMethod(baseMeta, 'addSessionListener') && ...
+            hasMetaProperty(baseMeta, 'SessionListeners') && ...
+            hasMetaMethod(baseMeta, 'cleanup');
+        if ~ok
+            r.Message = 'SessionScopedListener or ControllerBase session listener API missing';
+            return;
+        end
+        r.Passed = true;
+        r.Message = 'SessionScopedListener and ControllerBase session listener cleanup API resolved';
+    catch ME
+        r.Message = sprintf('SessionScopedListener API check errored: %s', ME.message);
+    end
+end
+
 
 function r = p91_serializerRoundTrip()
     % [PHASE 9] Build a non-trivial Project, save it to a .frsproj
@@ -501,4 +599,36 @@ function r = p91_serializerRoundTrip()
         r.Message = sprintf('Round-trip errored: %s', ME.message);
     end
     clear cleaner;
+end
+
+function tf = hasMetaMethod(metaObj, methodName)
+    tf = false;
+    try
+        if isempty(metaObj), return; end
+        methods_ = metaObj.MethodList;
+        for k = 1:numel(methods_)
+            if strcmp(methods_(k).Name, methodName)
+                tf = true;
+                return;
+            end
+        end
+    catch
+        tf = false;
+    end
+end
+
+function tf = hasMetaProperty(metaObj, propName)
+    tf = false;
+    try
+        if isempty(metaObj), return; end
+        props = metaObj.PropertyList;
+        for k = 1:numel(props)
+            if strcmp(props(k).Name, propName)
+                tf = true;
+                return;
+            end
+        end
+    catch
+        tf = false;
+    end
 end

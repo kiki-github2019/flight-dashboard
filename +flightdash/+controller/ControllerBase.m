@@ -18,6 +18,7 @@ classdef ControllerBase < handle
         StartPoint double = [0 0]
         OriginalState = []
         Listeners cell = {}
+        SessionListeners cell = {}
     end
 
     methods
@@ -215,6 +216,15 @@ classdef ControllerBase < handle
             end
         end
 
+        function addSessionListener(obj, source, eventName, callback)
+            try
+                L = flightdash.event.SessionScopedListener(obj.SessionId, source, eventName, callback);
+                obj.SessionListeners{end+1} = L;
+            catch ME
+                obj.logCaught(ME, 'ControllerBase:addSessionListener');
+            end
+        end
+
         function trackListener(obj, listenerHandle)
             if isempty(listenerHandle)
                 return;
@@ -234,6 +244,15 @@ classdef ControllerBase < handle
                 end
             end
             obj.Listeners = {};
+            for k = 1:numel(obj.SessionListeners)
+                try
+                    if ~isempty(obj.SessionListeners{k}) && isvalid(obj.SessionListeners{k})
+                        delete(obj.SessionListeners{k});
+                    end
+                catch
+                end
+            end
+            obj.SessionListeners = {};
             obj.onCleanup();
         end
 
