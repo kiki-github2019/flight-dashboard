@@ -15,6 +15,7 @@ The current stabilization scope is:
 - Phase 6: toolbar/menu/Inspector/GUI mode MVP
 - Phase 8a: single ROI result Manual/Auto/Frozen recalculate MVP
 - Phase 8b: dirty dependency propagation and topological result ordering
+- Phase 8c: debounce queue for Auto result recalculation
 - Phase 9: linked `.frsproj` save/load
 
 ## Phase 7 Boundary
@@ -31,9 +32,10 @@ UI workflows during stabilization.
 
 ## Phase 8 Boundary
 
-Phase 8a/8b now have small recalculate and dirty graph services:
+Phase 8a/8b/8c now have small recalculate, dirty graph, and queue services:
 
 - `+flightdash/+analysis/RecalculateService.m`
+- `+flightdash/+analysis/RecalculateQueue.m`
 - `+flightdash/+project/DirtyTracker.m`
 - `+flightdash/+studio/+diag/verifyPhase8.m`
 
@@ -43,10 +45,12 @@ The supported scope is intentionally narrow:
 - source hash changes can mark results dirty/stale
 - downstream result dependencies can be marked in topological order
 - dependency cycles are rejected
+- Auto results can be queued with debounce and latest-request coalescing
 
-Do not assume the following exist until Phase 8c starts:
+Do not assume the following exist until a later shared-worker phase starts:
 
-- Auto mode debounce queues
+- parfeval priority scheduling
+- cross-session shared recalculation workers
 - Frozen stale-result acknowledgement UI
 
 ## Linked Project Mode

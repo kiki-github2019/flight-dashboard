@@ -17,7 +17,9 @@ function results = verifyPhase8()
         'P8-7', @checkSerializerRoundTrip
         'P8-8', @checkDependencyPropagation
         'P8-9', @checkTopologicalOrderAndCycle
-        'P8-10', @checkDeferredQueueScopeGuard
+        'P8-10', @checkQueueDebounceAndRun
+        'P8-11', @checkQueueModeFiltering
+        'P8-12', @checkQueueErrorIsolation
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -64,6 +66,7 @@ function [ok, msg, status] = checkPhase8Classes()
     status = '';
     classes = {
         'flightdash.analysis.RecalculateService'
+        'flightdash.analysis.RecalculateQueue'
         'flightdash.analysis.AnalysisService'
         'flightdash.project.DirtyTracker'
         'flightdash.project.ReviewResultModel'
@@ -86,7 +89,7 @@ function [ok, msg, status] = checkPhase8Classes()
 
     ok = isempty(missing) && isempty(missingProps);
     if ok
-        msg = 'RecalculateService, DirtyTracker, and ReviewResultModel Phase 8 fields resolved';
+        msg = 'RecalculateService, RecalculateQueue, DirtyTracker, and ReviewResultModel Phase 8 fields resolved';
     else
         msg = sprintf('Missing classes: %s; missing props: %s', ...
             strjoin(missing, ', '), strjoin(missingProps, ', '));
@@ -264,14 +267,91 @@ function [ok, msg, status] = checkTopologicalOrderAndCycle()
     end
 end
 
-function [ok, msg, status] = checkDeferredQueueScopeGuard()
+function [ok, msg, status] = checkQueueDebounceAndRun()
     status = '';
-    hasQueue = ~isempty(meta.class.fromName('flightdash.analysis.RecalculateQueue'));
-    ok = ~hasQueue;
+    [request0, session] = sampleRequest(0);
+    result = flightdash.analysis.AnalysisService.toReviewResultModel( ...
+        flightdash.analysis.AnalysisService.run(request0));
+    p = flightdash.project.ProjectModel('Phase8 Queue');
+    p = p.addSession(session);
+    p = p.addResult(result);
+
+    queue = flightdash.analysis.RecalculateService.createQueue(p, 60, false);
+    [request10, ~] = sampleRequest(10);
+    [request20, ~] = sampleRequest(20);
+    accepted1 = queue.enqueue(result.ResultId, request10);
+    accepted2 = queue.enqueue(result.ResultId, request20);
+    pendingBefore = queue.pendingCount();
+    [~, processedEarly, failedEarly] = queue.runDue(false);
+    pendingAfterEarlyRun = queue.pendingCount();
+    [p2, processed, failed] = queue.runAll();
+    updated = p2.findResult(result.ResultId);
+
+    ok = accepted1 && accepted2 && pendingBefore == 1 && pendingAfterEarlyRun == 1 && ...
+        isempty(processedEarly) && isempty(failedEarly) && ...
+        isequal(processed, {result.ResultId}) && isempty(failed) && ...
+        queue.pendingCount() == 0 && strcmp(queue.Status, 'idle') && ...
+        isfield(updated.ComputedValues, 'Mean') && updated.ComputedValues.Mean == 24;
     if ok
-        msg = 'Phase 8c background queue is intentionally deferred';
+        msg = 'Queue debounces duplicate Auto requests and runs the latest request once';
     else
-        msg = 'Unexpected Phase 8c queue class detected; review partial implementation before use';
+        msg = 'Queue debounce or runAll behavior failed';
+    end
+end
+
+function [ok, msg, status] = checkQueueModeFiltering()
+    status = '';
+    [request, session] = sampleRequest(0);
+    result = flightdash.analysis.AnalysisService.toReviewResultModel( ...
+        flightdash.analysis.AnalysisService.run(request));
+    result = result.setRecalculateMode('Manual');
+    p = flightdash.project.ProjectModel('Phase8 Queue Modes');
+    p = p.addSession(session);
+    p = p.addResult(result);
+
+    queue = flightdash.analysis.RecalculateQueue(p, 0, false);
+    acceptedManual = queue.enqueue(result.ResultId, request);
+
+    result = result.setRecalculateMode('Frozen');
+    p = p.updateResult(result);
+    queue.Project = p;
+    acceptedFrozen = queue.enqueue(result.ResultId, request);
+
+    result = result.setRecalculateMode('Auto');
+    p = p.updateResult(result);
+    queue.Project = p;
+    acceptedAuto = queue.enqueue(result.ResultId, request);
+
+    ok = ~acceptedManual && ~acceptedFrozen && acceptedAuto && queue.pendingCount() == 1;
+    if ok
+        msg = 'Queue accepts Auto results only and ignores Manual/Frozen auto-enqueue';
+    else
+        msg = 'Queue mode filtering failed';
+    end
+end
+
+function [ok, msg, status] = checkQueueErrorIsolation()
+    status = '';
+    [request, session] = sampleRequest(0);
+    result = flightdash.analysis.AnalysisService.toReviewResultModel( ...
+        flightdash.analysis.AnalysisService.run(request));
+    p = flightdash.project.ProjectModel('Phase8 Queue Error');
+    p = p.addSession(session);
+    p = p.addResult(result);
+
+    badRequest = struct('AnalysisType', 'RoiStats');
+    queue = flightdash.analysis.RecalculateQueue(p, 0, false);
+    queue.enqueue(result.ResultId, badRequest);
+    [p2, processed, failed] = queue.runAll();
+    updated = p2.findResult(result.ResultId);
+
+    ok = isempty(processed) && isequal(failed, {result.ResultId}) && ...
+        strcmp(queue.Status, 'error') && strcmp(updated.DirtyState, 'error') && ...
+        updated.DirtyFlag && ~isempty(queue.LastError);
+    if ok
+        msg = 'Queue isolates per-result errors and marks failed result as error';
+    else
+        msg = 'Queue error isolation failed';
     end
 end
 

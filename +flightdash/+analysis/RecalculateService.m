@@ -4,8 +4,8 @@ classdef RecalculateService
     %
     % Phase 8a manages one persisted ReviewResultModel at a time. Phase 8b
     % delegates dependency propagation and topological ordering to
-    % flightdash.project.DirtyTracker. Phase 8c background queues remain out
-    % of scope.
+    % flightdash.project.DirtyTracker. Phase 8c adds a conservative debounce
+    % queue through flightdash.analysis.RecalculateQueue.
 
     properties (Constant)
         ValidModes = {'Manual', 'Auto', 'Frozen'}
@@ -82,6 +82,12 @@ classdef RecalculateService
             else
                 [resultIds, nodeIds] = flightdash.project.DirtyTracker.topologicalOrder(project, targets);
             end
+        end
+
+        function queue = createQueue(project, debounceSeconds, autoStart)
+            if nargin < 2, debounceSeconds = 0.1; end
+            if nargin < 3, autoStart = false; end
+            queue = flightdash.analysis.RecalculateQueue(project, debounceSeconds, autoStart);
         end
 
         function [result, analysisResult] = recalculateRoiResult(result, request, force)
