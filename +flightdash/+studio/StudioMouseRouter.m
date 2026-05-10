@@ -99,6 +99,29 @@ classdef StudioMouseRouter < handle
             end
         end
 
+        function cancelSession(obj, sessionId)
+            sessionId = char(sessionId);
+            try
+                if isempty(sessionId) || isempty(obj.ActiveSessionId) || ...
+                        ~strcmp(obj.ActiveSessionId, sessionId)
+                    return;
+                end
+                ctrl = obj.ActiveController;
+                if ~isempty(ctrl) && isvalid(ctrl) && ismethod(ctrl, 'stopDrag')
+                    try
+                        ctrl.stopDrag();
+                    catch ME
+                        try
+                            flightdash.util.ErrorLog.log(ME, 'StudioMouseRouter:CancelSession', false);
+                        catch
+                        end
+                    end
+                end
+            catch
+            end
+            obj.releaseDragLock();
+        end
+
         function tf = isLockHeldBy(obj, sessionId)
             tf = ~isempty(obj.ActiveController) && isvalid(obj.ActiveController) ...
                 && strcmp(obj.ActiveSessionId, char(sessionId));
@@ -112,6 +135,7 @@ classdef StudioMouseRouter < handle
     methods (Access = private)
         function onMouseMotion(obj)
             if isempty(obj.ActiveController) || ~isvalid(obj.ActiveController)
+                obj.releaseDragLock();
                 return;
             end
             % If the user switched tabs while the drag was in progress

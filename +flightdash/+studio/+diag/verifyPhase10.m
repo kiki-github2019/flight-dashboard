@@ -15,7 +15,9 @@ function results = verifyPhase10()
         'P10-8', @checkRunRequestSpecific
         'P10-9', @checkStudioInjectionHooks
         'P10-10', @checkDashboardDecodeOptInHooks
-        'P10-11', @checkPrototypeScopeGuard
+        'P10-11', @checkSessionCleanupHooks
+        'P10-12', @checkSessionScopeFailClosed
+        'P10-13', @checkPrototypeScopeGuard
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -190,6 +192,41 @@ function [ok, msg, status] = checkDashboardDecodeOptInHooks()
         hasMetaMethod(dashMeta, 'decodeFrameSyncLocal');
     msg = passFail(ok, 'Dashboard exposes opt-in shared decode integration gate', ...
         'Dashboard shared decode opt-in hooks are missing');
+end
+
+function [ok, msg, status] = checkSessionCleanupHooks()
+    status = '';
+    routerMeta = meta.class.fromName('flightdash.studio.StudioMouseRouter');
+    wsMeta = meta.class.fromName('flightdash.studio.WorkspaceManager');
+    dashMeta = meta.class.fromName('flightdash.FlightDataDashboard');
+    cacheMeta = meta.class.fromName('flightdash.services.SharedCacheService');
+    decodeMeta = meta.class.fromName('flightdash.services.SharedDecodeService');
+    scopeMeta = meta.class.fromName('flightdash.util.SessionScope');
+    ok = hasMetaMethod(routerMeta, 'cancelSession') && ...
+        hasMetaMethod(wsMeta, 'releaseSessionResources') && ...
+        hasMetaMethod(dashMeta, 'prepareForSessionUnload') && ...
+        hasMetaMethod(cacheMeta, 'invalidateSession') && ...
+        hasMetaMethod(decodeMeta, 'cancelSession') && ...
+        hasMetaMethod(scopeMeta, 'isOwner');
+    msg = passFail(ok, 'Session cleanup hooks cover router, dashboard, shared decode/cache, and scope guard', ...
+        'Session cleanup hooks are missing');
+end
+
+function [ok, msg, status] = checkSessionScopeFailClosed()
+    status = '';
+    flightdash.util.SessionScope.clear();
+    embedded = struct('ActiveSessionId', 'S1', 'IsEmbedded', true);
+    standalone = struct('ActiveSessionId', 'standalone', 'IsEmbedded', false);
+    failClosed = ~flightdash.util.SessionScope.isOwner(embedded);
+    legacyOpen = flightdash.util.SessionScope.isOwner(standalone);
+    flightdash.util.SessionScope.setActive('S1');
+    activeOk = flightdash.util.SessionScope.isOwner(embedded);
+    flightdash.util.SessionScope.setActive('S2');
+    inactiveBlocked = ~flightdash.util.SessionScope.isOwner(embedded);
+    flightdash.util.SessionScope.clear();
+    ok = failClosed && legacyOpen && activeOk && inactiveBlocked;
+    msg = passFail(ok, 'Embedded SessionScope fails closed while standalone remains compatible', ...
+        'SessionScope embedded fail-closed behavior is not stable');
 end
 
 function [ok, msg, status] = checkPrototypeScopeGuard()

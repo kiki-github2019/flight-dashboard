@@ -295,10 +295,47 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.UseSharedDecodeService = logical(tf);
         end
 
+        function prepareForSessionUnload(app)
+            try, app.releaseEmbeddedDragLock(); catch, end
+            try
+                if ~isempty(app.PlaybackCtrl) && isvalid(app.PlaybackCtrl)
+                    app.PlaybackCtrl.stopAllFlightPlayback();
+                end
+            catch ME, app.logCaught(ME, 'SessionUnload:playback'); end
+            try
+                for fIdx = 1:min(2, numel(app.AsyncFutures))
+                    try
+                        app.AsyncGen(fIdx) = app.AsyncGen(fIdx) + 1;
+                        app.PendingFrame(fIdx) = NaN;
+                    catch
+                    end
+                    try
+                        if ~isempty(app.AsyncFutures{fIdx}) && isvalid(app.AsyncFutures{fIdx})
+                            cancel(app.AsyncFutures{fIdx});
+                        end
+                        app.AsyncFutures{fIdx} = [];
+                    catch ME
+                        app.logCaught(ME, 'SessionUnload:future');
+                    end
+                end
+            catch ME, app.logCaught(ME, 'SessionUnload:async'); end
+            try
+                if ~isempty(app.SharedDecodeService) && isvalid(app.SharedDecodeService)
+                    app.SharedDecodeService.cancelSession(app.ActiveSessionId);
+                end
+            catch ME, app.logCaught(ME, 'SessionUnload:sharedDecode'); end
+            try
+                if ~isempty(app.SharedCacheService) && isvalid(app.SharedCacheService)
+                    app.SharedCacheService.invalidateSession(app.ActiveSessionId);
+                end
+            catch ME, app.logCaught(ME, 'SessionUnload:sharedCache'); end
+        end
+
         function delete(app)
             % [FIX] 중복 진입 방어 - CloseRequestFcn → delete → 소멸 중 재호출 차단
             if app.IsDeleting, return; end
             app.IsDeleting = true;
+            try, app.prepareForSessionUnload(); catch ME, app.logCaught(ME, 'SessionUnload:delete'); end
             try
                 if ~isempty(app.PlaybackCtrl) && isvalid(app.PlaybackCtrl)
                     app.PlaybackCtrl.stopAllFlightPlayback();
@@ -3228,7 +3265,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 if ~app.IsEmbedded, return; end
                 router = app.lookupStudioMouseRouter();
-                if ~isempty(router) && isvalid(router)
+                if ~isempty(router) && isvalid(router) && ...
+                        ismethod(router, 'isLockHeldBy') && router.isLockHeldBy(app.ActiveSessionId)
                     router.releaseDragLock();
                 end
             catch

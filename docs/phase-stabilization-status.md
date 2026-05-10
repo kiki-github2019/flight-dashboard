@@ -78,3 +78,5 @@ not yet replace the dashboard's existing decode path or introduce shared
 parfeval workers. Studio now owns the shared service handles and injects them
 into embedded dashboards. Dashboard decode has an opt-in integration gate for
 targeted runtime testing while the legacy decode path remains the default.
+Workspace tab close now releases router locks and invalidates only the closing
+session's shared decode/cache state.

@@ -31,6 +31,7 @@ classdef WorkspaceManager < handle
                     keys_ = obj.DashboardEntries.keys;
                     for k = 1:numel(keys_)
                         entry = obj.DashboardEntries(keys_{k});
+                        obj.releaseSessionResources(keys_{k}, entry);
                         try
                             if ~isempty(entry.Dashboard) && isvalid(entry.Dashboard)
                                 delete(entry.Dashboard);
@@ -86,8 +87,10 @@ classdef WorkspaceManager < handle
         end
 
         function removeDashboardTab(obj, sessionId)
+            sessionId = char(sessionId);
             if ~obj.DashboardEntries.isKey(sessionId), return; end
             entry = obj.DashboardEntries(sessionId);
+            obj.releaseSessionResources(sessionId, entry);
             try
                 if ~isempty(entry.Dashboard) && isvalid(entry.Dashboard)
                     delete(entry.Dashboard);
@@ -323,6 +326,44 @@ classdef WorkspaceManager < handle
                 dash.setSharedServices(cacheService, decodeService);
             catch ME
                 try, obj.App.logCaught(ME, 'Workspace:sharedServices'); catch, end
+            end
+        end
+
+        function releaseSessionResources(obj, sessionId, entry)
+            sessionId = char(sessionId);
+            if nargin < 3
+                entry = struct();
+            end
+            try
+                if ~isempty(obj.App) && isvalid(obj.App) && ...
+                        ~isempty(obj.App.MouseRouter) && isvalid(obj.App.MouseRouter) && ...
+                        ismethod(obj.App.MouseRouter, 'cancelSession')
+                    obj.App.MouseRouter.cancelSession(sessionId);
+                end
+            catch
+            end
+            try
+                if isstruct(entry) && isfield(entry, 'Dashboard') && ...
+                        ~isempty(entry.Dashboard) && isvalid(entry.Dashboard) && ...
+                        ismethod(entry.Dashboard, 'prepareForSessionUnload')
+                    entry.Dashboard.prepareForSessionUnload();
+                end
+            catch ME
+                try, obj.App.logCaught(ME, 'Workspace:sessionUnload'); catch, end
+            end
+            try
+                if ~isempty(obj.App) && isvalid(obj.App) && ...
+                        ~isempty(obj.App.SharedDecodeService) && isvalid(obj.App.SharedDecodeService)
+                    obj.App.SharedDecodeService.cancelSession(sessionId);
+                end
+            catch
+            end
+            try
+                if ~isempty(obj.App) && isvalid(obj.App) && ...
+                        ~isempty(obj.App.SharedCacheService) && isvalid(obj.App.SharedCacheService)
+                    obj.App.SharedCacheService.invalidateSession(sessionId);
+                end
+            catch
             end
         end
     end
