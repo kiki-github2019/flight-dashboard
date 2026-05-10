@@ -5,6 +5,10 @@ classdef RoiController < handle
     properties (Access = private)
         App
         Listeners cell = {}
+        IsDraggingRoi logical = false
+        CurrentHitInfo = struct()
+        OriginalRoiRow = {}
+        DragStartXData double = NaN
     end
 
     properties
@@ -251,6 +255,7 @@ classdef RoiController < handle
                                 'HitType', hitType, ...
                                 'Distance', distancePx, ...
                                 'XData', xData, ...
+                                'EdgeSide', obj.edgeSideForHit(app.UI(fIdx).roiRows(roiIdx, :), xData), ...
                                 'Row', {app.UI(fIdx).roiRows(roiIdx, :)});
                             return;
                         end
@@ -271,18 +276,78 @@ classdef RoiController < handle
                 end
                 fIdx = target.ChannelIdx;
                 roiIdx = target.RoiIndex;
-                obj.App.UI(fIdx).selectedRoiIdx = roiIdx;
-                obj.refreshTable(fIdx);
+                obj.selectRoiTarget(fIdx, roiIdx);
+                obj.CurrentHitInfo = target;
+                obj.OriginalRoiRow = target.Row;
+                obj.DragStartXData = target.XData;
+                obj.IsDraggingRoi = false;
+
+                router = [];
                 try
-                    if isfield(obj.App.UI(fIdx), 'roiTable') && ...
-                            ~isempty(obj.App.UI(fIdx).roiTable) && isvalid(obj.App.UI(fIdx).roiTable)
-                        obj.App.UI(fIdx).roiTable.Selection = [roiIdx 1];
+                    if ismethod(obj.App, 'lookupStudioMouseRouter')
+                        router = obj.App.lookupStudioMouseRouter();
                     end
                 catch
+                end
+                if ~isempty(router) && isvalid(router) && ...
+                        router.requestDragLock(obj.App.ActiveSessionId, obj, 'fleur', 'roi')
+                    obj.IsDraggingRoi = true;
                 end
             catch ME
                 try, obj.App.logCaught(ME, 'ROI:hitButtonDown'); catch, end
             end
+        end
+
+        function handleDragMotion(obj)
+            if ~obj.IsDraggingRoi
+                return;
+            end
+            try
+                app = obj.App;
+                info = obj.CurrentHitInfo;
+                if isempty(app) || ~isvalid(app) || isempty(info) || ~isstruct(info) || ...
+                        ~isfield(info, 'ChannelIdx') || ~isfield(info, 'RoiIndex') || ...
+                        ~isfield(info, 'Axes') || isempty(info.Axes) || ~isvalid(info.Axes)
+                    return;
+                end
+                fIdx = info.ChannelIdx;
+                roiIdx = info.RoiIndex;
+                if ~isfield(app.UI(fIdx), 'roiRows') || roiIdx < 1 || roiIdx > size(app.UI(fIdx).roiRows, 1)
+                    return;
+                end
+
+                currX = obj.figurePointToAxesX(info.Axes, app.UIFigure.CurrentPoint(1:2));
+                if ~isfinite(currX) || ~isfinite(obj.DragStartXData)
+                    return;
+                end
+                delta = currX - obj.DragStartXData;
+                app.UI(fIdx).roiRows(roiIdx, :) = obj.dragRoiRow(obj.OriginalRoiRow, info, delta);
+                app.UI(fIdx).selectedRoiIdx = roiIdx;
+
+                if ~app.throttleHit('RoiDragRefresh', fIdx, 0.03)
+                    obj.drawBands(fIdx);
+                    drawnow limitrate nocallbacks;
+                end
+            catch ME
+                try, obj.App.logCaught(ME, 'ROI:dragMotion'); catch, end
+            end
+        end
+
+        function stopDrag(obj)
+            try
+                if obj.IsDraggingRoi && ~isempty(obj.CurrentHitInfo) && isstruct(obj.CurrentHitInfo) && ...
+                        isfield(obj.CurrentHitInfo, 'ChannelIdx')
+                    fIdx = obj.CurrentHitInfo.ChannelIdx;
+                    obj.refreshTable(fIdx);
+                    obj.drawBands(fIdx);
+                end
+            catch ME
+                try, obj.App.logCaught(ME, 'ROI:dragStop'); catch, end
+            end
+            obj.IsDraggingRoi = false;
+            obj.CurrentHitInfo = struct();
+            obj.OriginalRoiRow = {};
+            obj.DragStartXData = NaN;
         end
 
         function hitInfo = testSingleRoiRow(obj, row, ax, point, roiIndex)
@@ -291,6 +356,7 @@ classdef RoiController < handle
                 'HitType', '', ...
                 'Distance', inf, ...
                 'XData', NaN, ...
+                'EdgeSide', '', ...
                 'Row', {row});
             try
                 pos = getpixelposition(ax, true);
@@ -307,7 +373,9 @@ classdef RoiController < handle
 
                 lo = min(x0, x1);
                 hi = max(x0, x1);
-                edgeDistData = min(abs(xData - lo), abs(xData - hi));
+                edgeDistStart = abs(xData - x0);
+                edgeDistEnd = abs(xData - x1);
+                edgeDistData = min(edgeDistStart, edgeDistEnd);
                 dataToPixel = pos(3) / max(abs(xl(2) - xl(1)), eps);
                 edgeDistPx = edgeDistData * dataToPixel;
 
@@ -316,6 +384,11 @@ classdef RoiController < handle
                 if edgeDistPx <= double(obj.EdgeThreshold)
                     hitInfo.Hit = true;
                     hitInfo.HitType = 'edge';
+                    if edgeDistStart <= edgeDistEnd
+                        hitInfo.EdgeSide = 'start';
+                    else
+                        hitInfo.EdgeSide = 'end';
+                    end
                     return;
                 end
                 if xData >= lo && xData <= hi
@@ -390,6 +463,83 @@ classdef RoiController < handle
                 end
             catch
                 value = NaN;
+            end
+        end
+
+        function selectRoiTarget(obj, fIdx, roiIdx)
+            obj.App.UI(fIdx).selectedRoiIdx = roiIdx;
+            obj.refreshTable(fIdx);
+            try
+                if isfield(obj.App.UI(fIdx), 'roiTable') && ...
+                        ~isempty(obj.App.UI(fIdx).roiTable) && isvalid(obj.App.UI(fIdx).roiTable)
+                    obj.App.UI(fIdx).roiTable.Selection = [roiIdx 1];
+                end
+            catch
+            end
+        end
+
+        function xData = figurePointToAxesX(~, ax, point)
+            xData = NaN;
+            try
+                pos = getpixelposition(ax, true);
+                xl = double(ax.XLim);
+                if pos(3) > 0
+                    xData = xl(1) + ((double(point(1)) - pos(1)) / pos(3)) * (xl(2) - xl(1));
+                end
+            catch
+                xData = NaN;
+            end
+        end
+
+        function row = dragRoiRow(obj, row, info, delta)
+            try
+                x0 = obj.numericCell(row{1});
+                x1 = obj.numericCell(row{2});
+                if ~isfinite(x0) || ~isfinite(x1)
+                    return;
+                end
+                xl = double(info.Axes.XLim);
+                minGap = max(abs(diff(xl)) * 0.001, eps);
+                switch char(info.HitType)
+                    case 'edge'
+                        if isfield(info, 'EdgeSide') && strcmp(info.EdgeSide, 'start')
+                            x0 = min(max(xl(1), x0 + delta), x1 - minGap);
+                        else
+                            x1 = max(min(xl(2), x1 + delta), x0 + minGap);
+                        end
+                    otherwise
+                        width = x1 - x0;
+                        new0 = x0 + delta;
+                        new1 = x1 + delta;
+                        if new0 < xl(1)
+                            new0 = xl(1);
+                            new1 = new0 + width;
+                        end
+                        if new1 > xl(2)
+                            new1 = xl(2);
+                            new0 = new1 - width;
+                        end
+                        x0 = new0;
+                        x1 = new1;
+                end
+                row{1} = x0;
+                row{2} = x1;
+            catch
+            end
+        end
+
+        function side = edgeSideForHit(obj, row, xData)
+            side = '';
+            try
+                x0 = obj.numericCell(row{1});
+                x1 = obj.numericCell(row{2});
+                if abs(xData - x0) <= abs(xData - x1)
+                    side = 'start';
+                else
+                    side = 'end';
+                end
+            catch
+                side = '';
             end
         end
     end

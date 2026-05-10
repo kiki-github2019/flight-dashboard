@@ -676,7 +676,7 @@ function [ok, msg, status] = checkRoiHitTestPresence()
     status = '';
     try
         metaObj = meta.class.fromName('flightdash.controller.RoiController');
-        required = {'hitTest','onButtonDown','drawBands'};
+        required = {'hitTest','onButtonDown','handleDragMotion','stopDrag','drawBands'};
         missing = {};
         for k = 1:numel(required)
             if ~hasMetaMethod(metaObj, required{k})
