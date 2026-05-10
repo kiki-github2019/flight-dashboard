@@ -2908,6 +2908,295 @@ Important constraints:
 - If something cannot be verified statically, clearly mark it as “requires MATLAB runtime verification.”
 - Include concrete file names, class names, and function names whenever possible.
 ```
+=================================================================================================================
+=================================================================================================================
+=================================================================================================================
+=================================================================================================================
+
+---
+
+**주요 결론:** Phase 1-3 및 Phase 9는 추가적인 안정화 작업을 진행하기에 충분히 안전하지만, 이미 시작된 Phase 7은 Phase 1-6 및 Phase 9의 검증이 깔끔하게 완료될 때까지 동결(freeze)되어야 합니다. Phase 8은 계속 보류 상태를 유지해야 합니다.
+
+**B. 단계별(Phase) 확인 사항**
+
+* **Phase 1 증거:** `FlightReviewStudio.m`(1번째 줄)이 `FlightReviewStudioApp.m`(1번째 줄)을 실행합니다. `buildShell()`은 uifigure, 헤더, 본문, 탐색기(explorer), 작업 공간(workspace), 우측 도크(right dock), 상태 표시줄을 생성합니다. 분리가 잘 되어 있습니다. **위험 요소:** 진입부 주석에 아직 Phase 2/3 연결이 없다고 되어 있으나, 현재는 사실이 아닙니다.
+* **Phase 2 증거:** `ProjectModel.m`(15번째 줄), `SessionModel.m`(9번째 줄), `FigureModel`, `ReviewResultModel`, `AnalysisThemeModel`. **긍정적 요소:** 값(value) 클래스, `SchemaVersion`, CRUD, `FlightFiles`와 같은 호환성 별칭(alias)이 존재합니다. **미완성 요소:** 스키마 마이그레이션 함수 부재, 지연 로드(lazy-load) 관리자 부재, 해시가 임시값(placeholder)으로 설정됨(`LastDataHash`, `LastSyncHash`), 의존성 그래프 부재.
+* **Phase 3 증거:** `FlightDataDashboard.m`(137번째 줄)이 `(parentContainer, sessionId)`를 허용하고 `RootContainer`를 사용하며, `WorkspaceManager.m`(44번째 줄)이 대시보드를 `uitab`에 임베드합니다. **긍정적 요소:** 임베디드 삭제 시 UIFigure/parpool이 삭제되는 것을 방지합니다. **위험 요소:** 임베디드 UI가 여전히 호스트의 `UIFigure.CurrentPoint`를 사용합니다. 이는 MATLAB에서 예상된 동작이긴 하지만, 활성 탭(active-tab)에 대한 스트레스 테스트가 필요합니다.
+* **Phase 4 증거:** `AppEventData.m`(19번째 줄)에 `SessionId`가 포함되어 있습니다; `FlightDataDashboard.isActiveSession()`이 이벤트를 제어합니다; `SessionScope.m`(21번째 줄)이 활성 탭을 추적합니다. **긍정적 요소:** 컨트롤러들이 대부분 `isActiveSession`을 호출합니다. **위험 요소:** 많은 뷰 퍼블리셔(view publishers)가 여전히 `SessionId` 없이 `AppEventData(fIdx, payload)`를 생성하고 있어, 전역 활성 세션에 정확성을 의존하고 있습니다.
+* **Phase 5 증거:** `ProjectExplorerPanel.m`(27번째 줄)이 세션/테마/결과를 재구성합니다; 컨텍스트 메뉴에 추가/이름 변경/복제/삭제 임시 로직 및 핸들러가 있습니다. `RightDockManager.m`(266번째 줄)이 선택된 대시보드 UI로부터 Object Manager를 빌드합니다. 훌륭한 MVP(최소 기능 제품)입니다. **미완성 요소:** 객체 트리(object tree)가 전체 플롯/ROI/마커/결과 계층구조가 아닌 선택된 정적 핸들(static handles)만 커버합니다.
+* **Phase 6 증거:** `CommandRouter.m`(17번째 줄)이 전역/세션 명령을 라우팅합니다; `ToolbarManager.m`(1번째 줄)과 `MenuManager.m`(1번째 줄)이 라우터를 공유합니다. Inspector가 `Visible`, `DisplayName`, `LineWidth`, `Color`를 안전하게 편집합니다. `applyGuiMode` 내에 GUI 모드들이 존재합니다. 미니 툴바는 Inspector의 퀵 로우(quick row) 형태로 단순화되었습니다. 상태 표시줄은 여전히 대부분 정적 라벨(static labels)입니다.
+* **Phase 7/8 증거:** Phase 7은 단순한 임시 로직이 아닙니다. `+flightdash/+analysis/AnalysisService.m`, `RoiStatisticsAnalyzer.m`, ROI 컨트롤러 등록, 프로젝트 결과 직렬화, `verifyPhase7.m` 등이 존재합니다. 이는 기능적으로 작동하는 초기 작업물이므로 동결(freeze)해야 합니다. Phase 8은 `DependsOn`, `DirtyState`, `RecalculateMode` 등의 필드를 가지고 있으나, 실제 `DirtyTracker` 구현체는 없습니다.
+* **Phase 9 증거:** `ProjectSerializer.m`(30번째 줄)이 `project.json`, `sessions/*`, `themes/*`, `results/*`, `external_links.json`, `manifest.json`을 작성합니다. `writeZipToTarget()`은 임시 zip/스테이징/백업을 사용하고 최종 `.frsproj`를 확인합니다. 좋습니다. **미완성 요소:** 링크 모드(linked mode)만 지원됩니다; Pack Project(프로젝트 패키징), 상대 경로 복구, 파일 재배치 또는 마이그레이션 기능이 없습니다.
+
+**C. 고위험 영역 (High-Risk Areas)**
+
+* 가장 위험이 큰 부분은 임베디드 마우스 처리입니다. `StudioMouseRouter.m`(41번째 줄)이 `WindowButtonMotionFcn/UpFcn`을 소유하고 있으며, 마커/패너(panner)/스플리터(splitter) 경로는 이제 드래그 락(drag locks)을 요청합니다. 이는 올바른 MATLAB 아키텍처입니다. 단, 드래그 도중에 탭을 전환하거나 닫을 때 런타임 위험이 남아 있습니다.
+* 두 번째 위험 요소는 이벤트 스코핑(Event scoping)입니다. `CommandRouter`는 `SessionId`를 주입하지만, 뷰(view) 레벨의 UI 콜백들은 종종 이를 주입하지 않습니다. 이는 모든 리스너가 `isActiveSession()` 가드(guards)를 유지한다는 전제하에서만 MVP 수준에서 허용될 수 있습니다.
+* 비동기 디코드(Async decode) 정리 로직이 개선되었지만 여전히 경쟁 상태(race condition)에 취약합니다. 임베디드 삭제 시 세션의 future들을 취소하며, Studio 종료 시 전역 정리가 실행됩니다. `parfeval` 취소 시 여전히 지연된 결과(late results)가 반환될 수 있으므로 생성 확인(generation checks) 로직은 필수적으로 유지되어야 합니다.
+* 직렬화기(Serializer)는 훨씬 안전해졌지만, 비-ASCII Windows 경로 및 MATLAB의 zip/unzip 동작에 대해 MATLAB Online 및 Windows 환경에서의 검증이 필요합니다.
+
+**D. 버그 / 예외 발생 위험**
+
+발생 가능성이 높은 런타임 위험 요소들:
+
+* 대시보드 새로고침/삭제 후 Object Manager에 남은 만료된 그래픽 핸들(stale graphics handles).
+* 전역 `SessionScope`를 통해 동작하는 숨겨진 탭 콜백이나 타이머.
+* 깨진 UI 상태를 은폐하는 광범위하고 빈 `catch` 블록들.
+* `VideoPanel.publishSliderChanging()`이 선택적인(optional) sessionId로 스로틀링(throttle)을 수행하지만, 실제 이벤트 발행(publish) 시에는 이를 누락함.
+* Phase 6 및 Phase 9의 안정화가 완전히 검증되기 전에, ROI 분석 중에 Phase 7의 결과 등록이 프로젝트 변경을 유발할 수 있음.
+* 소스 주석/문서에서 셸 출력 시 글깨짐(mojibake) 가능성이 보임. `verifyPhase0_5()` 및 MATLAB 에디터에서 인코딩 확인이 필요함.
+
+**E. 테스트 권장 사항**
+
+다음 이름의 테스트들을 실행하고 유지할 것:
+
+* `T1_Shell_CreateDelete`: FlightReviewStudio, 매니저 검증, 깔끔한 삭제.
+* `T2_Model_RoundTrip`: 2개의 세션, 테마, 피규어(figure), 결과를 직렬화기를 통해 왕복 처리하는 프로젝트.
+* `T3_Embedded_AddRemove`: 3개의 대시보드 탭을 반복적으로 추가/제거 (추가적인 uifigure 없음).
+* `T4_Event_Isolation`: 2개의 탭에서 세션 범위(session-scoped) 및 레거시 브로드캐스트를 발행.
+* `T5_Explorer_Selection`: 트리 세션 선택 시 작업 공간 및 상태 표시줄 활성화 확인.
+* `T6_Inspector_InvalidHandles`: 선/축/패널/삭제된 핸들 선택 및 표시(visible) 토글 검증.
+* `T6_GuiMode_Persist`: 모드 전환, 저장/불러오기, GuiMode 및 레이아웃 새로고침 검증.
+* `T9_Save_Extension`: `temp.frsproj`를 저장하고, `temp.frsproj.zip` 파일이 생기지 않는지 확인(assert).
+* `T9_NonAscii_Path`: 한국어 경로 환경에서 저장 및 불러오기.
+* `T9_Missing_External`: 비디오/데이터 파일이 누락된 프로젝트를 충돌(crash) 없이 불러오기.
+* `TStress_MultiSession_Scrub`: 2개의 세션 동시 실행, 재생/스크러빙/드래그, 비동기 디코드 도중 탭 닫기.
+
+**F. 우선순위 기반 수정 계획 (Prioritized Fix Plan)**
+
+* **P0 (Phase 7/8 진행 전 필수):** `verifyPhase1/2/3/4/5/6/9`에 대한 MATLAB 검증, 다중 인스턴스 테스트, 비-ASCII 환경 저장/불러오기, 드래그 중 탭 닫기, 그리고 만료된 핸들(stale-handle) Inspector 테스트 실행.
+* **P1:** `EventBus`의 세션 태깅(tagging)을 특히 뷰 퍼블리셔(view publishers) 수준에서 더 엄격하게 강제; 공유 리스너 가드 헬퍼(shared listener guard helper) 추가; 임베디드 모드에서 `WindowButton*Fcn`에 대한 모든 직접적인 수정(writes)을 계속 금지.
+* **P2:** 오래된 문서 및 주석 업데이트, `.frsproj`를 링크 모드로 문서화, Pack Project(프로젝트 압축 패키징) 및 상대 경로 복구 기능은 추후 추가로 미루고, Phase 8이 깔끔하게 시작될 때까지 `DirtyTracker` 작업 보류.
+=================================================================================================================
+=================================================================================================================
+=================================================================================================================
+=================================================================================================================
+=================================================================================================================
+아래는 **ChatGPT Cowork에 바로 붙여넣기 좋은 영문 프롬프트**입니다.
+
+```text
+You are acting as a senior MATLAB application architect and code reviewer.
+
+Please access and review the following GitHub repository:
+
+https://github.com/kiki-github2019/flight-dashboard
+
+The project is a MATLAB-based FlightDataDashboard / FlightDataReviewStudio application. It is being migrated from a standalone dashboard into a project-based integrated GUI inspired by OriginPro-style workflows.
+
+Your task is to perform a rigorous code review against the attached migration plan and verify whether Phase 1 through Phase 9 have been implemented correctly. Phase 10 has not started yet and should only be considered as a future risk area.
+
+Important context:
+- The current target is MATLAB R2025a / R2026a compatibility.
+- The application is transitioning toward `FlightReviewStudio`.
+- The intended architecture includes:
+  - Studio shell
+  - Project/session models
+  - Embedded dashboard sessions
+  - Session-scoped events
+  - Project Explorer / Object Manager
+  - Toolbar / menu / inspector / GUI modes
+  - Analysis result plumbing
+  - Dirty / recalculation services
+  - Project save/load using `.frsproj`
+- Phase 10 SharedDecodeService / SharedCacheService is not yet in scope.
+
+Please review the implementation in detail and produce a structured technical assessment.
+
+Review requirements:
+
+1. Repository structure review
+   - Identify the main entry points.
+   - Identify the current package/module structure.
+   - Explain how `FlightReviewStudio.m`, `FlightReviewStudioApp.m`, `FlightDataDashboard.m`, and related studio/project/service classes are organized.
+   - Check whether the entry-point separation is clean and maintainable.
+
+2. Phase-by-phase implementation verification
+   Review Phase 1 through Phase 9 individually.
+
+   For each phase, provide:
+   - Implementation status:
+     - Implemented
+     - Partially implemented
+     - MVP only
+     - Not implemented
+     - Unclear / needs runtime verification
+   - Relevant files/classes/functions
+   - Evidence from the code
+   - Missing pieces
+   - Runtime risks
+   - Recommended fixes
+
+   The phases are:
+
+   Phase 1 — Studio Shell
+   - Verify whether the Studio shell exists.
+   - Check Project Explorer, workspace tabs, right dock / inspector, status bar, toolbar/menu placeholders.
+   - Confirm that embedded dashboard sessions can be created from the shell.
+   - Check whether placeholder UI and real-data UI are clearly separated.
+
+   Phase 2 — Project / Session Model
+   - Review `ProjectModel`, `SessionModel`, `FigureModel`, `ReviewResultModel`, `AnalysisThemeModel`, and related model classes.
+   - Check whether the data model supports project/session/figure/result/theme hierarchy.
+   - Check whether schema versioning, dirty flags, timestamps, hashes, and model serialization assumptions are reasonable.
+   - Identify any handle-class serialization risks.
+
+   Phase 3 — Embedded FlightDataDashboard
+   - Verify whether `FlightDataDashboard` can be hosted inside a parent container or tab.
+   - Check whether the code avoids hard dependency on a standalone `uifigure`.
+   - Identify any remaining figure-level callback risks such as `WindowButtonMotionFcn`, drag/pan/zoom callback leakage, or tab-close race conditions.
+   - Check whether cleanup/dispose behavior is correctly separated between session unload and global studio shutdown.
+   - Inspect multi-instance risks.
+
+   Phase 4 — Event Scope / Session Router
+   - Review `EventBus`, `SessionScope`, router/listener logic, and session tagging.
+   - Confirm whether event publishing automatically injects active `SessionId`.
+   - Check whether single-session compatibility is preserved.
+   - Identify any event leakage between multiple dashboard instances.
+   - Identify places where listeners still need session guards.
+
+   Phase 5 — Project Explorer / Object Manager
+   - Review Project Explorer and Object Manager MVP implementation.
+   - Check whether session/figure/result/theme nodes are represented correctly.
+   - Check whether object selection, visibility toggling, refresh behavior, and active-dashboard routing work.
+   - Clearly distinguish MVP implementation from full OriginPro-style Object Manager behavior.
+   - Identify limitations in MATLAB `uitree` behavior.
+
+   Phase 6 — Toolbar / Menu / Inspector / GUI Mode
+   - Review menu manager, toolbar manager, right dock / inspector manager, status bar manager, and GUI mode logic.
+   - Check whether mode switching works without destroying state.
+   - Verify whether toolbar/menu actions are routed to the active session.
+   - Check whether status bar values are real data or placeholders.
+   - Identify UI scaling risks, especially for MATLAB Online and small laptop screens.
+
+   Phase 7 — Analysis Dialog / Theme / Result Model
+   - Determine whether Phase 7 is truly implemented or only partially implemented.
+   - Review any `AnalysisService`, ROI statistics analyzer, result model, theme model, and diagnostic tests.
+   - Check whether this is full Analysis Dialog support or only ROI result plumbing.
+   - Identify missing dialog UI, theme reuse, input/default serialization, and result persistence issues.
+
+   Phase 8 — Auto Update / Recalculate / Dirty DAG
+   - Review `DirtyTracker`, `RecalculateService`, `RecalculateQueue`, or equivalent classes.
+   - Determine whether Phase 8 is implemented only as a narrow MVP.
+   - Check whether dependency propagation, stale marking, manual/auto/frozen modes, debounce, topological ordering, and error handling are actually implemented.
+   - Compare README/status documentation against code and identify any contradictions.
+   - Clearly state whether full Dirty DAG / Recalculate UX is still pending.
+
+   Phase 9 — Project Save / Load
+   - Review `ProjectSerializer` and `.frsproj` save/load behavior.
+   - Verify whether the serializer creates the requested project file correctly and avoids unwanted `.zip` suffix issues.
+   - Check round-trip save/load behavior for:
+     - Project metadata
+     - Sessions
+     - Figures
+     - Results
+     - Analysis themes
+     - External links
+   - Determine whether the current implementation is linked-project only or packed-project capable.
+   - Identify missing asset handling, relink UX, schema migration, and backward/forward compatibility risks.
+
+3. Bug and exception-handling review
+   Please look for:
+   - Broken constructors
+   - Missing arguments
+   - Incorrect package paths
+   - Invalid MATLAB class references
+   - Handle/value class serialization bugs
+   - File extension bugs such as `.frsproj.zip`
+   - Cleanup errors
+   - Async/parfeval cancellation issues
+   - UI callback conflicts
+   - Missing `isvalid` checks
+   - Missing try/catch around UI deletion
+   - Race conditions during tab close, project close, and active session switch
+   - MATLAB Online compatibility risks
+   - MATLAB R2025a/R2026a compatibility risks
+
+4. Diagnostic test review
+   Search for and review diagnostic functions such as:
+   - `verifyPhase1`
+   - `verifyPhase2`
+   - `verifyPhase3`
+   - `verifyPhase4`
+   - `verifyPhase5`
+   - `verifyPhase6`
+   - `verifyPhase7`
+   - `verifyPhase8`
+   - `verifyPhase9`
+   - `runMultiInstanceTests`
+
+   For each diagnostic test:
+   - Explain what it verifies.
+   - Identify what it does not verify.
+   - Recommend additional test cases.
+   - Check whether runtime verification is still required.
+
+5. Documentation consistency review
+   Compare the README, phase status documents, and actual code.
+   Identify mismatches such as:
+   - README says something is deferred, while code has MVP implementation.
+   - Status document says implemented, while runtime behavior is not guaranteed.
+   - Phase 7/8 scope ambiguity.
+   - Phase 9 linked-save/load vs packed-project ambiguity.
+
+6. Output format
+   Please produce the review in the following structure:
+
+   A. Executive Summary
+   - Overall implementation status
+   - Overall risk level
+   - Whether Phase 1–9 can be considered complete or only MVP-level
+
+   B. Phase-by-Phase Verdict Table
+   Columns:
+   - Phase
+   - Status
+   - Evidence
+   - Main risks
+   - Required next action
+
+   C. Detailed Findings
+   Organize by phase.
+   Include file/class names and function names where possible.
+
+   D. Critical Bugs / High-Risk Issues
+   Rank by severity:
+   - Blocker
+   - High
+   - Medium
+   - Low
+
+   E. Exception Handling / Robustness Issues
+   Include UI, file I/O, async, serialization, and cleanup issues.
+
+   F. Test Coverage Gaps
+   Include specific MATLAB commands or test scenarios that should be run.
+
+   G. Documentation Corrections
+   Suggest exact README/status wording where useful.
+
+   H. Recommended Next Development Plan
+   Provide a practical plan before Phase 10:
+   - Stabilize Phase 1–6/9
+   - Freeze Phase 7 scope
+   - Clarify Phase 8 MVP vs full implementation
+   - Add missing runtime stress tests
+   - Improve linked project save/load warning and relink UX
+   - Only then start Phase 10 prototype
+
+7. Important judgment rule
+   Do not mark a phase as fully complete just because files exist.
+   Judge based on actual integration, runtime behavior, exception handling, and diagnostic coverage.
+
+8. Final expected conclusion
+   Please explicitly answer:
+   - Are Phase 1–9 implemented?
+   - Which phases are MVP only?
+   - Which phases require runtime verification?
+   - What should be fixed before Phase 10 begins?
+```
+
+권장 사용 방식: 위 프롬프트와 함께 **현재 수정계획서 파일**도 ChatGPT Cowork에 첨부하면 됩니다.
+
 
 
 =================================================================================================================
@@ -2934,6 +3223,26 @@ Important constraints:
 - 결과 출력에 토큰사용 최소화
 - 코드 작업에 토큰사용 최대화
 - 코드 작업 현재 phase 작업 종료시 git push 자동 실행
+
+[Response Rules]
+- Do not print the entire code
+- Do not print modified code
+- Do not provide unnecessary explanations (maximum 1 line)
+- Do not repeat existing code
+- Do not print unnecessary steps
+
+e.g., print git push commands, etc.
+
+[Code Work Rules]
+- Prioritize performance improvement
+- Consider memory efficiency
+- Consider exception handling
+- If multiple improvement suggestions exist, present only two
+
+[Absolute Rules]
+- Minimize token usage for result output
+- Maximize token usage for code work
+- Automatically execute git push upon completion of the current code phase
 
 =================================================================================================================
 =================================================================================================================
@@ -2968,8 +3277,32 @@ git commit -m "Update phase verification and stabilization fixes"
 git push                                                          # claude/bold-brown-8651c4
 git -C 'D:\flightdashboard\5. 4th\root' push origin main          # main
 
+
+============================================================================================
+git clone https://github.com/kiki-github2019/flight-dashboard.git
+
+wget https://github.com/kiki-github2019/flight-dashboard/archive/refs/heads/main.zip
+
+git config --global user.name "kiki-github2019"
+git config --global user.email "본인_이메일@주소.com"
+
+git config --global --add safe.directory /storage/emulated/0/Download/flight-dashboard
+
+# 1. 변경된 파일 상태 확인 (수정된 파일이 빨간색으로 표시됨)
+git status
+
+# 2. 변경된 모든 파일을 커밋할 준비(Staging) 상태로 올리기
+git add .
+
+# 3. 변경 사항 커밋하기
+git commit -m "안드로이드 폰에서 코드 수정 및 테스트"
+
+
+https://github.dev/kiki-github2019/flight-dashboard.git
+
 =================================================================================================================
 =================================================================================================================
 =================================================================================================================
 =================================================================================================================
 ==================================================================================================================
+
