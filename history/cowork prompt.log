@@ -1,0 +1,169 @@
+[작업계획서]
+업로드 파일을 면밀히 검토
+[작업 결과가 저장될 디렉토리]
+D:\flightdashboard\5. 4th\root
+[작업전 셋팅작업]
+D:\flightdashboard\4. 3th\root
+에 저장된 소스파일 및 관련 파일, github 셋팅 이전
+[작업지시서]
+목표:
+MATLAB FlightDataDashboard 프로젝트를 OriginPro식 프로젝트 기반 통합 GUI인 FlightDataReviewStudio로 전환한다. 기존 FlightDataDashboard() 단독 실행 기능은 유지하되, 신규 FlightReviewStudio() 실행 시 Project Explorer, Object Manager, Workspace Tab, Property Inspector, Status Bar, Analysis Dialog, Message/Result/Error Log, Toolbar/Menu를 갖는 통합 Shell에서 여러 Review Session, Graph, ROI Result, Snapshot, Report를 관리하도록 리팩토링한다.
+
+OriginPro GUI 분석보고서 반영 필수 사항:
+1. MDI 기반 프로젝트 구조를 채택한다.
+2. Project Explorer는 프로젝트 전체 객체를 관리한다.
+3. Object Manager는 현재 활성 창 내부의 layer, plot, ROI, marker, video panel, table 등을 관리한다.
+4. Status Bar는 active session, current time, current frame, sync state, auto update state, selected range summary statistics, decode queue, error count를 실시간 표시한다.
+5. Analysis Dialog는 Input Data / Settings / Output / Recalculate / Theme 구조를 갖는다.
+6. Analysis Theme를 저장/불러오기 가능하게 한다.
+7. Recalculate Mode는 Manual / Auto / Frozen을 지원한다.
+8. Message Log, Error Log, Result Log를 분리한다.
+9. Mini Toolbar 또는 context quick action row를 제공한다.
+10. GUI Mode는 Review / Analysis / Plot / Report / Compact를 지원한다.
+
+핵심 원칙:
+1. 기존 FlightDataDashboard를 여러 개 독립 uifigure로 단순 실행하는 방식은 금지한다.
+2. FlightReviewStudioApp이 최상위 Shell이 되며 ProjectModel, WorkspaceManager, SharedDecodeService, SharedCacheService, AutoUpdateService, LogService를 소유한다.
+3. FlightDataDashboard는 Workspace 내부 tab/panel에 삽입 가능한 Embedded Document로 변경한다.
+4. 모든 이벤트에는 ProjectId, SessionId, WindowId, ChannelIdx를 포함해야 한다.
+5. 전역 EventBus를 사용할 경우 listener 최상단에서 SessionId guard를 반드시 수행한다.
+6. parfeval, AsyncPool, worker persistent VideoReader, frame cache는 장기적으로 SharedDecodeService/SharedCacheService에서 중앙 관리한다.
+7. 프로젝트 저장 시 UI handle, listener handle, VideoReader, Future 객체는 저장하지 않는다. 상태 데이터만 저장한다.
+8. 기존 FlightDataDashboard() 진입점은 standalone 호환용으로 유지하고, 신규 FlightReviewStudio() 진입점을 추가한다.
+
+우선 작업 순서:
+Phase 0부터 시작한다.
+
+Phase 0: 기존 Dashboard 안정화
+- decodeFrameSync에서 LastDisplayedFrame만 믿고 readFrame sequential path를 수행하는 구조를 안전화한다.
+- requestFrame에서 IsDecoding 중 새 요청을 그냥 return하지 말고 PendingFrame/PendingMode에 최신 요청을 저장한다.
+- restoreVideoSyncStateFromConfig에서 VideoSyncState만 복원하지 말고 SyncMdl.setAnchor 또는 SyncMdl.clear도 함께 수행한다.
+- TotalFrames 계산 실패 시 max(1,totalFrames)로 정상 상태처럼 만들지 말고 오류/비활성 상태로 처리한다.
+- cleanupVideoResources에서 VideoFilePath를 명확히 비운다.
+- silent catch를 줄이고 LogService 또는 ErrorLog에 tag, ProjectId, SessionId와 함께 기록한다.
+
+Phase 1: Studio Shell 신설
+다음 파일을 추가한다.
+- FlightReviewStudio.m
+- +flightdash/+studio/FlightReviewStudioApp.m
+- +flightdash/+studio/ProjectExplorerPanel.m
+- +flightdash/+studio/WorkspaceManager.m
+- +flightdash/+studio/RightDockManager.m
+- +flightdash/+studio/PropertyInspector.m
+- +flightdash/+studio/ObjectManagerPanel.m
+- +flightdash/+studio/StatusBarManager.m
+- +flightdash/+studio/ToolbarManager.m
+- +flightdash/+studio/MenuManager.m
+- +flightdash/+studio/MiniToolbarManager.m
+- +flightdash/+studio/GuiModeManager.m
+- +flightdash/+studio/LogPanel.m
+
+FlightReviewStudio() 실행 시 다음 UI를 생성한다.
+- 상단 Menu/Toolbar
+- 왼쪽 Project Explorer uitree
+- 중앙 Workspace uitabgroup
+- 오른쪽 dock panel: Inspector, Object Manager, Logs
+- 하단 Status Bar
+
+Phase 2: Project / Session / Figure / Result Model 추가
+다음 파일을 추가한다.
+- +flightdash/+project/ProjectModel.m
+- +flightdash/+project/SessionModel.m
+- +flightdash/+project/FigureModel.m
+- +flightdash/+project/ReviewResultModel.m
+- +flightdash/+project/AnalysisThemeModel.m
+- +flightdash/+project/ProjectSerializer.m
+- +flightdash/+project/ProjectPathResolver.m
+- +flightdash/+project/ProjectDirtyTracker.m
+
+Phase 3: FlightDataDashboard Embedded화
+- FlightDataDashboard 생성자에 parentContainer, sessionId 인자를 추가한다.
+- RootContainer, IsEmbedded, SessionId, ProjectId, WindowId 속성을 추가한다.
+- parentContainer가 없으면 기존 standalone uifigure를 생성한다.
+- parentContainer가 있으면 uifigure를 만들지 않고 해당 container 내부에 UI를 생성한다.
+- delete(app)에서 embedded mode일 때 parent container 자체를 삭제하지 않는다.
+- 기존 close(findobj(...)) 로직은 제거하거나 standalone mode에서만 제한적으로 수행한다.
+
+Phase 4: SessionId 기반 EventBus 격리
+- AppEventData에 ProjectId, SessionId, WindowId, ChannelIdx, Payload 필드를 추가한다.
+- 모든 controller와 listener callback은 자신의 SessionId와 eventData.SessionId가 다르면 즉시 return한다.
+- ToolbarManager는 현재 active workspace tab의 SessionId를 기준으로 명령을 발행한다.
+- SessionEventRouter를 추가해 active session command routing을 중앙화한다.
+
+Phase 5: Project Explorer + Object Manager 구현
+Project Explorer:
+- 세션 추가/삭제/복제/이름 변경
+- Graph/Result/Report/Snapshot 표시
+- 검색 기능
+- node context menu
+- 숨김/표시 상태 관리
+
+Object Manager:
+- active dashboard 내부의 plot, layer, ROI, marker, video panel, table 객체 표시
+- 체크박스 기반 show/hide
+- 선택 객체를 Property Inspector에 전달
+- 복수 plot 선택 시 일괄 스타일 변경 준비
+
+Phase 6: Toolbar / Menu / Inspector / Mini Toolbar 연결
+- Load Data, Load Video, Sync, Play, Stop, ROI, Analyze, Graph, Export, Report 기능을 Toolbar/Menu command로 연결한다.
+- Inspector는 선택 객체에 따라 Session, Graph, ROI, Result 속성 UI를 표시한다.
+- MiniToolbarManager는 1차로 Inspector 상단 context quick action row로 구현한다.
+- GUI Mode에 따라 toolbar/menu 항목 표시를 변경한다.
+
+Phase 7: Analysis Dialog / Theme / Result Model 구현
+다음 파일을 추가한다.
+- +flightdash/+analysis/AnalysisDialog.m
+- +flightdash/+analysis/AnalysisRequest.m
+- +flightdash/+analysis/AnalysisResult.m
+- +flightdash/+analysis/RoiStatisticsAnalyzer.m
+- +flightdash/+analysis/SyncQualityAnalyzer.m
+- +flightdash/+analysis/EventDetector.m
+- +flightdash/+analysis/SignalProcessingAnalyzer.m
+- +flightdash/+analysis/AnalysisThemeManager.m
+
+Analysis Dialog는 Input Data / Settings / Output / Recalculate / Theme 구조로 구현한다.
+ROI Statistics, Sync Quality Analysis, Selected Range Summary를 1차 분석 기능으로 구현한다.
+분석 결과는 ReviewResultModel로 저장하고 Result Log에 기록한다.
+
+Phase 8: Auto Update / Recalculate 구현
+- AutoUpdateService를 추가한다.
+- Result마다 SourceDataHash, SyncStateHash, AnalysisThemeId, RecalculateMode, DirtyFlag를 저장한다.
+- Manual / Auto / Frozen mode를 지원한다.
+- 원본 데이터, sync, ROI, analysis setting 변경 시 stale result를 표시한다.
+- Auto mode에서는 관련 결과를 자동 재계산한다.
+
+Phase 9: Project Save / Load
+- *.frsproj 파일로 ProjectModel 전체를 저장한다.
+- 저장 대상은 sessions, figures, results, notes, reports, analysis themes, logs, global settings이다.
+- UI handle, VideoReader, Future, listener는 저장하지 않는다.
+- 상대 경로 저장과 Pack Project 옵션을 준비한다.
+- Open Project 시 Explorer tree, Session, ROI, Graph, Result, Theme를 복원한다.
+
+Phase 10: SharedDecodeService / SharedCacheService 도입
+- 각 Dashboard가 직접 parfeval을 호출하지 않도록 점진적으로 교체한다.
+- DecodeRequest에는 ProjectId, SessionId, ChannelIdx, VideoPath, FrameNo, Generation, Priority, Callback을 포함한다.
+- active tab 요청을 우선 처리하고 scrubbing 중 오래된 요청은 cancel한다.
+- SharedCacheService는 GlobalBudgetMB, SessionBudgetMB, ActiveSessionWeight, BackgroundEviction을 관리한다.
+
+검증 기준:
+1. FlightDataDashboard() 기존 단독 실행이 유지된다.
+2. FlightReviewStudio() 신규 Shell이 실행된다.
+3. Add Session 시 Workspace tab 안에 Dashboard가 열린다.
+4. Dashboard tab을 2개 이상 열어도 서로 이벤트가 섞이지 않는다.
+5. active tab에서 Play를 눌러도 다른 tab은 재생되지 않는다.
+6. Project Explorer는 전체 프로젝트 객체를 관리한다.
+7. Object Manager는 현재 활성 창 내부 객체를 show/hide 및 선택할 수 있다.
+8. Status Bar는 current time, frame, sync state, selected range summary, queue, error count를 표시한다.
+9. ROI 분석 결과가 Results 아래 저장되고 Result Log에 기록된다.
+10. Auto mode에서 ROI 또는 sync 변경 시 관련 결과가 자동 갱신된다.
+11. Frozen result는 원본 변경에도 값이 바뀌지 않고 stale warning만 표시된다.
+12. Project 저장 후 다시 열면 Explorer, Session, Sync, ROI, Plot, Result, Theme, Log가 복원된다.
+13. app 종료 시 Future, VideoReader, worker cache가 정리된다.
+14. 빠른 video scrubbing 후 label frame과 실제 표시 frame이 일치한다.
+
+[금지사항]
+코드출력
+
+[제한사항]
+작업진행현황 출력용 문장 매우 간략히 출력
+phase no 및 간단한 내용만 출력

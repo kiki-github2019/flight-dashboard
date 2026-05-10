@@ -1,0 +1,147 @@
+==================================================
+   FlightDataReviewStudio 통합 테스트 스위트 실행 시작
+==================================================
+FlightReviewStudioTestSuite 실행 중
+.
+================================================================================
+FlightReviewStudioTestSuite/test_T2_Model_RoundTrip에서 검증이 실패함.
+    -----------
+    테스트 진단:
+    -----------
+    로드된 프로젝트의 세션 목록이 비어있습니다. (직렬화 로직 버그 의심)
+    --------------
+    프레임워크 진단:
+    --------------
+    verifyNotEmpty 결과: 실패.
+    --> 값은 비어 있지 않아야 합니다.
+    --> 값의 크기가 [0  0]입니다.
+    
+    실제 값:
+      0×0 SessionModel 배열 - 속성 있음:
+    
+        SchemaVersion
+        SessionId
+        DisplayName
+        FolderPath
+        FlightFilePath
+        VideoFilePath
+        FlightSyncState
+        VideoSyncState
+        CurrentIndex
+        CurrentFrame
+        PlotTabs
+        RoiRows
+        EventMarkers
+        ReviewNotes
+        PanelVisible
+        LayoutState
+        AutoUpdateMode
+        LastDataHash
+        LastSyncHash
+        DirtyFlag
+        CreatedAt
+        ModifiedAt
+        FlightFiles
+        VideoFiles
+        FlightFilePaths
+        VideoFilePaths
+    ---------
+    스택 정보:
+    ---------
+    /MATLAB Drive/flightdashboard/FlightReviewStudioTestSuite.m의 108번 라인(FlightReviewStudioTestSuite.test_T2_Model_RoundTrip)에서
+================================================================================
+..
+================================================================================
+FlightReviewStudioTestSuite/test_T4_Event_Isolation에서 검증이 실패함.
+    -----------
+    테스트 진단:
+    -----------
+    S1 이벤트가 수신되지 않았습니다.
+    --------------
+    프레임워크 진단:
+    --------------
+    verifyTrue 결과: 실패.
+    --> 테스트 결과값은 "true"여야 합니다.
+    
+    실제 값:
+      logical
+    
+       0
+    ---------
+    스택 정보:
+    ---------
+    /MATLAB Drive/flightdashboard/FlightReviewStudioTestSuite.m의 154번 라인(FlightReviewStudioTestSuite.test_T4_Event_Isolation)에서
+================================================================================
+.
+================================================================================
+FlightReviewStudioTestSuite/test_T5_Explorer_Selection이(가) 필터링되었습니다.
+    테스트 진단: ProjectExplorer.selectNode 메서드가 없습니다.
+세부 정보
+================================================================================
+.
+================================================================================
+FlightReviewStudioTestSuite/test_T6_Inspector_InvalidHandles이(가) 필터링되었습니다.
+    테스트 진단: Inspector 객체를 찾을 수 없어 테스트를 건너뜁니다.
+세부 정보
+================================================================================
+..... 
+================================================================================
+FlightReviewStudioTestSuite/test_TStress_MultiSession_Scrub에서 검증이 실패함.
+    -----------
+    테스트 진단:
+    -----------
+    S1 세션 탭을 강제 종료하는 데 실패했습니다.
+    --------------
+    프레임워크 진단:
+    --------------
+    verifyTrue 결과: 실패.
+    --> 테스트 결과값은 "true"여야 합니다.
+    
+    실제 값:
+      logical
+    
+       0
+    ---------
+    스택 정보:
+    ---------
+    /MATLAB Drive/flightdashboard/FlightReviewStudioTestSuite.m의 289번 라인(FlightReviewStudioTestSuite.test_TStress_MultiSession_Scrub)에서
+================================================================================
+.
+FlightReviewStudioTestSuite 완료
+__________
+
+실패 요약:
+
+     Name                                                          Failed  Incomplete  이유
+    ======================================================================================================================
+     FlightReviewStudioTestSuite/test_T2_Model_RoundTrip             X                 검증(Verification)에서 실패했습니다.
+    ----------------------------------------------------------------------------------------------------------------------
+     FlightReviewStudioTestSuite/test_T4_Event_Isolation             X                 검증(Verification)에서 실패했습니다.
+    ----------------------------------------------------------------------------------------------------------------------
+     FlightReviewStudioTestSuite/test_T5_Explorer_Selection                    X       가정(Assumption)별로 필터링되었습니다.
+    ----------------------------------------------------------------------------------------------------------------------
+     FlightReviewStudioTestSuite/test_T6_Inspector_InvalidHandles              X       가정(Assumption)별로 필터링되었습니다.
+    ----------------------------------------------------------------------------------------------------------------------
+     FlightReviewStudioTestSuite/test_TStress_MultiSession_Scrub     X                 검증(Verification)에서 실패했습니다.
+ 
+==================================================
+                 테스트 실행 결과 요약
+==================================================
+                                  Name                                  Passed    Failed    Incomplete    Duration      Details   
+    ________________________________________________________________    ______    ______    __________    ________    ____________
+
+    {'FlightReviewStudioTestSuite/test_T1_Shell_CreateDelete'      }    true      false       false        1.1221     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T2_Model_RoundTrip'         }    false     true        false       0.69648     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T3_Embedded_AddRemove'      }    true      false       false        22.424     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T4_Event_Isolation'         }    false     true        false       0.19696     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T5_Explorer_Selection'      }    false     false       true         10.564     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T6_Inspector_InvalidHandles'}    false     false       true        0.59259     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T6_GuiMode_Persist'         }    true      false       false       0.15878     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T9_Save_Extension'          }    true      false       false       0.11788     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T9_NonAscii_Path'           }    true      false       false       0.19655     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_T9_Missing_External'        }    true      false       false       0.14749     {1×1 struct}
+    {'FlightReviewStudioTestSuite/test_TStress_MultiSession_Scrub' }    false     true        false        10.644     {1×1 struct}
+
+--------------------------------------------------
+총 테스트: 11 | 성공: 6 | 실패: 3 | 미완료: 2
+--------------------------------------------------
