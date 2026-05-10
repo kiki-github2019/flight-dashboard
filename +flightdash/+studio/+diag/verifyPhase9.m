@@ -20,6 +20,8 @@ function results = verifyPhase9()
         'P9-10', @checkLoadRejectsInvalidArchive
         'P9-11', @checkStudioSaveLoadMethodsExist
         'P9-12', @checkOpenProjectSessionTabRestoreSmoke
+        'P9-13', @checkFigureMetadataRoundTrip
+        'P9-14', @checkManifestCountMismatchRejected
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -219,6 +221,83 @@ function [ok, msg, status] = checkAnalysisThemeRoundTrip()
     cleanupPath(tmpFile);
 end
 
+function [ok, msg, status] = checkFigureMetadataRoundTrip()
+    status = '';
+    tmpFile = makeTempFrsprojPath();
+
+    try
+        p = makeSampleProject();
+        fig = makeFigure('P9_FIGURE_001', 'P9_S001', 'Phase9 Figure');
+        p = p.addFigure(fig);
+
+        flightdash.project.ProjectSerializer.save(p, tmpFile);
+        loaded = flightdash.project.ProjectSerializer.load(tmpFile);
+        loadedFig = getFigureById(loaded, 'P9_FIGURE_001');
+
+        ok = ~isempty(loadedFig) && ...
+             strcmp(char(loadedFig.Title), 'Phase9 Figure') && ...
+             strcmp(char(loadedFig.SourceSessionId), 'P9_S001') && ...
+             any(strcmp(loadedFig.Variables, 'Roll'));
+
+        if ok
+            msg = 'FigureModel metadata round-trip preserves id/title/session/variables';
+        else
+            msg = sprintf('FigureModel round-trip mismatch: count=%d found=%d', ...
+                safeFigureCount(loaded), ~isempty(loadedFig));
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('FigureModel metadata round-trip failed: %s', ME.message);
+    end
+
+    cleanupPath(tmpFile);
+end
+
+function [ok, msg, status] = checkManifestCountMismatchRejected()
+    status = '';
+    tmpFile = makeTempFrsprojPath();
+    corruptFile = makeTempFrsprojPath();
+    outDir = tempname();
+
+    try
+        p = makeSampleProject();
+        p = p.addFigure(makeFigure('P9_BAD_COUNT_FIGURE', 'P9_S001', 'Bad Count Figure'));
+        flightdash.project.ProjectSerializer.save(p, tmpFile);
+
+        mkdir(outDir);
+        unzip(tmpFile, outDir);
+        manifestPath = fullfile(outDir, 'manifest.json');
+        txt = fileread(manifestPath);
+        txt = regexprep(txt, '"figureCount"\s*:\s*\d+', '"figureCount": 99', 'once');
+        writeTextUtf8(manifestPath, txt);
+
+        zipPath = [corruptFile '.zip'];
+        zip(zipPath, listRootEntryNames(outDir), outDir);
+        if ~isfile(zipPath) && isfile([zipPath '.zip'])
+            movefile([zipPath '.zip'], zipPath, 'f');
+        end
+        movefile(zipPath, corruptFile, 'f');
+
+        try
+            flightdash.project.ProjectSerializer.load(corruptFile);
+            ok = false;
+            msg = 'load() accepted a manifest figureCount mismatch';
+        catch ME
+            ok = strcmp(ME.identifier, 'ProjectSerializer:Corrupt');
+            msg = sprintf('load() rejects manifest count mismatch: %s', shortError(ME));
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Manifest count mismatch check failed: %s', ME.message);
+    end
+
+    cleanupPath(tmpFile);
+    cleanupPath(corruptFile);
+    cleanupPath([corruptFile '.zip']);
+    cleanupPath([corruptFile '.zip.zip']);
+    cleanupPath(outDir);
+end
+
 function [ok, msg, status] = checkExternalLinksRoundTrip()
     status = '';
 
@@ -275,6 +354,7 @@ function [ok, msg, status] = checkManifestAndZipContents()
         p = makeSampleProject();
         s = makeSession('P9_ZIP_SESSION', 'Phase9 Zip Session');
         p = p.addSession(s);
+        p = p.addFigure(makeFigure('P9_ZIP_FIGURE', 'P9_ZIP_SESSION', 'Phase9 Zip Figure'));
 
         flightdash.project.ProjectSerializer.save(p, tmpFile);
 
@@ -295,6 +375,8 @@ function [ok, msg, status] = checkManifestAndZipContents()
 
         sessionJson = findFileByName(outDir, 'session.json');
         hasSessionJson = ~isempty(sessionJson);
+        figureJson = findFileByName(outDir, 'P9_ZIP_FIGURE.json');
+        hasFigureJson = ~isempty(figureJson);
 
         manifestOk = false;
         if isfile(fullfile(outDir, 'manifest.json'))
@@ -303,13 +385,13 @@ function [ok, msg, status] = checkManifestAndZipContents()
                          contains(lower(txt), 'manifest');
         end
 
-        ok = isempty(missing) && hasSessionJson && manifestOk;
+        ok = isempty(missing) && hasSessionJson && hasFigureJson && manifestOk;
 
         if ok
-            msg = 'Archive contains manifest.json, project.json, and session metadata';
+            msg = 'Archive contains manifest.json, project.json, session metadata, and figure metadata';
         else
-            msg = sprintf('Archive content mismatch: missing=%d sessionJson=%d manifestOk=%d', ...
-                numel(missing), hasSessionJson, manifestOk);
+            msg = sprintf('Archive content mismatch: missing=%d sessionJson=%d figureJson=%d manifestOk=%d', ...
+                numel(missing), hasSessionJson, hasFigureJson, manifestOk);
         end
     catch ME
         ok = false;
@@ -516,6 +598,15 @@ function s = makeSession(sessionId, displayName)
     s = setSessionIdSafe(s, sessionId);
 end
 
+function fig = makeFigure(figureId, sessionId, titleText)
+    fig = flightdash.project.FigureModel('Graph', titleText, sessionId);
+    fig.FigureId = char(figureId);
+    fig.Variables = {'Roll', 'Pitch'};
+    fig.AxisSettings = struct('XLabel', 'Time', 'YLabel', 'Value');
+    fig.StyleSettings = struct('LineWidth', 1.5);
+    fig.ViewState = struct('XLim', [0 10], 'YLim', [-5 5]);
+end
+
 function s = setSessionIdSafe(s, sessionId)
     if isempty(sessionId), return; end
     if isprop(s, 'SessionId')
@@ -660,6 +751,22 @@ function theme = getThemeById(project, themeId)
     end
 end
 
+function fig = getFigureById(project, figureId)
+    fig = [];
+    try
+        if ~isprop(project, 'Figures'), return; end
+        figures = project.Figures;
+        for i = 1:numel(figures)
+            if isprop(figures(i), 'FigureId') && strcmp(char(figures(i).FigureId), char(figureId))
+                fig = figures(i);
+                return;
+            end
+        end
+    catch
+        fig = [];
+    end
+end
+
 function count = safeSessionCount(project)
     count = -1;
 
@@ -668,6 +775,17 @@ function count = safeSessionCount(project)
             count = project.sessionCount();
         elseif isprop(project, 'Sessions')
             count = numel(project.Sessions);
+        end
+    catch
+        count = -1;
+    end
+end
+
+function count = safeFigureCount(project)
+    count = -1;
+    try
+        if isprop(project, 'Figures')
+            count = numel(project.Figures);
         end
     catch
         count = -1;
@@ -890,6 +1008,25 @@ function cleanupPath(pathValue)
         end
     catch
     end
+end
+
+function names = listRootEntryNames(rootDir)
+    d = dir(rootDir);
+    names = {};
+    for i = 1:numel(d)
+        if any(strcmp(d(i).name, {'.', '..'})), continue; end
+        names{end+1} = d(i).name; %#ok<AGROW>
+    end
+end
+
+function writeTextUtf8(filePath, textValue)
+    fid = fopen(filePath, 'w', 'n', 'UTF-8');
+    if fid < 0
+        error('verifyPhase9:WriteFailed', 'Cannot write %s', filePath);
+    end
+    cleaner = onCleanup(@() fclose(fid));
+    fprintf(fid, '%s', textValue);
+    clear cleaner;
 end
 
 function s = safeChar(value)

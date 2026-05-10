@@ -57,6 +57,7 @@ Current archive contents include:
 - `manifest.json`
 - `project.json`
 - `sessions/<SessionId>/session.json`
+- `figures/*.json`
 - `themes/*.json`
 - `results/*.json`
 - `external_links.json`
@@ -140,4 +141,4 @@ Important manual/runtime scenarios:
 - Status bar values are partly placeholders.
 - Object Manager covers MVP handles and does not yet expose a full plot/ROI
   object hierarchy.
-- Dirty DAG, dependency propagation, and automatic recalculation are deferred.
+- Full Recalculate UX is deferred; Phase 8a/8b/8c currently provide service-level MVP coverage.

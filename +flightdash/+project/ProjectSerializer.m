@@ -57,6 +57,18 @@ classdef ProjectSerializer
                     end
                 end
 
+                % --- figures/<FigureId>.json ---
+                if ~isempty(project.Figures)
+                    figuresRoot = fullfile(tmpDir, 'figures');
+                    mkdir(figuresRoot);
+                    for k = 1:numel(project.Figures)
+                        fig = project.Figures(k);
+                        fStruct = flightdash.project.ProjectSerializer.figureToStruct(fig);
+                        flightdash.project.ProjectSerializer.writeJson( ...
+                            fullfile(figuresRoot, [char(fig.FigureId) '.json']), fStruct);
+                    end
+                end
+
                 % --- themes/<id>.json ---
                 if ~isempty(project.AnalysisThemes)
                     themesRoot = fullfile(tmpDir, 'themes');
@@ -146,6 +158,18 @@ classdef ProjectSerializer
             end
             project.Sessions = sessions;
 
+            % --- figures/* ---
+            figuresRoot = fullfile(tmpDir, 'figures');
+            figures = flightdash.project.FigureModel.empty;
+            if isfolder(figuresRoot)
+                files = dir(fullfile(figuresRoot, '*.json'));
+                for k = 1:numel(files)
+                    f = flightdash.project.ProjectSerializer.readJson(fullfile(figuresRoot, files(k).name));
+                    figures(end+1) = flightdash.project.ProjectSerializer.structToFigure(f); %#ok<AGROW>
+                end
+            end
+            project.Figures = figures;
+
             % --- themes/* ---
             themesRoot = fullfile(tmpDir, 'themes');
             themes = flightdash.project.AnalysisThemeModel.empty;
@@ -170,6 +194,7 @@ classdef ProjectSerializer
             end
             project.Results = results;
 
+            flightdash.project.ProjectSerializer.validateManifestCounts(manifest, project);
             project.DirtyFlag = false;
             clear cleaner;
         end
@@ -261,6 +286,45 @@ classdef ProjectSerializer
             sess.CreatedAt      = flightdash.project.ProjectSerializer.fieldChar(s, 'CreatedAt',  sess.CreatedAt);
             sess.ModifiedAt     = flightdash.project.ProjectSerializer.fieldChar(s, 'ModifiedAt', sess.ModifiedAt);
             sess.DirtyFlag      = flightdash.project.ProjectSerializer.fieldLogical(s, 'DirtyFlag', false);
+        end
+
+        % ===== Figure <-> struct =====
+        function s = figureToStruct(fig)
+            s = struct( ...
+                'SchemaVersion',   double(fig.SchemaVersion), ...
+                'FigureId',        char(fig.FigureId), ...
+                'SourceSessionId', char(fig.SourceSessionId), ...
+                'FigureType',      char(fig.FigureType), ...
+                'Title',           char(fig.Title), ...
+                'Layers',          {fig.Layers}, ...
+                'Variables',       {fig.Variables}, ...
+                'AxisSettings',    fig.AxisSettings, ...
+                'StyleSettings',   fig.StyleSettings, ...
+                'ViewState',       fig.ViewState, ...
+                'ExportPath',      char(fig.ExportPath), ...
+                'RecalculateMode', char(fig.RecalculateMode), ...
+                'DirtyFlag',       logical(fig.DirtyFlag), ...
+                'CreatedAt',       char(fig.CreatedAt), ...
+                'ModifiedAt',      char(fig.ModifiedAt));
+        end
+
+        function fig = structToFigure(s)
+            fig = flightdash.project.FigureModel( ...
+                flightdash.project.ProjectSerializer.fieldChar(s, 'FigureType', 'Graph'), ...
+                flightdash.project.ProjectSerializer.fieldChar(s, 'Title', ''), ...
+                flightdash.project.ProjectSerializer.fieldChar(s, 'SourceSessionId', ''));
+            fig.SchemaVersion   = uint32(flightdash.project.ProjectSerializer.fieldNum(s, 'SchemaVersion', 1));
+            fig.FigureId        = flightdash.project.ProjectSerializer.fieldChar(s, 'FigureId', fig.FigureId);
+            fig.Layers          = flightdash.project.ProjectSerializer.fieldCellAnyList(s, 'Layers');
+            fig.Variables       = flightdash.project.ProjectSerializer.fieldCellList(s, 'Variables');
+            fig.AxisSettings    = flightdash.project.ProjectSerializer.fieldStruct(s, 'AxisSettings', struct());
+            fig.StyleSettings   = flightdash.project.ProjectSerializer.fieldStruct(s, 'StyleSettings', struct());
+            fig.ViewState       = flightdash.project.ProjectSerializer.fieldStruct(s, 'ViewState', struct());
+            fig.ExportPath      = flightdash.project.ProjectSerializer.fieldChar(s, 'ExportPath', '');
+            fig.RecalculateMode = flightdash.project.ProjectSerializer.fieldChar(s, 'RecalculateMode', 'Auto');
+            fig.DirtyFlag       = flightdash.project.ProjectSerializer.fieldLogical(s, 'DirtyFlag', false);
+            fig.CreatedAt       = flightdash.project.ProjectSerializer.fieldChar(s, 'CreatedAt', fig.CreatedAt);
+            fig.ModifiedAt      = flightdash.project.ProjectSerializer.fieldChar(s, 'ModifiedAt', fig.ModifiedAt);
         end
 
         % ===== Theme ↔ struct =====
@@ -366,6 +430,43 @@ classdef ProjectSerializer
                 'figureCount',   numel(project.Figures), ...
                 'resultCount',   numel(project.Results), ...
                 'themeCount',    numel(project.AnalysisThemes));
+        end
+
+        function validateManifestCounts(manifest, project)
+            if isfield(manifest, 'sessions')
+                expectedSessions = flightdash.project.ProjectSerializer.manifestListCount(manifest.sessions);
+                if expectedSessions ~= numel(project.Sessions)
+                    error('ProjectSerializer:Corrupt', ...
+                        'Session count mismatch in archive: manifest=%d loaded=%d.', ...
+                        expectedSessions, numel(project.Sessions));
+                end
+            end
+            flightdash.project.ProjectSerializer.validateCountField( ...
+                manifest, 'figureCount', numel(project.Figures), 'Figure');
+            flightdash.project.ProjectSerializer.validateCountField( ...
+                manifest, 'resultCount', numel(project.Results), 'Result');
+            flightdash.project.ProjectSerializer.validateCountField( ...
+                manifest, 'themeCount', numel(project.AnalysisThemes), 'Theme');
+        end
+
+        function validateCountField(manifest, fieldName, actualCount, label)
+            if ~isfield(manifest, fieldName), return; end
+            expected = double(manifest.(fieldName));
+            if expected ~= actualCount
+                error('ProjectSerializer:Corrupt', ...
+                    '%s count mismatch in archive: manifest=%d loaded=%d.', ...
+                    label, expected, actualCount);
+            end
+        end
+
+        function n = manifestListCount(raw)
+            if isempty(raw)
+                n = 0;
+            elseif ischar(raw) || (isstring(raw) && isscalar(raw))
+                n = 1;
+            else
+                n = numel(raw);
+            end
         end
 
         function links = collectExternalLinks(project)
@@ -583,6 +684,36 @@ classdef ProjectSerializer
                 end
             catch
                 v = {};
+            end
+        end
+
+        function v = fieldCellAnyList(s, name)
+            v = {};
+            try
+                if ~isstruct(s) || ~isfield(s, name) || isempty(s.(name)), return; end
+                raw = s.(name);
+                if iscell(raw)
+                    v = raw;
+                elseif isstruct(raw)
+                    v = num2cell(raw);
+                elseif isstring(raw)
+                    v = cellstr(raw);
+                else
+                    v = {raw};
+                end
+            catch
+                v = {};
+            end
+        end
+
+        function v = fieldStruct(s, name, dflt)
+            v = dflt;
+            try
+                if isstruct(s) && isfield(s, name) && isstruct(s.(name))
+                    v = s.(name);
+                end
+            catch
+                v = dflt;
             end
         end
 

@@ -1,7 +1,7 @@
 # Phase Stabilization Status
 
-This note records the intended stabilization boundary before larger Phase 7 or
-Phase 8 work is added.
+This note records the stabilization boundary before Phase 10 shared services or
+larger Phase 7/8 UX work is added.
 
 ## Current Focus
 
@@ -58,3 +58,7 @@ Do not assume the following exist until a later shared-worker phase starts:
 `.frsproj` v1 stores metadata and external file paths only. It does not pack raw
 flight logs or video bytes. Missing external files must be handled as linked
 asset warnings, not as project corruption.
+
+The archive includes project, session, figure, result, theme, manifest, and
+external-link metadata. Packed assets, relink UX, and schema migration remain
+future work.
