@@ -224,7 +224,7 @@ function [ok, msg, status] = checkDependencyPropagation()
     resultB = resultB.setRecalculateMode('Frozen');
     p = p.updateResult(resultB);
 
-    [p, dirtyIds, dirtyNodes] = flightdash.analysis.RecalculateService.markDependenciesDirty(p, sourceNode);
+    [p, dirtyIds, dirtyNodes] = flightdash.project.DirtyTracker.markDirty(p, sourceNode);
 
     a = p.findResult(resultA.ResultId);
     b = p.findResult(resultB.ResultId);
@@ -242,8 +242,7 @@ end
 function [ok, msg, status] = checkTopologicalOrderAndCycle()
     status = '';
     [p, ~, resultA, resultB] = sampleDependentProject();
-    [orderIds, orderNodes] = flightdash.analysis.RecalculateService.recalculationOrder( ...
-        p, resultB.ResultId);
+    [orderIds, orderNodes] = flightdash.project.DirtyTracker.topologicalOrder(p, resultB.ResultId);
 
     orderOk = isequal(orderIds, {resultA.ResultId, resultB.ResultId}) && ...
         isequal(orderNodes, {resultA.nodeId(), resultB.nodeId()});
