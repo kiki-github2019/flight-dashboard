@@ -299,13 +299,41 @@ end
 function tf = sourceContainsMethod(className, methodName)
     tf = false;
     try
-        filePath = which(className);
-        if isempty(filePath) || ~isfile(filePath), return; end
-        txt = fileread(filePath);
-        pat = ['function\s+(?:\[[^\]]+\]\s*=\s*|[A-Za-z]\w*\s*=\s*)?' regexptranslate('escape', methodName) '\s*\('];
-        tf = ~isempty(regexp(txt, pat, 'once'));
+        candidates = sourceCandidatesForClass(className);
+        pat = ['function[^\n\r]*' regexptranslate('escape', methodName) '\s*\('];
+        for k = 1:numel(candidates)
+            filePath = candidates{k};
+            if isempty(filePath) || ~isfile(filePath), continue; end
+            txt = fileread(filePath);
+            if ~isempty(regexp(txt, pat, 'once'))
+                tf = true;
+                return;
+            end
+        end
     catch
         tf = false;
+    end
+end
+
+function candidates = sourceCandidatesForClass(className)
+    candidates = {};
+    try
+        w = which(className);
+        if ~isempty(w)
+            candidates{end+1} = w; %#ok<AGROW>
+        end
+    catch
+    end
+    try
+        parts = strsplit(char(className), '.');
+        diagDir = fileparts(mfilename('fullpath'));
+        repoRoot = fullfile(diagDir, '..', '..', '..');
+        pkgPath = repoRoot;
+        for k = 1:numel(parts)-1
+            pkgPath = fullfile(pkgPath, ['+' parts{k}]);
+        end
+        candidates{end+1} = fullfile(pkgPath, [parts{end} '.m']); %#ok<AGROW>
+    catch
     end
 end
 
