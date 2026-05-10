@@ -7,11 +7,13 @@ function app = FlightReviewStudio()
 %       FlightReviewStudio()           % launch with empty project
 %       app = FlightReviewStudio()     % return handle to the studio app
 %
-%   Phase 1 status:
-%   - Renders the empty shell only (menu, toolbar, project explorer,
+%   Current Studio status:
+%   - Renders the Studio shell (menu, toolbar, project explorer,
 %     workspace tabgroup, right dock, status bar).
-%   - No project/session/figure model wiring yet (Phase 2).
-%   - No FlightDataDashboard embedding yet (Phase 3).
+%   - Uses ProjectModel/SessionModel metadata for multi-session projects.
+%   - Embeds flightdash.FlightDataDashboard directly into workspace tabs.
+%   - .frsproj v1 is a linked project format: external flight/video files
+%     are referenced by path and are not packed into the project archive.
 %
 %   Minimum requirement: MATLAB R2021b (uitree multi-select / Icon).
 

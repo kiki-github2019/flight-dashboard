@@ -1,5 +1,5 @@
 classdef SessionScope
-    %SESSIONSCOPE Phase 4 — global "active session id" registry.
+    %SESSIONSCOPE Phase 4 global active session id registry.
     %
     %   Studio's WorkspaceManager publishes the currently selected
     %   workspace tab's session id via setActive(). Each EventBus

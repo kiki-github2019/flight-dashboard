@@ -103,6 +103,32 @@ function r = p42_sessionScope()
         return;
     end
 
+    appdataKey = 'FlightDashVerifyP42SessionId';
+    listener = [];
+    try
+        if isappdata(0, appdataKey), rmappdata(0, appdataKey); end
+        listener = flightdash.util.EventBus.subscribe('FlightStopRequested', ...
+            @(~,d) setappdata(0, appdataKey, d.SessionId));
+        flightdash.util.EventBus.publish('FlightStopRequested', flightdash.util.AppEventData(1));
+        capturedSessionId = '';
+        if isappdata(0, appdataKey)
+            capturedSessionId = char(getappdata(0, appdataKey));
+        end
+        if ~isempty(listener) && isvalid(listener), delete(listener); end
+        if isappdata(0, appdataKey), rmappdata(0, appdataKey); end
+        if ~strcmp(capturedSessionId, 'SESS_AAA')
+            r.Message = sprintf('EventBus did not auto-tag active SessionId: "%s"', capturedSessionId);
+            flightdash.util.SessionScope.clear();
+            return;
+        end
+    catch ME
+        try, if ~isempty(listener) && isvalid(listener), delete(listener); end, catch, end
+        try, if isappdata(0, appdataKey), rmappdata(0, appdataKey); end, catch, end
+        r.Message = sprintf('EventBus SessionId auto-tag check errored: %s', ME.message);
+        flightdash.util.SessionScope.clear();
+        return;
+    end
+
     % Stub object exposing ActiveSessionId only (avoid uifigure construction)
     fakeApp = struct('ActiveSessionId', 'SESS_AAA');
     if ~flightdash.util.SessionScope.isOwner(fakeApp)
@@ -132,7 +158,7 @@ function r = p42_sessionScope()
 
     flightdash.util.SessionScope.clear();
     r.Passed = true;
-    r.Message = 'set/get/clear/isOwner semantics correct (match, mismatch, broadcast, standalone)';
+    r.Message = 'set/get/clear/isOwner semantics and EventBus auto SessionId tagging correct';
 end
 
 
