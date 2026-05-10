@@ -1,7 +1,7 @@
 # Phase Stabilization Status
 
-This note records the stabilization boundary before Phase 10 shared services or
-larger Phase 7/8 UX work is added.
+This note records the stabilization boundary before integrated Phase 10 shared
+workers or larger Phase 7/8 UX work is added.
 
 ## Current Focus
 
@@ -17,6 +17,7 @@ The current stabilization scope is:
 - Phase 8b: dirty dependency propagation and topological result ordering
 - Phase 8c: debounce queue for Auto result recalculation
 - Phase 9: linked `.frsproj` save/load
+- Phase 10 prototype: service-level shared decode/cache scheduling
 
 ## Phase 7 Boundary
 
@@ -62,3 +63,16 @@ asset warnings, not as project corruption.
 The archive includes project, session, figure, result, theme, manifest, and
 external-link metadata. Packed assets, relink UX, and schema migration remain
 future work.
+
+## Phase 10 Prototype Boundary
+
+The first Phase 10 step is intentionally non-integrated:
+
+- `+flightdash/+services/SharedCacheService.m`
+- `+flightdash/+services/SharedDecodeService.m`
+- `+flightdash/+studio/+diag/verifyPhase10.m`
+
+The prototype verifies session-scoped cache keys, active-session priority,
+same-stream scrub coalescing, cancellation, and stale-generation discard. It does
+not yet replace the dashboard's existing decode path or introduce shared
+parfeval workers.

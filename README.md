@@ -81,11 +81,13 @@ Phase 9:
 - Phase 8b: dirty dependency propagation and topological result ordering
 - Phase 8c: debounce queue for Auto result recalculation
 - Phase 9: linked project save/load
+- Phase 10 prototype: service-level shared decode/cache scheduling
 
 Phase 7 ROI result plumbing exists in the repository, but broader Analysis
 Dialog work should wait until Phase 1-6 and Phase 9 verification is clean.
 Phase 8c is intentionally a conservative sequential queue; shared parfeval
-priority scheduling remains outside the MVP.
+priority scheduling remains outside the MVP. Phase 10 currently starts with a
+non-integrated prototype before dashboard decode paths are changed.
 
 See `docs/phase-stabilization-status.md` for the current stabilization
 boundary.
@@ -121,6 +123,7 @@ results5  = flightdash.studio.diag.verifyPhase5();
 results6  = flightdash.studio.diag.verifyPhase6();
 results8  = flightdash.studio.diag.verifyPhase8();
 results9  = flightdash.studio.diag.verifyPhase9();
+results10 = flightdash.studio.diag.verifyPhase10();
 multi     = flightdash.studio.diag.runMultiInstanceTests();
 ```
 
