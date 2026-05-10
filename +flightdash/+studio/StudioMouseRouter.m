@@ -74,7 +74,8 @@ classdef StudioMouseRouter < handle
                 if ~isempty(obj.Workspace) && (~isa(obj.Workspace, 'handle') || isvalid(obj.Workspace))
                     activeId = char(obj.Workspace.activeSessionId());
                 end
-                if ~isempty(activeId) && ~strcmp(activeId, sessionId)
+                if isempty(activeId) || strcmp(activeId, 'standalone') || ...
+                        ~strcmp(activeId, sessionId)
                     return;  % requesting session is not the visible tab
                 end
                 obj.ActiveSessionId  = sessionId;

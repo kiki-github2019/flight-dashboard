@@ -101,7 +101,8 @@ classdef InfoController < handle
                 obj.InfoDragSourceRow = 0;
                 if app.IsEmbedded
                     router = obj.lookupRouter(app);
-                    if ~isempty(router) && isvalid(router)
+                    if ~isempty(router) && isvalid(router) && ...
+                            ismethod(router, 'isLockHeldBy') && router.isLockHeldBy(app.ActiveSessionId)
                         router.releaseDragLock();
                     end
                 elseif ~isempty(app.UIFigure) && isvalid(app.UIFigure)
