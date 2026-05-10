@@ -23,6 +23,7 @@ function results = verifyPhase4()
 %     P4-8  StudioMouseRouter lock semantics (Phase 3.5)
 %     P4-9  EventBus session-filtered subscriptions and target publish
 %     P4-10 SessionScopedListener / ControllerBase helper presence
+%     P4-11 UndoService session stack + UndoStateChanged event
 %     P9-1  ProjectSerializer save+load round-trip (Phase 9)
 
     fprintf('\n=== Phase 4 verification ===\n');
@@ -38,6 +39,7 @@ function results = verifyPhase4()
         'P4-8', @p48_studioMouseRouter; ...
         'P4-9', @p49_eventBusSessionFilters; ...
         'P4-10', @p410_sessionScopedListenerApi; ...
+        'P4-11', @p411_undoServiceSessionStack; ...
         'P9-1', @p91_serializerRoundTrip ...
     };
 
@@ -507,6 +509,54 @@ function r = p410_sessionScopedListenerApi()
         r.Message = 'SessionScopedListener and ControllerBase session listener cleanup API resolved';
     catch ME
         r.Message = sprintf('SessionScopedListener API check errored: %s', ME.message);
+    end
+end
+
+function r = p411_undoServiceSessionStack()
+    r = struct('Passed', false, 'Message', '', 'Details', struct());
+    listener = [];
+    cleaner = onCleanup(@cleanup);
+    try
+        stateHits = 0;
+        listener = flightdash.util.EventBus.subscribe('UndoStateChanged', @(~,d) capture(d), 'P4_UNDO');
+        svc = flightdash.studio.UndoService('P4_UNDO');
+        cmd = flightdash.command.MoveROICommand('P4_UNDO', [], 1, 1, {0, 1, 'sig', '--', '--'}, ...
+            {1, 2, 'sig', '--', '--'}, 'Move ROI');
+
+        svc.push(cmd);
+        if ~svc.canUndo() || svc.canRedo()
+            r.Message = 'push() did not set undo/redo state';
+            return;
+        end
+        svc.undo();
+        if svc.canUndo() || ~svc.canRedo()
+            r.Message = 'undo() did not move command to redo stack';
+            return;
+        end
+        svc.redo();
+        if ~svc.canUndo() || svc.canRedo()
+            r.Message = 'redo() did not restore undo stack';
+            return;
+        end
+        if stateHits < 3
+            r.Message = sprintf('UndoStateChanged listener saw too few updates: %d', stateHits);
+            return;
+        end
+
+        r.Passed = true;
+        r.Message = 'UndoService stack transitions and session-scoped state event resolved';
+    catch ME
+        r.Message = sprintf('UndoService check errored: %s', ME.message);
+    end
+
+    function capture(d)
+        if strcmp(char(d.SessionId), 'P4_UNDO')
+            stateHits = stateHits + 1;
+        end
+    end
+
+    function cleanup()
+        try, if ~isempty(listener) && isvalid(listener), delete(listener); end, catch, end
     end
 end
 

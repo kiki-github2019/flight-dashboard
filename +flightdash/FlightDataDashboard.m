@@ -128,6 +128,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % createLayout 등 향후 Phase 3b에서 RootContainer를 layout parent로 사용
         RootContainer       = []              % [PHASE 3a] uifigure or parent container
         MouseRouter         = []              % [PHASE 3.5] Studio-owned mouse router hook
+        UndoService         = []              % session-scoped undo/redo history
         SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
         SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
         UseSharedDecodeService logical = false % [PHASE 10] opt-in only
@@ -194,6 +195,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.AuxWindowMgr = flightdash.view.AuxWindowManager(app);
             app.DataLoader   = flightdash.model.FlightDataLoader();
             app.LayoutMgr    = flightdash.view.ResponsiveLayoutManager();
+            app.UndoService  = flightdash.studio.UndoService(app.ActiveSessionId);
 
             if isfile('option_flight_area.dat')
                 try
@@ -323,6 +325,26 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
+        function undo(app)
+            try
+                if ~isempty(app.UndoService) && isvalid(app.UndoService)
+                    app.UndoService.undo();
+                end
+            catch ME
+                app.logCaught(ME, 'Undo:undo');
+            end
+        end
+
+        function redo(app)
+            try
+                if ~isempty(app.UndoService) && isvalid(app.UndoService)
+                    app.UndoService.redo();
+                end
+            catch ME
+                app.logCaught(ME, 'Undo:redo');
+            end
+        end
+
         function tf = hasSharedServices(app)
             tf = ~isempty(app.SharedCacheService) && isvalid(app.SharedCacheService) && ...
                  ~isempty(app.SharedDecodeService) && isvalid(app.SharedDecodeService);
@@ -344,6 +366,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.SharedCacheService.invalidateSession(app.ActiveSessionId);
                 end
             catch ME, app.logCaught(ME, 'SessionUnload:sharedCache'); end
+            try
+                if ~isempty(app.UndoService) && isvalid(app.UndoService)
+                    app.UndoService.clear();
+                end
+            catch ME, app.logCaught(ME, 'SessionUnload:undo'); end
         end
 
         function cleanupAllControllers(app)

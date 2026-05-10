@@ -54,6 +54,7 @@ classdef EventBus < handle
         RoiDeleteSelectedRequested
         RoiClearRequested
         AnalysisComputeRequested
+        UndoStateChanged
         SliderChanging
         SliderChanged
         NavActionRequested

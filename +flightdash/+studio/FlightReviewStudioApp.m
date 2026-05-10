@@ -851,6 +851,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             catch
             end
             app.UIFigure.CloseRequestFcn = @(~,~) app.onCloseRequest();
+            app.UIFigure.WindowKeyPressFcn = @(~,evt) app.onKeyPress(evt);
             % [PHASE 4 review] Forward figure resize to whichever
             % dashboard is currently active so its responsive layout
             % recomputes column widths/profile when the user resizes
@@ -920,6 +921,20 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     delete(figHandle);
                 end
             catch
+            end
+        end
+
+        function onKeyPress(app, evt)
+            try
+                key = lower(char(evt.Key));
+                modifiers = lower(string(evt.Modifier));
+                if strcmp(key, 'z') && any(modifiers == "control")
+                    app.dispatchCommand('Edit:Undo', 'Shortcut');
+                elseif strcmp(key, 'y') && any(modifiers == "control")
+                    app.dispatchCommand('Edit:Redo', 'Shortcut');
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:keyPress'); catch, end
             end
         end
 

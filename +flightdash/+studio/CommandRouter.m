@@ -66,6 +66,7 @@ classdef CommandRouter < handle
                 'Toolbar:Analyze', 'Toolbar:Recalc', ...
                 'Project:DuplicateSession', 'Project:RenameSession', 'Project:DeleteSession', ...
                 'File:ImportSession', 'File:ExportSession', ...
+                'Edit:', ...
                 'Data:', 'Video:', 'Sync:', 'Review:', 'Analysis:', 'Plot:'};
 
             scope = 'noop';
@@ -196,6 +197,16 @@ classdef CommandRouter < handle
                     obj.publishDashboardEvent('RoiAddRequested', 1, [], sessionId);
                 case {'Toolbar:Analyze', 'Analysis:RoiStats'}
                     obj.publishDashboardEvent('AnalysisComputeRequested', 1, [], sessionId);
+                case 'Edit:Undo'
+                    if ismethod(dashboard, 'undo')
+                        dashboard.undo();
+                        obj.setStatus(sprintf('Undo: %s', sessionId));
+                    end
+                case 'Edit:Redo'
+                    if ismethod(dashboard, 'redo')
+                        dashboard.redo();
+                        obj.setStatus(sprintf('Redo: %s', sessionId));
+                    end
                 case 'Plot:AddSelected'
                     obj.publishDashboardEvent('PlotSelected', 1, [], sessionId);
                 case 'Plot:NewGraph'

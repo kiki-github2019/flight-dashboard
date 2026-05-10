@@ -396,8 +396,10 @@ classdef RoiController < handle
         function stopDrag(obj)
             try
                 if obj.IsDraggingRoi && ~isempty(obj.CurrentHitInfo) && isstruct(obj.CurrentHitInfo) && ...
-                        isfield(obj.CurrentHitInfo, 'ChannelIdx')
+                        isfield(obj.CurrentHitInfo, 'ChannelIdx') && isfield(obj.CurrentHitInfo, 'RoiIndex')
                     fIdx = obj.CurrentHitInfo.ChannelIdx;
+                    roiIdx = obj.CurrentHitInfo.RoiIndex;
+                    obj.pushMoveUndoCommand(fIdx, roiIdx);
                     obj.refreshTable(fIdx);
                     obj.drawBands(fIdx);
                 end
@@ -413,6 +415,29 @@ classdef RoiController < handle
                     obj.handleHover(obj.App.UIFigure.CurrentPoint(1:2));
                 end
             catch
+            end
+        end
+
+        function pushMoveUndoCommand(obj, fIdx, roiIdx)
+            try
+                app = obj.App;
+                if isempty(app) || ~isvalid(app) || isempty(app.UndoService) || ...
+                        ~isvalid(app.UndoService) || isempty(obj.OriginalRoiRow)
+                    return;
+                end
+                if ~isfield(app.UI(fIdx), 'roiRows') || roiIdx < 1 || roiIdx > size(app.UI(fIdx).roiRows, 1)
+                    return;
+                end
+                oldRow = obj.OriginalRoiRow;
+                newRow = app.UI(fIdx).roiRows(roiIdx, :);
+                if isequaln(oldRow, newRow)
+                    return;
+                end
+                cmd = flightdash.command.MoveROICommand(app.ActiveSessionId, app, ...
+                    fIdx, roiIdx, oldRow, newRow, sprintf('Move ROI %d', roiIdx));
+                app.UndoService.push(cmd);
+            catch ME
+                try, obj.App.logCaught(ME, 'ROI:undoPush'); catch, end
             end
         end
 
