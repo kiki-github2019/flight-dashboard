@@ -33,6 +33,10 @@ classdef StudioMouseRouter < handle
         IsAttached       logical = false
     end
 
+    properties (Access = public)
+        DebugMode logical = false
+    end
+
     methods
         function obj = StudioMouseRouter(uifig, workspace)
             obj.UIFigure  = uifig;
@@ -43,6 +47,7 @@ classdef StudioMouseRouter < handle
         function attach(obj)
             if obj.IsAttached, return; end
             if isempty(obj.UIFigure) || ~isvalid(obj.UIFigure), return; end
+            obj.UIFigure.WindowButtonDownFcn   = @(~,~) obj.onButtonDown();
             obj.UIFigure.WindowButtonMotionFcn = @(~,~) obj.onMouseMotion();
             obj.UIFigure.WindowButtonUpFcn     = @(~,~) obj.onMouseUp();
             obj.IsAttached = true;
@@ -52,6 +57,7 @@ classdef StudioMouseRouter < handle
             obj.releaseDragLock();
             try
                 if ~isempty(obj.UIFigure) && isvalid(obj.UIFigure)
+                    obj.UIFigure.WindowButtonDownFcn   = '';
                     obj.UIFigure.WindowButtonMotionFcn = '';
                     obj.UIFigure.WindowButtonUpFcn     = '';
                 end
@@ -80,24 +86,26 @@ classdef StudioMouseRouter < handle
                 if obj.hasActiveLock()
                     return;  % another drag still owns the lock
                 end
-                activeId = '';
-                if ~isempty(obj.Workspace) && (~isa(obj.Workspace, 'handle') || isvalid(obj.Workspace))
-                    activeId = char(obj.Workspace.activeSessionId());
-                end
-                if isempty(activeId) || strcmp(activeId, 'standalone') || ...
-                        ~strcmp(activeId, sessionId)
+                if ~obj.isSessionActive(sessionId)
                     return;  % requesting session is not the visible tab
                 end
                 obj.ActiveSessionId  = sessionId;
                 obj.ActiveController = controller;
                 obj.ActiveGesture = char(gesture);
                 obj.setPointerSafe(pointerType);
+                if obj.DebugMode
+                    fprintf('StudioMouseRouter: lock granted to %s [%s]\n', ...
+                        obj.ActiveSessionId, obj.ActiveGesture);
+                end
                 tf = true;
             catch
             end
         end
 
         function releaseDragLock(obj)
+            if obj.DebugMode && obj.hasActiveLock()
+                fprintf('StudioMouseRouter: lock released from %s\n', obj.ActiveSessionId);
+            end
             obj.ActiveController = [];
             obj.ActiveSessionId  = '';
             obj.ActiveGesture = '';
@@ -140,12 +148,60 @@ classdef StudioMouseRouter < handle
             sessionId = obj.ActiveSessionId;
         end
 
+        function gesture = activeGesture(obj)
+            gesture = obj.ActiveGesture;
+        end
+
+        function tf = isSessionActive(obj, sessionId)
+            tf = false;
+            try
+                sessionId = char(sessionId);
+                if isempty(sessionId) || isempty(obj.Workspace) || ...
+                        (isa(obj.Workspace, 'handle') && ~isvalid(obj.Workspace))
+                    return;
+                end
+                activeId = char(obj.Workspace.activeSessionId());
+                tf = ~isempty(activeId) && ~strcmp(activeId, 'standalone') && ...
+                    strcmp(activeId, sessionId);
+            catch
+                tf = false;
+            end
+        end
+
+        function setPointer(obj, pointerType)
+            obj.setPointerSafe(pointerType);
+        end
+
+        function tf = startGesture(obj, sessionId, controller, gestureType, pointerType)
+            if nargin < 5 || isempty(pointerType)
+                pointerType = obj.gestureToPointer(gestureType);
+            end
+            tf = obj.requestDragLock(sessionId, controller, pointerType, gestureType);
+        end
+
+        function pointerType = gestureToPointer(~, gestureType)
+            switch lower(char(gestureType))
+                case 'pan'
+                    pointerType = 'hand';
+                case 'split'
+                    pointerType = 'fleur';
+                case {'zoom', 'draw'}
+                    pointerType = 'crosshair';
+                otherwise
+                    pointerType = 'fleur';
+            end
+        end
+
         function delete(obj)
             obj.detach();
         end
     end
 
     methods (Access = private)
+        function onButtonDown(~)
+            % Reserved for future hit-testing; object ButtonDownFcn starts drags.
+        end
+
         function onMouseMotion(obj)
             if ~obj.hasActiveLock()
                 obj.releaseDragLock();
@@ -154,16 +210,9 @@ classdef StudioMouseRouter < handle
             % If the user switched tabs while the drag was in progress
             % the active session changed; suppress motion until either
             % the drag is released or focus returns.
-            try
-                activeNow = '';
-                if ~isempty(obj.Workspace) && isvalid(obj.Workspace)
-                    activeNow = char(obj.Workspace.activeSessionId());
-                end
-                if isempty(activeNow) || strcmp(activeNow, 'standalone') || ...
-                        ~strcmp(activeNow, obj.ActiveSessionId)
-                    return;
-                end
-            catch
+            if ~obj.isSessionActive(obj.ActiveSessionId)
+                obj.releaseDragLock();
+                return;
             end
 
             try

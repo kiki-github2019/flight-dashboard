@@ -320,6 +320,10 @@ classdef WorkspaceManager < handle
             try
                 if isempty(dash) || ~isvalid(dash), return; end
                 if isempty(obj.App) || ~isvalid(obj.App), return; end
+                if isprop(obj.App, 'MouseRouter') && ~isempty(obj.App.MouseRouter) && ...
+                        isvalid(obj.App.MouseRouter) && ismethod(dash, 'setMouseRouter')
+                    dash.setMouseRouter(obj.App.MouseRouter);
+                end
                 if ~ismethod(obj.App, 'ensureSharedServices'), return; end
                 if ~ismethod(dash, 'setSharedServices'), return; end
                 [cacheService, decodeService] = obj.App.ensureSharedServices();

@@ -509,25 +509,33 @@ function [ok, msg, status] = checkStudioMouseRouterHardening()
         ws.activeSessionId = @() holder('id');
         router = flightdash.studio.StudioMouseRouter(fig, ws);
         ctrl = event.EventData();
+        ownsDown = ~isempty(fig.WindowButtonDownFcn);
 
         failEmpty = ~router.requestDragLock('P3_ROUTER_A', ctrl);
         holder('id') = 'standalone';
         failStandalone = ~router.requestDragLock('P3_ROUTER_A', ctrl);
         holder('id') = 'P3_ROUTER_A';
+        sessionActive = router.isSessionActive('P3_ROUTER_A');
+        pointerOk = strcmp(router.gestureToPointer('split'), 'fleur');
         grant = router.requestDragLock('P3_ROUTER_A', ctrl, 'left-right', 'split');
         held = router.hasActiveLock() && router.isLockHeldBy('P3_ROUTER_A') && ...
-            strcmp(router.lockedSessionId(), 'P3_ROUTER_A');
+            strcmp(router.lockedSessionId(), 'P3_ROUTER_A') && ...
+            strcmp(router.activeGesture(), 'split');
         router.cancelSession('P3_OTHER');
         stillHeld = router.hasActiveLock();
         router.cancelSession('P3_ROUTER_A');
         released = ~router.hasActiveLock();
+        gestureGrant = router.startGesture('P3_ROUTER_A', ctrl, 'pan');
+        gestureHeld = router.hasActiveLock() && strcmp(router.activeGesture(), 'pan');
+        router.releaseDragLock();
 
-        ok = failEmpty && failStandalone && grant && held && stillHeld && released;
+        ok = ownsDown && failEmpty && failStandalone && sessionActive && pointerOk && ...
+            grant && held && stillHeld && released && gestureGrant && gestureHeld;
         if ok
-            msg = 'StudioMouseRouter fails closed, exposes lock query, and cancels matching session only';
+            msg = 'StudioMouseRouter owns callbacks, fails closed, supports gestures, and cancels matching session only';
         else
-            msg = sprintf('Router hardening mismatch: empty=%d standalone=%d grant=%d held=%d still=%d released=%d', ...
-                failEmpty, failStandalone, grant, held, stillHeld, released);
+            msg = sprintf('Router hardening mismatch: owns=%d empty=%d standalone=%d active=%d pointer=%d grant=%d held=%d still=%d released=%d gesture=%d/%d', ...
+                ownsDown, failEmpty, failStandalone, sessionActive, pointerOk, grant, held, stillHeld, released, gestureGrant, gestureHeld);
         end
     catch ME
         ok = false;
@@ -583,7 +591,10 @@ function [ok, msg, status] = checkCleanupAllControllersHook()
 
         hasMethods = ismethod(app, 'cleanupAllControllers') && ...
             ismethod(app, 'cleanupAsyncOperations') && ...
-            ismethod(app, 'cleanupListeners');
+            ismethod(app, 'cleanupListeners') && ...
+            ismethod(app, 'setMouseRouter') && ...
+            ismethod(app, 'injectRouterToControllers') && ...
+            isprop(app, 'MouseRouter');
         app.cleanupAllControllers();
         appValid = ~isempty(app) && isvalid(app);
         figValid = ~isempty(fig) && isvalid(fig);

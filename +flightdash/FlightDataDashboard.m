@@ -127,6 +127,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % - embedded:   RootContainer = Studio가 넘긴 부모 컨테이너 (uitab/uipanel)
         % createLayout 등 향후 Phase 3b에서 RootContainer를 layout parent로 사용
         RootContainer       = []              % [PHASE 3a] uifigure or parent container
+        MouseRouter         = []              % [PHASE 3.5] Studio-owned mouse router hook
         SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
         SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
         UseSharedDecodeService logical = false % [PHASE 10] opt-in only
@@ -284,6 +285,42 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function setSharedServices(app, cacheService, decodeService)
             app.SharedCacheService = cacheService;
             app.SharedDecodeService = decodeService;
+        end
+
+        function setMouseRouter(app, router)
+            app.MouseRouter = [];
+            try
+                if ~isempty(router) && isa(router, 'handle') && isvalid(router)
+                    app.MouseRouter = router;
+                    app.injectRouterToControllers();
+                end
+            catch ME
+                app.logCaught(ME, 'Studio:mouseRouter');
+            end
+        end
+
+        function injectRouterToControllers(app)
+            try
+                if isempty(app.MouseRouter) || ~isa(app.MouseRouter, 'handle') || ...
+                        ~isvalid(app.MouseRouter)
+                    return;
+                end
+                names = {'FileCtrl','VideoSyncCtrl','PlaybackCtrl','PlotCtrl','RoiCtrl', ...
+                    'PannerCtrl','PanelCtrl','DragCtrl','MarkerDragCtrl','InfoCtrl'};
+                for k = 1:numel(names)
+                    if ~isprop(app, names{k}), continue; end
+                    ctrl = app.(names{k});
+                    if isempty(ctrl) || ~isobject(ctrl), continue; end
+                    for n = 1:numel(ctrl)
+                        c = ctrl(n);
+                        if isa(c, 'handle') && isvalid(c) && isprop(c, 'Router')
+                            c.Router = app.MouseRouter;
+                        end
+                    end
+                end
+            catch ME
+                app.logCaught(ME, 'Studio:injectMouseRouter');
+            end
         end
 
         function tf = hasSharedServices(app)
@@ -3331,9 +3368,17 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function router = lookupStudioMouseRouter(app)
             router = [];
             try
+                if ~isempty(app.MouseRouter) && isa(app.MouseRouter, 'handle') && ...
+                        isvalid(app.MouseRouter)
+                    router = app.MouseRouter;
+                    return;
+                end
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
                         && isappdata(app.UIFigure, 'StudioMouseRouter')
                     router = getappdata(app.UIFigure, 'StudioMouseRouter');
+                    if ~isempty(router) && isa(router, 'handle') && isvalid(router)
+                        app.MouseRouter = router;
+                    end
                 end
             catch
             end
