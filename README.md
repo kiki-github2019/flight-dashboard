@@ -67,7 +67,8 @@ final filename to avoid MATLAB `zip()` producing `*.frsproj.zip`.
 
 ## Current Phase Scope
 
-The active stabilization focus is Phase 1 through Phase 6 and Phase 9:
+The active stabilization focus is Phase 1 through Phase 6, Phase 8a, and
+Phase 9:
 
 - Phase 1: Studio shell
 - Phase 2: Project/session/value models
@@ -75,12 +76,13 @@ The active stabilization focus is Phase 1 through Phase 6 and Phase 9:
 - Phase 4: session-scoped EventBus routing
 - Phase 5: Project Explorer and Object Manager MVP
 - Phase 6: toolbar, menu, Inspector MVP, GUI mode MVP, status bar shell
+- Phase 8a: single ROI result Manual/Auto/Frozen recalculate MVP
 - Phase 9: linked project save/load
 
-Phase 7 ROI result plumbing exists in the repository, but further Phase 7/8
-expansion should wait until Phase 1-6 and Phase 9 verification is clean.
-Phase 8 Dirty DAG / Auto Update / Recalculate is not implemented yet beyond
-model placeholders and design documentation.
+Phase 7 ROI result plumbing exists in the repository, but broader Analysis
+Dialog work should wait until Phase 1-6 and Phase 9 verification is clean.
+Phase 8b Dirty DAG and Phase 8c background recalculation queues are not
+implemented yet.
 
 See `docs/phase-stabilization-status.md` for the current stabilization
 boundary.
@@ -114,6 +116,7 @@ results3  = flightdash.studio.diag.verifyPhase3();
 results4  = flightdash.studio.diag.verifyPhase4();
 results5  = flightdash.studio.diag.verifyPhase5();
 results6  = flightdash.studio.diag.verifyPhase6();
+results8  = flightdash.studio.diag.verifyPhase8();
 results9  = flightdash.studio.diag.verifyPhase9();
 multi     = flightdash.studio.diag.runMultiInstanceTests();
 ```

@@ -1,7 +1,7 @@
 classdef ProjectModel
     % flightdash.project.ProjectModel
-    % Top-level project container. Value class — all mutations return a
-    % new instance (see docs/design-serialization.md §3.1).
+    % Top-level project container. Value class: all mutations return a
+    % new instance (see docs/design-serialization.md section 3.1).
     %
     % Hierarchy:
     %   ProjectModel
@@ -117,6 +117,32 @@ classdef ProjectModel
         function obj = addResult(obj, result)
             mustBeA(result, 'flightdash.project.ReviewResultModel');
             obj.Results = [obj.Results, result];
+            obj = obj.touch();
+        end
+
+        function tf = hasResult(obj, resultId)
+            tf = false;
+            if isempty(obj.Results), return; end
+            tf = any(arrayfun(@(r) strcmp(r.ResultId, char(resultId)), obj.Results));
+        end
+
+        function r = findResult(obj, resultId)
+            r = flightdash.project.ReviewResultModel.empty;
+            if isempty(obj.Results), return; end
+            mask = arrayfun(@(x) strcmp(x.ResultId, char(resultId)), obj.Results);
+            if any(mask)
+                r = obj.Results(find(mask, 1));
+            end
+        end
+
+        function obj = updateResult(obj, result)
+            mustBeA(result, 'flightdash.project.ReviewResultModel');
+            mask = arrayfun(@(x) strcmp(x.ResultId, char(result.ResultId)), obj.Results);
+            if ~any(mask)
+                error('ProjectModel:UnknownResult', ...
+                    'Result id "%s" not found.', result.ResultId);
+            end
+            obj.Results(find(mask, 1)) = result;
             obj = obj.touch();
         end
 

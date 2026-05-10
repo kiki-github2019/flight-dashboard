@@ -1,6 +1,6 @@
 # Phase Stabilization Status
 
-This note records the intended stabilization boundary before more Phase 7 or
+This note records the intended stabilization boundary before larger Phase 7 or
 Phase 8 work is added.
 
 ## Current Focus
@@ -13,6 +13,7 @@ The current stabilization scope is:
 - Phase 4: session-scoped EventBus routing
 - Phase 5: Project Explorer and Object Manager MVP
 - Phase 6: toolbar/menu/Inspector/GUI mode MVP
+- Phase 8a: single ROI result Manual/Auto/Frozen recalculate MVP
 - Phase 9: linked `.frsproj` save/load
 
 ## Phase 7 Boundary
@@ -29,11 +30,16 @@ UI workflows during stabilization.
 
 ## Phase 8 Boundary
 
-Dirty DAG / Auto Update / Recalculate is not implemented yet. Fields such as
-`DependsOn`, `DirtyState`, `RecalculateMode`, `LastDataHash`, and
-`LastSyncHash` are placeholders for future work.
+Phase 8a now has a small single-result recalculation service:
 
-Do not assume the following exist until Phase 8 starts:
+- `+flightdash/+analysis/RecalculateService.m`
+- `+flightdash/+studio/+diag/verifyPhase8.m`
+
+The supported scope is intentionally narrow: one ROI `ReviewResultModel` can be
+marked Manual/Auto/Frozen, marked dirty/stale when its source hash changes, and
+manually recalculated through `AnalysisService`.
+
+Do not assume the following exist until Phase 8b/8c starts:
 
 - `+flightdash/+project/DirtyTracker.m`
 - dependency graph propagation
