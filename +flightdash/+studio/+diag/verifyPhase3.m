@@ -25,6 +25,7 @@ function results = verifyPhase3()
         'P3-15', @checkCleanupAllControllersHook
         'P3-16', @checkControllerBasePresence
         'P3-17', @checkSplitterHitTestPresence
+        'P3-18', @checkRoiHitTestPresence
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -668,6 +669,31 @@ function [ok, msg, status] = checkSplitterHitTestPresence()
     catch ME
         ok = false;
         msg = sprintf('Splitter hit-test check failed: %s', ME.message);
+    end
+end
+
+function [ok, msg, status] = checkRoiHitTestPresence()
+    status = '';
+    try
+        metaObj = meta.class.fromName('flightdash.controller.RoiController');
+        required = {'hitTest','onButtonDown','drawBands'};
+        missing = {};
+        for k = 1:numel(required)
+            if ~hasMetaMethod(metaObj, required{k})
+                missing{end+1} = required{k}; %#ok<AGROW>
+            end
+        end
+        hasThreshold = hasMetaProperty(metaObj, 'HitThreshold');
+        ok = ~isempty(metaObj) && isempty(missing) && hasThreshold;
+        if ok
+            msg = 'RoiController exposes ROI band hit-test API';
+        else
+            msg = sprintf('RoiController hit-test missing: methods=%s threshold=%d', ...
+                strjoin(missing, ', '), hasThreshold);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('ROI hit-test check failed: %s', ME.message);
     end
 end
 
