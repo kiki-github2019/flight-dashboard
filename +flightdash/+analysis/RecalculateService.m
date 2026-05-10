@@ -1,10 +1,11 @@
 classdef RecalculateService
     % flightdash.analysis.RecalculateService
-    % Phase 8a MVP for single-result Manual/Auto/Frozen recalculation.
+    % Phase 8a/8b MVP for Manual/Auto/Frozen recalculation metadata.
     %
-    % This service intentionally does not implement the Phase 8b dependency
-    % graph or the Phase 8c background queue. It only manages one persisted
-    % ReviewResultModel at a time.
+    % Phase 8a manages one persisted ReviewResultModel at a time. Phase 8b
+    % delegates dependency propagation and topological ordering to
+    % flightdash.project.DirtyTracker. Phase 8c background queues remain out
+    % of scope.
 
     properties (Constant)
         ValidModes = {'Manual', 'Auto', 'Frozen'}
@@ -67,6 +68,19 @@ classdef RecalculateService
 
             if ~isempty(dirtyIds)
                 project = project.touch();
+            end
+        end
+
+        function [project, dirtyResultIds, dirtyNodeIds] = markDependenciesDirty(project, changedNodeIds)
+            [project, dirtyResultIds, dirtyNodeIds] = ...
+                flightdash.project.DirtyTracker.markDirty(project, changedNodeIds);
+        end
+
+        function [resultIds, nodeIds] = recalculationOrder(project, targets)
+            if nargin < 2
+                [resultIds, nodeIds] = flightdash.project.DirtyTracker.topologicalOrder(project);
+            else
+                [resultIds, nodeIds] = flightdash.project.DirtyTracker.topologicalOrder(project, targets);
             end
         end
 

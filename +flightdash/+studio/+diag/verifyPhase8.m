@@ -1,5 +1,5 @@
 function results = verifyPhase8()
-%VERIFYPHASE8 Phase 8a verification: single-result recalculate MVP.
+%VERIFYPHASE8 Phase 8 verification: recalculate + dirty DAG MVP.
 %
 % Usage:
 %   results = flightdash.studio.diag.verifyPhase8();
@@ -15,7 +15,9 @@ function results = verifyPhase8()
         'P8-5', @checkAutoRoiRecalculate
         'P8-6', @checkProjectResultRecalculate
         'P8-7', @checkSerializerRoundTrip
-        'P8-8', @checkDeferredScopeGuard
+        'P8-8', @checkDependencyPropagation
+        'P8-9', @checkTopologicalOrderAndCycle
+        'P8-10', @checkDeferredQueueScopeGuard
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -63,6 +65,7 @@ function [ok, msg, status] = checkPhase8Classes()
     classes = {
         'flightdash.analysis.RecalculateService'
         'flightdash.analysis.AnalysisService'
+        'flightdash.project.DirtyTracker'
         'flightdash.project.ReviewResultModel'
     };
     missing = {};
@@ -83,7 +86,7 @@ function [ok, msg, status] = checkPhase8Classes()
 
     ok = isempty(missing) && isempty(missingProps);
     if ok
-        msg = 'RecalculateService and ReviewResultModel Phase 8a fields resolved';
+        msg = 'RecalculateService, DirtyTracker, and ReviewResultModel Phase 8 fields resolved';
     else
         msg = sprintf('Missing classes: %s; missing props: %s', ...
             strjoin(missing, ', '), strjoin(missingProps, ', '));
@@ -206,23 +209,70 @@ function [ok, msg, status] = checkSerializerRoundTrip()
     ok = isfile(tmpFile) && numel(loaded.Results) == 1 && ...
         strcmp(loaded.Results(1).RecalculateMode, 'Frozen') && ...
         strcmp(loaded.Results(1).DirtyState, 'stale') && ...
-        loaded.Results(1).DirtyFlag && ~isempty(loaded.Results(1).ComputeFnSpec);
+        loaded.Results(1).DirtyFlag && ~isempty(loaded.Results(1).DependsOn) && ...
+        ~isempty(loaded.Results(1).ComputeFnSpec);
     if ok
-        msg = 'RecalculateMode, DirtyState, DirtyFlag, and ComputeFnSpec survive save/load';
+        msg = 'RecalculateMode, DirtyState, DirtyFlag, DependsOn, and ComputeFnSpec survive save/load';
     else
         msg = 'Phase 8 result metadata did not survive ProjectSerializer round-trip';
     end
 end
 
-function [ok, msg, status] = checkDeferredScopeGuard()
+function [ok, msg, status] = checkDependencyPropagation()
     status = '';
-    hasDirtyTracker = ~isempty(meta.class.fromName('flightdash.project.DirtyTracker'));
-    hasQueue = ~isempty(meta.class.fromName('flightdash.analysis.RecalculateQueue'));
-    ok = ~hasDirtyTracker && ~hasQueue;
+    [p, sourceNode, resultA, resultB] = sampleDependentProject();
+    resultB = resultB.setRecalculateMode('Frozen');
+    p = p.updateResult(resultB);
+
+    [p, dirtyIds, dirtyNodes] = flightdash.analysis.RecalculateService.markDependenciesDirty(p, sourceNode);
+
+    a = p.findResult(resultA.ResultId);
+    b = p.findResult(resultB.ResultId);
+    ok = isequal(dirtyIds, {resultA.ResultId, resultB.ResultId}) && ...
+        isequal(dirtyNodes, {resultA.nodeId(), resultB.nodeId()}) && ...
+        strcmp(a.DirtyState, 'dirty') && strcmp(b.DirtyState, 'stale') && ...
+        a.DirtyFlag && b.DirtyFlag;
     if ok
-        msg = 'Phase 8b DAG and Phase 8c background queue are intentionally deferred';
+        msg = 'ROI source change propagates dirty/stale state in dependency order';
     else
-        msg = 'Unexpected Phase 8b/8c class detected; review partial implementation before use';
+        msg = 'Dirty DAG propagation did not mark dependent results in topological order';
+    end
+end
+
+function [ok, msg, status] = checkTopologicalOrderAndCycle()
+    status = '';
+    [p, ~, resultA, resultB] = sampleDependentProject();
+    [orderIds, orderNodes] = flightdash.analysis.RecalculateService.recalculationOrder( ...
+        p, resultB.ResultId);
+
+    orderOk = isequal(orderIds, {resultA.ResultId, resultB.ResultId}) && ...
+        isequal(orderNodes, {resultA.nodeId(), resultB.nodeId()});
+
+    resultA = resultA.setDependencies({resultB.nodeId()});
+    p = p.updateResult(resultA);
+    cycleRejected = false;
+    try
+        flightdash.project.DirtyTracker.validateAcyclic(p);
+    catch ME
+        cycleRejected = strcmp(ME.identifier, 'DirtyTracker:CycleDetected');
+    end
+
+    ok = orderOk && cycleRejected;
+    if ok
+        msg = 'Topological order is stable and result dependency cycles are rejected';
+    else
+        msg = 'Topological order or cycle detection failed';
+    end
+end
+
+function [ok, msg, status] = checkDeferredQueueScopeGuard()
+    status = '';
+    hasQueue = ~isempty(meta.class.fromName('flightdash.analysis.RecalculateQueue'));
+    ok = ~hasQueue;
+    if ok
+        msg = 'Phase 8c background queue is intentionally deferred';
+    else
+        msg = 'Unexpected Phase 8c queue class detected; review partial implementation before use';
     end
 end
 
@@ -248,6 +298,25 @@ function [request, session] = sampleRequest(offset)
     request = flightdash.analysis.AnalysisService.makeRoiStatisticsRequest( ...
         session.SessionId, 1, 1, rows, time, raw, struct('IsSynced', false), ...
         flightdash.analysis.AnalysisService.DefaultRoiStatsThemeId);
+end
+
+function [project, sourceNode, resultA, resultB] = sampleDependentProject()
+    [~, session] = sampleRequest(0);
+    resultA = sampleResult(0);
+    resultA.ResultId = 'R_PHASE8_A';
+    sourceNode = flightdash.project.DirtyTracker.roiSourceNodeId(session.SessionId, 1, 1);
+    resultA = resultA.setDependencies({sourceNode});
+
+    resultB = flightdash.project.ReviewResultModel(session.SessionId, 'Statistics', 1);
+    resultB.ResultId = 'R_PHASE8_B';
+    resultB.ComputedValues = struct('DerivedFrom', resultA.ResultId);
+    resultB.AnalysisThemeId = 'THM_PHASE8_DERIVED';
+    resultB = resultB.setDependencies({resultA.nodeId()});
+
+    project = flightdash.project.ProjectModel('Phase8 DAG');
+    project = project.addSession(session);
+    project = project.addResult(resultA);
+    project = project.addResult(resultB);
 end
 
 function cleanupFile(filePath)

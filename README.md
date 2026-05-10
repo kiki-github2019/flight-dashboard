@@ -67,7 +67,7 @@ final filename to avoid MATLAB `zip()` producing `*.frsproj.zip`.
 
 ## Current Phase Scope
 
-The active stabilization focus is Phase 1 through Phase 6, Phase 8a, and
+The active stabilization focus is Phase 1 through Phase 6, Phase 8a/8b, and
 Phase 9:
 
 - Phase 1: Studio shell
@@ -77,12 +77,12 @@ Phase 9:
 - Phase 5: Project Explorer and Object Manager MVP
 - Phase 6: toolbar, menu, Inspector MVP, GUI mode MVP, status bar shell
 - Phase 8a: single ROI result Manual/Auto/Frozen recalculate MVP
+- Phase 8b: dirty dependency propagation and topological result ordering
 - Phase 9: linked project save/load
 
 Phase 7 ROI result plumbing exists in the repository, but broader Analysis
 Dialog work should wait until Phase 1-6 and Phase 9 verification is clean.
-Phase 8b Dirty DAG and Phase 8c background recalculation queues are not
-implemented yet.
+Phase 8c background recalculation queues are not implemented yet.
 
 See `docs/phase-stabilization-status.md` for the current stabilization
 boundary.

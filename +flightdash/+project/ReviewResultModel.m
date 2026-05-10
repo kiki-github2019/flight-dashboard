@@ -29,7 +29,7 @@ classdef ReviewResultModel
         RecalculateMode     char     = 'Auto'  % Manual|Auto|Frozen
         DirtyFlag           logical  = false
 
-        % --- DAG fields (design-dirty-dag.md §6.1) ---
+        % DAG fields (see docs/design-dirty-dag.md section 6.1)
         DependsOn           cell     = {}      % NodeId list (e.g. 'sess:S001:roi:0')
         NodeKind            char     = 'derived' % source|derived
         DirtyState          char     = 'clean' % clean|dirty|computing|error|stale
@@ -109,7 +109,7 @@ classdef ReviewResultModel
         end
 
         function nid = nodeId(obj)
-            % Canonical NodeId per design-dirty-dag.md §2
+            % Canonical result NodeId.
             nid = sprintf('result:%s:%s', obj.SessionId, obj.ResultId);
         end
     end
