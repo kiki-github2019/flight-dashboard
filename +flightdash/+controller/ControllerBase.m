@@ -146,6 +146,47 @@ classdef ControllerBase < handle
             state = struct();
         end
 
+        function [tf, target] = hitTest(obj, point)
+            tf = false;
+            target = [];
+            try
+                point = double(point);
+                if numel(point) < 2 || any(~isfinite(point(1:2)))
+                    return;
+                end
+                point = point(1:2);
+                if isprop(obj, 'Axes') && ~isempty(obj.Axes)
+                    axesList = obj.Axes;
+                    for k = 1:numel(axesList)
+                        ax = axesList(k);
+                        if obj.inAxes(ax, point)
+                            tf = true;
+                            target = ax;
+                            return;
+                        end
+                    end
+                end
+            catch ME
+                obj.logCaught(ME, 'ControllerBase:hitTest');
+                tf = false;
+                target = [];
+            end
+        end
+
+        function tf = inAxes(~, ax, point)
+            tf = false;
+            try
+                if isempty(ax) || ~isvalid(ax) || numel(point) < 2
+                    return;
+                end
+                pos = getpixelposition(ax, true);
+                tf = point(1) >= pos(1) && point(1) <= pos(1) + pos(3) && ...
+                    point(2) >= pos(2) && point(2) <= pos(2) + pos(4);
+            catch
+                tf = false;
+            end
+        end
+
         function pt = getCurrentMousePoint(obj)
             pt = [0 0];
             try

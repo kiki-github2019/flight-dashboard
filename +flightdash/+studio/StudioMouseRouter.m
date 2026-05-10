@@ -35,6 +35,7 @@ classdef StudioMouseRouter < handle
 
     properties (Access = public)
         DebugMode logical = false
+        HitTestEnabled logical = false
     end
 
     methods
@@ -192,14 +193,102 @@ classdef StudioMouseRouter < handle
             end
         end
 
+        function hitInfo = performHitTest(obj, point)
+            hitInfo = obj.emptyHitInfo();
+            try
+                if ~obj.HitTestEnabled || isempty(obj.UIFigure) || ~isvalid(obj.UIFigure)
+                    return;
+                end
+                point = double(point);
+                if numel(point) < 2 || any(~isfinite(point(1:2)))
+                    return;
+                end
+                point = point(1:2);
+
+                entry = obj.getActiveDashboardEntry();
+                if isempty(entry) || ~isstruct(entry) || ~isfield(entry, 'Dashboard') || ...
+                        isempty(entry.Dashboard) || ~isvalid(entry.Dashboard)
+                    return;
+                end
+
+                if isfield(entry, 'SessionId')
+                    hitInfo.SessionId = char(entry.SessionId);
+                else
+                    hitInfo.SessionId = char(entry.Dashboard.ActiveSessionId);
+                end
+
+                tests = {
+                    'MarkerDragCtrl', 'marker',   100
+                    'PannerCtrl',     'panner',    90
+                    'DragCtrl',       'splitter',  80
+                    'RoiCtrl',        'roi',       70
+                    'PlotCtrl',       'axes',      50
+                    };
+
+                for k = 1:size(tests, 1)
+                    candidate = obj.testControllerHit(entry.Dashboard, point, ...
+                        tests{k, 1}, tests{k, 2}, tests{k, 3});
+                    if candidate.Hit && candidate.Priority > hitInfo.Priority
+                        hitInfo = candidate;
+                        if hitInfo.Priority >= 90
+                            break;
+                        end
+                    end
+                end
+            catch
+                hitInfo = obj.emptyHitInfo();
+            end
+        end
+
+        function activeEntry = getActiveDashboardEntry(obj)
+            activeEntry = [];
+            try
+                if isempty(obj.Workspace) || ...
+                        (isa(obj.Workspace, 'handle') && ~isvalid(obj.Workspace)) || ...
+                        ~isprop(obj.Workspace, 'DashboardEntries')
+                    return;
+                end
+                sessionId = char(obj.Workspace.activeSessionId());
+                entries = obj.Workspace.DashboardEntries;
+                if isempty(sessionId) || isempty(entries) || ~entries.isKey(sessionId)
+                    return;
+                end
+                activeEntry = entries(sessionId);
+            catch
+                activeEntry = [];
+            end
+        end
+
         function delete(obj)
             obj.detach();
         end
     end
 
     methods (Access = private)
-        function onButtonDown(~)
-            % Reserved for future hit-testing; object ButtonDownFcn starts drags.
+        function onButtonDown(obj)
+            if ~obj.HitTestEnabled || obj.hasActiveLock()
+                return;
+            end
+            try
+                if isempty(obj.UIFigure) || ~isvalid(obj.UIFigure)
+                    return;
+                end
+                hitInfo = obj.performHitTest(obj.UIFigure.CurrentPoint(1:2));
+                if ~hitInfo.Hit || isempty(hitInfo.Controller) || ...
+                        ~isa(hitInfo.Controller, 'handle') || ~isvalid(hitInfo.Controller) || ...
+                        ~ismethod(hitInfo.Controller, 'onButtonDown')
+                    return;
+                end
+                evt = struct('IntersectionPoint', hitInfo.Point, ...
+                    'HitTarget', hitInfo.Target, ...
+                    'HitType', hitInfo.Type);
+                hitInfo.Controller.onButtonDown(hitInfo.Target, evt);
+            catch ME
+                try
+                    flightdash.util.ErrorLog.log(ME, 'StudioMouseRouter:ButtonDown', false);
+                catch
+                end
+            end
         end
 
         function onMouseMotion(obj)
@@ -263,6 +352,48 @@ classdef StudioMouseRouter < handle
                 end
             catch
             end
+        end
+
+        function hitInfo = testControllerHit(obj, dashboard, point, ctrlName, hitType, priority)
+            hitInfo = obj.emptyHitInfo();
+            try
+                if isempty(dashboard) || ~isvalid(dashboard) || ~isprop(dashboard, ctrlName)
+                    return;
+                end
+                ctrl = dashboard.(ctrlName);
+                if isempty(ctrl) || ~isobject(ctrl)
+                    return;
+                end
+                for n = 1:numel(ctrl)
+                    c = ctrl(n);
+                    if ~isa(c, 'handle') || ~isvalid(c) || ~ismethod(c, 'hitTest')
+                        continue;
+                    end
+                    [hit, target] = c.hitTest(point);
+                    if hit
+                        hitInfo.Hit = true;
+                        hitInfo.SessionId = char(dashboard.ActiveSessionId);
+                        hitInfo.Controller = c;
+                        hitInfo.Target = target;
+                        hitInfo.Type = char(hitType);
+                        hitInfo.Priority = double(priority);
+                        hitInfo.Point = point;
+                        return;
+                    end
+                end
+            catch
+                hitInfo = obj.emptyHitInfo();
+            end
+        end
+
+        function hitInfo = emptyHitInfo(~)
+            hitInfo = struct('Hit', false, ...
+                'SessionId', '', ...
+                'Controller', [], ...
+                'Target', [], ...
+                'Type', '', ...
+                'Priority', 0, ...
+                'Point', [NaN NaN]);
         end
     end
 end

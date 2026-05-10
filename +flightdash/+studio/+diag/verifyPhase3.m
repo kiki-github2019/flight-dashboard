@@ -528,14 +528,18 @@ function [ok, msg, status] = checkStudioMouseRouterHardening()
         gestureGrant = router.startGesture('P3_ROUTER_A', ctrl, 'pan');
         gestureHeld = router.hasActiveLock() && strcmp(router.activeGesture(), 'pan');
         router.releaseDragLock();
+        router.HitTestEnabled = true;
+        hitInfo = router.performHitTest([10 10]);
+        hitApi = isprop(router, 'HitTestEnabled') && isfield(hitInfo, 'Hit') && ...
+            isfield(hitInfo, 'Priority') && ~hitInfo.Hit;
 
         ok = ownsDown && failEmpty && failStandalone && sessionActive && pointerOk && ...
-            grant && held && stillHeld && released && gestureGrant && gestureHeld;
+            grant && held && stillHeld && released && gestureGrant && gestureHeld && hitApi;
         if ok
-            msg = 'StudioMouseRouter owns callbacks, fails closed, supports gestures, and cancels matching session only';
+            msg = 'StudioMouseRouter owns callbacks, fails closed, supports gestures/hit-test API, and cancels matching session only';
         else
-            msg = sprintf('Router hardening mismatch: owns=%d empty=%d standalone=%d active=%d pointer=%d grant=%d held=%d still=%d released=%d gesture=%d/%d', ...
-                ownsDown, failEmpty, failStandalone, sessionActive, pointerOk, grant, held, stillHeld, released, gestureGrant, gestureHeld);
+            msg = sprintf('Router hardening mismatch: owns=%d empty=%d standalone=%d active=%d pointer=%d grant=%d held=%d still=%d released=%d gesture=%d/%d hit=%d', ...
+                ownsDown, failEmpty, failStandalone, sessionActive, pointerOk, grant, held, stillHeld, released, gestureGrant, gestureHeld, hitApi);
         end
     catch ME
         ok = false;
@@ -622,7 +626,7 @@ function [ok, msg, status] = checkControllerBasePresence()
     try
         metaObj = meta.class.fromName('flightdash.controller.ControllerBase');
         required = {'requestDragLock','releaseDragLock','handleDragMotion', ...
-            'stopDrag','cleanup','trackListener'};
+            'stopDrag','cleanup','trackListener','hitTest','inAxes'};
         missing = {};
         for k = 1:numel(required)
             if ~hasMetaMethod(metaObj, required{k})
