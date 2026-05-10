@@ -204,16 +204,18 @@ end
 
 function [ok, msg, status] = checkDashboardWiringMethods()
     status = '';
-    dashMeta = meta.class.fromName('flightdash.FlightDataDashboard');
-    roiMeta = meta.class.fromName('flightdash.controller.RoiController');
-    dashMethods = {dashMeta.MethodList.Name};
-    roiMethods = {roiMeta.MethodList.Name};
-    ok = any(strcmp(dashMethods, 'registerReviewResult')) && ...
-        any(strcmp(roiMethods, 'registerSelectedResult'));
+    dashHas = classHasMethod('flightdash.FlightDataDashboard', 'registerReviewResult') || ...
+        sourceContainsMethod('flightdash.FlightDataDashboard', 'registerReviewResult');
+    roiHas = classHasMethod('flightdash.controller.RoiController', 'registerSelectedResult') || ...
+        sourceContainsMethod('flightdash.controller.RoiController', 'registerSelectedResult');
+    ok = dashHas && roiHas;
     if ok
         msg = 'Dashboard/RoiController expose Phase 7 registration hooks';
     else
-        msg = 'Missing Dashboard or ROI controller registration hook';
+        missing = {};
+        if ~dashHas, missing{end+1} = 'FlightDataDashboard.registerReviewResult'; end %#ok<AGROW>
+        if ~roiHas, missing{end+1} = 'RoiController.registerSelectedResult'; end %#ok<AGROW>
+        msg = sprintf('Missing hook(s): %s', strjoin(missing, ', '));
     end
 end
 
@@ -276,6 +278,34 @@ function cleanupFile(path)
     try
         if isfile([path '.zip']), delete([path '.zip']); end
     catch
+    end
+end
+
+function tf = classHasMethod(className, methodName)
+    tf = false;
+    try
+        mc = meta.class.fromName(className);
+        if isempty(mc), return; end
+        names = cell(1, numel(mc.MethodList));
+        for k = 1:numel(mc.MethodList)
+            names{k} = char(mc.MethodList(k).Name);
+        end
+        tf = any(strcmp(names, methodName));
+    catch
+        tf = false;
+    end
+end
+
+function tf = sourceContainsMethod(className, methodName)
+    tf = false;
+    try
+        filePath = which(className);
+        if isempty(filePath) || ~isfile(filePath), return; end
+        txt = fileread(filePath);
+        pat = ['function\s+(?:\[[^\]]+\]\s*=\s*|[A-Za-z]\w*\s*=\s*)?' regexptranslate('escape', methodName) '\s*\('];
+        tf = ~isempty(regexp(txt, pat, 'once'));
+    catch
+        tf = false;
     end
 end
 
