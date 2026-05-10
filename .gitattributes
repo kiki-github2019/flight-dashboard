@@ -45,4 +45,4 @@
 # --- Repo metadata ---
 .gitattributes   text eol=lf
 .gitignore       text eol=lf
-LICENSE          text eol=lf
+LICENSE.md       text eol=lf
