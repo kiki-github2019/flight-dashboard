@@ -206,15 +206,23 @@ function [ok, msg, status] = checkDashboardWiringMethods()
     status = '';
     dashHas = classHasMethod('flightdash.FlightDataDashboard', 'registerReviewResult') || ...
         sourceContainsMethod('flightdash.FlightDataDashboard', 'registerReviewResult');
+    studioHas = classHasMethod('flightdash.studio.FlightReviewStudioApp', 'registerReviewResult') || ...
+        sourceContainsMethod('flightdash.studio.FlightReviewStudioApp', 'registerReviewResult');
     roiHas = classHasMethod('flightdash.controller.RoiController', 'registerSelectedResult') || ...
         sourceContainsMethod('flightdash.controller.RoiController', 'registerSelectedResult');
-    ok = dashHas && roiHas;
+    roiRoutesResult = sourceContainsText('flightdash.controller.RoiController', 'registerReviewResult(resultModel)');
+    ok = roiHas && roiRoutesResult && (dashHas || studioHas);
     if ok
-        msg = 'Dashboard/RoiController expose Phase 7 registration hooks';
+        if dashHas
+            msg = 'Dashboard/RoiController expose Phase 7 registration hooks';
+        else
+            msg = 'ROI controller routes results to the Studio registration sink';
+        end
     else
         missing = {};
-        if ~dashHas, missing{end+1} = 'FlightDataDashboard.registerReviewResult'; end %#ok<AGROW>
+        if ~dashHas && ~studioHas, missing{end+1} = 'registerReviewResult sink'; end %#ok<AGROW>
         if ~roiHas, missing{end+1} = 'RoiController.registerSelectedResult'; end %#ok<AGROW>
+        if ~roiRoutesResult, missing{end+1} = 'RoiController registerReviewResult route'; end %#ok<AGROW>
         msg = sprintf('Missing hook(s): %s', strjoin(missing, ', '));
     end
 end
@@ -315,6 +323,24 @@ function tf = sourceContainsMethod(className, methodName)
     end
 end
 
+function tf = sourceContainsText(className, needle)
+    tf = false;
+    try
+        candidates = sourceCandidatesForClass(className);
+        for k = 1:numel(candidates)
+            filePath = candidates{k};
+            if isempty(filePath) || ~isfile(filePath), continue; end
+            txt = fileread(filePath);
+            if contains(txt, needle)
+                tf = true;
+                return;
+            end
+        end
+    catch
+        tf = false;
+    end
+end
+
 function candidates = sourceCandidatesForClass(className)
     candidates = {};
     try
@@ -326,13 +352,36 @@ function candidates = sourceCandidatesForClass(className)
     end
     try
         parts = strsplit(char(className), '.');
-        diagDir = fileparts(mfilename('fullpath'));
-        repoRoot = fullfile(diagDir, '..', '..', '..');
-        pkgPath = repoRoot;
-        for k = 1:numel(parts)-1
-            pkgPath = fullfile(pkgPath, ['+' parts{k}]);
+        rootCandidates = {};
+        diagPath = mfilename('fullpath');
+        if isempty(diagPath)
+            diagPath = which('flightdash.studio.diag.verifyPhase7');
         end
-        candidates{end+1} = fullfile(pkgPath, [parts{end} '.m']); %#ok<AGROW>
+        if ~isempty(diagPath)
+            rootCandidates{end+1} = fullfile(fileparts(diagPath), '..', '..', '..'); %#ok<AGROW>
+        end
+        entryPath = which('FlightReviewStudio');
+        if ~isempty(entryPath)
+            rootCandidates{end+1} = fileparts(entryPath); %#ok<AGROW>
+        end
+        legacyPath = which('FlightDataDashboard');
+        if ~isempty(legacyPath)
+            rootCandidates{end+1} = fileparts(legacyPath); %#ok<AGROW>
+        end
+        try
+            rootCandidates{end+1} = pwd; %#ok<AGROW>
+        catch
+        end
+        for r = 1:numel(rootCandidates)
+            repoRoot = rootCandidates{r};
+            if isempty(repoRoot), continue; end
+            pkgPath = repoRoot;
+            for k = 1:numel(parts)-1
+                pkgPath = fullfile(pkgPath, ['+' parts{k}]);
+            end
+            candidates{end+1} = fullfile(pkgPath, [parts{end} '.m']); %#ok<AGROW>
+        end
+        candidates = unique(candidates, 'stable');
     catch
     end
 end
