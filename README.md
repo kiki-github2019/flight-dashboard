@@ -88,7 +88,8 @@ Dialog work should wait until Phase 1-6 and Phase 9 verification is clean.
 Phase 8c is intentionally a conservative sequential queue; shared parfeval
 priority scheduling remains outside the MVP. Phase 10 currently starts with a
 shared service prototype plus Studio/dashboard injection hooks before dashboard
-decode paths are changed.
+decode paths are changed. Dashboard decode has an opt-in gate for targeted
+runtime testing while legacy decode remains the default.
 
 See `docs/phase-stabilization-status.md` for the current stabilization
 boundary.

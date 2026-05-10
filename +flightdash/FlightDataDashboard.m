@@ -129,6 +129,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         RootContainer       = []              % [PHASE 3a] uifigure or parent container
         SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
         SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
+        UseSharedDecodeService logical = false % [PHASE 10] opt-in only
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
 
@@ -288,6 +289,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function tf = hasSharedServices(app)
             tf = ~isempty(app.SharedCacheService) && isvalid(app.SharedCacheService) && ...
                  ~isempty(app.SharedDecodeService) && isvalid(app.SharedDecodeService);
+        end
+
+        function setSharedDecodeEnabled(app, tf)
+            app.UseSharedDecodeService = logical(tf);
         end
 
         function delete(app)
@@ -2830,6 +2835,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % [V3.21 #3-A Layer 2] 동기 디코딩 (read or 폴백)
         function img = decodeFrameSync(app, fIdx, clampedFrame)
             img = [];
+            if app.shouldUseSharedDecode(fIdx)
+                img = app.decodeFrameViaSharedService(fIdx, clampedFrame);
+                if ~isempty(img), return; end
+            end
             vr = app.VideoState(fIdx).videoReader;
 
             try
@@ -2855,6 +2864,66 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         % [V3.21 #3-A Layer 3] 단일 표시 출구 - 모든 디코딩 결과는 여기 통과
+        function tf = shouldUseSharedDecode(app, fIdx)
+            tf = false;
+            try
+                tf = app.UseSharedDecodeService && app.hasSharedServices() && ...
+                    fIdx >= 1 && fIdx <= numel(app.VideoFilePath) && ...
+                    ~isempty(app.VideoFilePath{fIdx});
+            catch
+                tf = false;
+            end
+        end
+
+        function img = decodeFrameViaSharedService(app, fIdx, clampedFrame)
+            img = [];
+            try
+                service = app.SharedDecodeService;
+                service.setActiveSession(app.ActiveSessionId);
+                videoPath = app.VideoFilePath{fIdx};
+                decoder = @(req) app.decodeFrameSyncLocal(fIdx, req.FrameNo);
+                reply = service.requestFrame(app.ActiveSessionId, fIdx, videoPath, clampedFrame, decoder);
+                if strcmp(reply.Status, 'cache-hit')
+                    img = reply.Frame;
+                    return;
+                end
+                if strcmp(reply.Status, 'queued')
+                    [result, decoded] = service.runRequest(reply.RequestId);
+                    if strcmp(result.Status, 'completed')
+                        img = decoded;
+                    end
+                end
+            catch ME
+                app.logCaught(ME, 'decodeShared');
+                img = [];
+            end
+        end
+
+        function img = decodeFrameSyncLocal(app, fIdx, clampedFrame)
+            img = [];
+            vr = app.VideoState(fIdx).videoReader;
+            try
+                img = read(vr, clampedFrame);
+            catch
+                try
+                    fps = app.VideoSyncState(fIdx).VideoFps;
+                    if fps <= 0, fps = 70; end
+                    relTime = (clampedFrame - 1) / fps;
+                    if relTime < 0, relTime = 0; end
+                    if relTime >= vr.Duration
+                        relTime = max(0, vr.Duration - 0.05);
+                    end
+                    vr.CurrentTime = relTime;
+                    if hasFrame(vr)
+                        img = readFrame(vr);
+                    end
+                catch ME
+                    app.logCaught(ME, 'decodeShared:fallback');
+                    img = [];
+                end
+            end
+        end
+
         function displayFrame(app, fIdx, frameNo, img, isCacheHit)
             try
                 if ~app.isVideoReady(fIdx) || isempty(img), return; end

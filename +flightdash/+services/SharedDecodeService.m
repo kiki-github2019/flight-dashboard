@@ -84,25 +84,21 @@ classdef SharedDecodeService < handle
             end
 
             idx = obj.nextQueueIndex();
-            req = obj.Queue(idx);
-            obj.Queue(idx) = [];
+            [result, frame] = obj.runQueueIndex(idx);
+        end
 
-            if req.Generation ~= obj.generation(req.SessionId)
-                obj.DiscardedCount = obj.DiscardedCount + 1;
-                result = obj.reply('stale-discard', req.RequestId, []);
+        function [result, frame] = runRequest(obj, requestId)
+            frame = [];
+            if isempty(obj.Queue)
+                result = obj.reply('idle', char(requestId), []);
                 return;
             end
-
-            try
-                decoder = req.DecoderFcn;
-                frame = decoder(req);
-                obj.Cache.store(req.SessionId, req.ChannelIdx, req.VideoPath, req.FrameNo, frame);
-                obj.CompletedCount = obj.CompletedCount + 1;
-                result = obj.reply('completed', req.RequestId, frame);
-            catch ME
-                obj.LastError = ME.message;
-                result = obj.reply('error', req.RequestId, []);
+            idx = find(strcmp({obj.Queue.RequestId}, char(requestId)), 1);
+            if isempty(idx)
+                result = obj.reply('missing', char(requestId), []);
+                return;
             end
+            [result, frame] = obj.runQueueIndex(idx);
         end
 
         function [results, frames] = runAll(obj)
@@ -129,6 +125,29 @@ classdef SharedDecodeService < handle
     end
 
     methods (Access = private)
+        function [result, frame] = runQueueIndex(obj, idx)
+            frame = [];
+            req = obj.Queue(idx);
+            obj.Queue(idx) = [];
+
+            if req.Generation ~= obj.generation(req.SessionId)
+                obj.DiscardedCount = obj.DiscardedCount + 1;
+                result = obj.reply('stale-discard', req.RequestId, []);
+                return;
+            end
+
+            try
+                decoder = req.DecoderFcn;
+                frame = decoder(req);
+                obj.Cache.store(req.SessionId, req.ChannelIdx, req.VideoPath, req.FrameNo, frame);
+                obj.CompletedCount = obj.CompletedCount + 1;
+                result = obj.reply('completed', req.RequestId, frame);
+            catch ME
+                obj.LastError = ME.message;
+                result = obj.reply('error', req.RequestId, []);
+            end
+        end
+
         function q = emptyQueue(~)
             q = struct( ...
                 'RequestId', {}, ...

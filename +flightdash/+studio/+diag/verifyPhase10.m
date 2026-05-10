@@ -12,8 +12,10 @@ function results = verifyPhase10()
         'P10-5', @checkCancelPendingSession
         'P10-6', @checkStaleGenerationDiscard
         'P10-7', @checkRunAllAndCacheStats
-        'P10-8', @checkStudioInjectionHooks
-        'P10-9', @checkPrototypeScopeGuard
+        'P10-8', @checkRunRequestSpecific
+        'P10-9', @checkStudioInjectionHooks
+        'P10-10', @checkDashboardDecodeOptInHooks
+        'P10-11', @checkPrototypeScopeGuard
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -146,6 +148,20 @@ function [ok, msg, status] = checkRunAllAndCacheStats()
         'runAll/cache stats mismatch');
 end
 
+function [ok, msg, status] = checkRunRequestSpecific()
+    status = '';
+    svc = flightdash.services.SharedDecodeService();
+    first = svc.requestFrame('S1', 1, 'specific-a.avi', 1, @decodeFromRequest); %#ok<NASGU>
+    second = svc.requestFrame('S1', 2, 'specific-b.avi', 7, @decodeFromRequest);
+    [result, img] = svc.runRequest(second.RequestId);
+    [left, ~] = svc.runNext();
+    ok = strcmp(result.Status, 'completed') && strcmp(result.RequestId, second.RequestId) && ...
+        ~isempty(img) && img(1) == uint8(7) && strcmp(left.Status, 'completed') && ...
+        svc.queueLength() == 0;
+    msg = passFail(ok, 'runRequest executes the requested queued decode without priority drift', ...
+        'runRequest did not execute the requested queued decode');
+end
+
 function [ok, msg, status] = checkStudioInjectionHooks()
     status = '';
     appMeta = meta.class.fromName('flightdash.studio.FlightReviewStudioApp');
@@ -164,10 +180,22 @@ function [ok, msg, status] = checkStudioInjectionHooks()
         'Shared service injection hooks are missing');
 end
 
+function [ok, msg, status] = checkDashboardDecodeOptInHooks()
+    status = '';
+    dashMeta = meta.class.fromName('flightdash.FlightDataDashboard');
+    ok = hasMetaProperty(dashMeta, 'UseSharedDecodeService') && ...
+        hasMetaMethod(dashMeta, 'setSharedDecodeEnabled') && ...
+        hasMetaMethod(dashMeta, 'shouldUseSharedDecode') && ...
+        hasMetaMethod(dashMeta, 'decodeFrameViaSharedService') && ...
+        hasMetaMethod(dashMeta, 'decodeFrameSyncLocal');
+    msg = passFail(ok, 'Dashboard exposes opt-in shared decode integration gate', ...
+        'Dashboard shared decode opt-in hooks are missing');
+end
+
 function [ok, msg, status] = checkPrototypeScopeGuard()
     status = '';
     ok = true;
-    msg = 'Phase 10 prototype is service-level only; dashboard integration remains deferred';
+    msg = 'Phase 10 keeps shared decode opt-in only; full dashboard replacement remains deferred';
 end
 
 function tf = hasMetaProperty(metaObj, name)

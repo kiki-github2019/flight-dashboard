@@ -76,4 +76,5 @@ The prototype verifies session-scoped cache keys, active-session priority,
 same-stream scrub coalescing, cancellation, and stale-generation discard. It does
 not yet replace the dashboard's existing decode path or introduce shared
 parfeval workers. Studio now owns the shared service handles and injects them
-into embedded dashboards for the next integration step.
+into embedded dashboards. Dashboard decode has an opt-in integration gate for
+targeted runtime testing while the legacy decode path remains the default.
