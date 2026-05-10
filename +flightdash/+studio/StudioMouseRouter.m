@@ -294,6 +294,7 @@ classdef StudioMouseRouter < handle
         function onMouseMotion(obj)
             if ~obj.hasActiveLock()
                 obj.releaseDragLock();
+                obj.dispatchHover();
                 return;
             end
             % If the user switched tabs while the drag was in progress
@@ -327,6 +328,7 @@ classdef StudioMouseRouter < handle
                 catch, end
             end
             obj.releaseDragLock();
+            obj.dispatchHover();
         end
 
         function setPointerSafe(obj, pointerType)
@@ -396,6 +398,30 @@ classdef StudioMouseRouter < handle
                 'Priority', 0, ...
                 'Point', [NaN NaN], ...
                 'ControllerHitInfo', []);
+        end
+
+        function dispatchHover(obj)
+            try
+                if ~obj.HitTestEnabled || isempty(obj.UIFigure) || ~isvalid(obj.UIFigure)
+                    return;
+                end
+                entry = obj.getActiveDashboardEntry();
+                if isempty(entry) || ~isstruct(entry) || ~isfield(entry, 'Dashboard') || ...
+                        isempty(entry.Dashboard) || ~isvalid(entry.Dashboard)
+                    return;
+                end
+                dash = entry.Dashboard;
+                if ~isprop(dash, 'RoiCtrl') || isempty(dash.RoiCtrl) || ...
+                        ~isvalid(dash.RoiCtrl) || ~ismethod(dash.RoiCtrl, 'handleHover')
+                    return;
+                end
+                dash.RoiCtrl.handleHover(obj.UIFigure.CurrentPoint(1:2));
+            catch ME
+                try
+                    flightdash.util.ErrorLog.log(ME, 'StudioMouseRouter:Hover', false);
+                catch
+                end
+            end
         end
     end
 end

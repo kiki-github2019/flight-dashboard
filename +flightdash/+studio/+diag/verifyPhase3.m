@@ -676,7 +676,8 @@ function [ok, msg, status] = checkRoiHitTestPresence()
     status = '';
     try
         metaObj = meta.class.fromName('flightdash.controller.RoiController');
-        required = {'hitTest','onButtonDown','handleDragMotion','stopDrag','drawBands'};
+        required = {'hitTest','onButtonDown','handleDragMotion','stopDrag', ...
+            'handleHover','clearHover','drawBands'};
         missing = {};
         for k = 1:numel(required)
             if ~hasMetaMethod(metaObj, required{k})
@@ -684,7 +685,8 @@ function [ok, msg, status] = checkRoiHitTestPresence()
             end
         end
         hasThreshold = hasMetaProperty(metaObj, 'HitThreshold') && ...
-            hasMetaProperty(metaObj, 'EdgeThreshold');
+            hasMetaProperty(metaObj, 'EdgeThreshold') && ...
+            hasMetaProperty(metaObj, 'HoverColor');
         hasRichHit = hasMetaMethod(metaObj, 'testSingleRoiRow');
         ok = ~isempty(metaObj) && isempty(missing) && hasThreshold && hasRichHit;
         if ok

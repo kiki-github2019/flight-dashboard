@@ -9,11 +9,17 @@ classdef RoiController < handle
         CurrentHitInfo = struct()
         OriginalRoiRow = {}
         DragStartXData double = NaN
+        HoveredTarget = struct()
+        HoveredHandles cell = {}
     end
 
     properties
         HitThreshold double = 6
         EdgeThreshold double = 6
+        HoverColor double = [1.0 0.58 0.0]
+        HoverFaceAlpha double = 0.22
+        HoverEdgeAlpha double = 0.18
+        HoverLineWidth double = 1.5
     end
 
     methods
@@ -178,6 +184,7 @@ classdef RoiController < handle
         function drawBands(obj, fIdx)
             app = obj.App;
             try
+                obj.clearHover();
                 obj.deleteGraphics(fIdx);
                 if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows), return; end
                 tabIdx = app.currentPlotTabIndex(fIdx);
@@ -193,6 +200,7 @@ classdef RoiController < handle
                         x1 = app.UI(fIdx).roiRows{r, 2};
                         h = patch(ax, [x0 x1 x1 x0], [yl(1) yl(1) yl(2) yl(2)], ...
                             [0.96 0.74 0.18], 'FaceAlpha', 0.10, 'EdgeColor', 'none', 'HitTest', 'off');
+                        h.UserData = struct('ChannelIdx', fIdx, 'RoiIndex', r, 'AxesIndex', aIdx);
                         app.excludeFromLegend(h);
                         try, uistack(h, 'bottom'); catch, end
                         roiHandles{end+1} = h; %#ok<AGROW>
@@ -207,6 +215,7 @@ classdef RoiController < handle
         function deleteGraphics(obj, fIdx)
             app = obj.App;
             try
+                obj.clearHover();
                 if isfield(app.UI(fIdx), 'roiGraphics')
                     app.deleteGraphicsHandles(app.UI(fIdx).roiGraphics);
                 end
@@ -298,6 +307,57 @@ classdef RoiController < handle
             end
         end
 
+        function handleHover(obj, point)
+            try
+                if obj.IsDraggingRoi
+                    return;
+                end
+                [hit, target] = obj.hitTest(point);
+                if hit
+                    obj.setHoveredTarget(target);
+                else
+                    obj.clearHover();
+                end
+            catch ME
+                try, obj.App.logCaught(ME, 'ROI:hover'); catch, end
+            end
+        end
+
+        function setHoveredTarget(obj, target)
+            try
+                if isempty(target) || ~isstruct(target) || ...
+                        ~isfield(target, 'ChannelIdx') || ~isfield(target, 'RoiIndex')
+                    obj.clearHover();
+                    return;
+                end
+                if obj.sameHoverTarget(target)
+                    return;
+                end
+                obj.clearHover();
+                obj.HoveredTarget = target;
+                obj.HoveredHandles = obj.roiGraphicHandles(target.ChannelIdx, target.RoiIndex);
+                obj.applyHoverAppearance(target);
+            catch ME
+                try, obj.App.logCaught(ME, 'ROI:setHover'); catch, end
+            end
+        end
+
+        function clearHover(obj)
+            try
+                for k = 1:numel(obj.HoveredHandles)
+                    h = obj.HoveredHandles{k};
+                    if ~isempty(h) && isvalid(h)
+                        h.FaceAlpha = 0.10;
+                        h.EdgeColor = 'none';
+                        h.LineWidth = 0.5;
+                    end
+                end
+            catch
+            end
+            obj.HoveredTarget = struct();
+            obj.HoveredHandles = {};
+        end
+
         function handleDragMotion(obj)
             if ~obj.IsDraggingRoi
                 return;
@@ -348,6 +408,12 @@ classdef RoiController < handle
             obj.CurrentHitInfo = struct();
             obj.OriginalRoiRow = {};
             obj.DragStartXData = NaN;
+            try
+                if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.UIFigure) && isvalid(obj.App.UIFigure)
+                    obj.handleHover(obj.App.UIFigure.CurrentPoint(1:2));
+                end
+            catch
+            end
         end
 
         function hitInfo = testSingleRoiRow(obj, row, ax, point, roiIndex)
@@ -402,6 +468,7 @@ classdef RoiController < handle
         end
 
         function delete(obj)
+            obj.clearHover();
             for k = 1:numel(obj.Listeners)
                 try
                     if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end
@@ -540,6 +607,71 @@ classdef RoiController < handle
                 end
             catch
                 side = '';
+            end
+        end
+
+        function handles = roiGraphicHandles(obj, fIdx, roiIdx)
+            handles = {};
+            try
+                if ~isfield(obj.App.UI(fIdx), 'roiGraphics')
+                    return;
+                end
+                graphics = obj.App.UI(fIdx).roiGraphics;
+                for k = 1:numel(graphics)
+                    h = graphics{k};
+                    if isempty(h) || ~isvalid(h) || ~isprop(h, 'UserData')
+                        continue;
+                    end
+                    ud = h.UserData;
+                    if isstruct(ud) && isfield(ud, 'ChannelIdx') && isfield(ud, 'RoiIndex') && ...
+                            ud.ChannelIdx == fIdx && ud.RoiIndex == roiIdx
+                        handles{end+1} = h; %#ok<AGROW>
+                    end
+                end
+            catch
+                handles = {};
+            end
+        end
+
+        function applyHoverAppearance(obj, target)
+            try
+                if isempty(obj.HoveredHandles)
+                    return;
+                end
+                alpha = obj.HoverFaceAlpha;
+                lineWidth = obj.HoverLineWidth;
+                if isfield(target, 'HitType') && strcmp(target.HitType, 'edge')
+                    alpha = obj.HoverEdgeAlpha;
+                    lineWidth = obj.HoverLineWidth + 0.5;
+                end
+                for k = 1:numel(obj.HoveredHandles)
+                    h = obj.HoveredHandles{k};
+                    if isempty(h) || ~isvalid(h)
+                        continue;
+                    end
+                    h.FaceAlpha = alpha;
+                    h.EdgeColor = obj.HoverColor;
+                    h.LineWidth = lineWidth;
+                end
+            catch ME
+                try, obj.App.logCaught(ME, 'ROI:hoverAppearance'); catch, end
+            end
+        end
+
+        function tf = sameHoverTarget(obj, target)
+            tf = false;
+            try
+                if isempty(obj.HoveredTarget) || ~isstruct(obj.HoveredTarget)
+                    return;
+                end
+                tf = isfield(obj.HoveredTarget, 'ChannelIdx') && ...
+                    isfield(obj.HoveredTarget, 'RoiIndex') && ...
+                    isfield(obj.HoveredTarget, 'HitType') && ...
+                    obj.HoveredTarget.ChannelIdx == target.ChannelIdx && ...
+                    obj.HoveredTarget.RoiIndex == target.RoiIndex && ...
+                    strcmp(char(obj.HoveredTarget.HitType), char(target.HitType));
+            catch
+                tf = false;
             end
         end
     end
