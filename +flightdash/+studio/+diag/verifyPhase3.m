@@ -24,6 +24,7 @@ function results = verifyPhase3()
         'P3-14', @checkWorkspaceCloseReleasesRouterLock
         'P3-15', @checkCleanupAllControllersHook
         'P3-16', @checkControllerBasePresence
+        'P3-17', @checkSplitterHitTestPresence
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -645,6 +646,31 @@ function [ok, msg, status] = checkControllerBasePresence()
     end
 end
 
+function [ok, msg, status] = checkSplitterHitTestPresence()
+    status = '';
+    try
+        metaObj = meta.class.fromName('flightdash.controller.DragController');
+        required = {'hitTest','onButtonDown','startSplitter'};
+        missing = {};
+        for k = 1:numel(required)
+            if ~hasMetaMethod(metaObj, required{k})
+                missing{end+1} = required{k}; %#ok<AGROW>
+            end
+        end
+        hasThreshold = hasMetaProperty(metaObj, 'HitThreshold');
+        ok = ~isempty(metaObj) && isempty(missing) && hasThreshold;
+        if ok
+            msg = 'DragController exposes precise splitter hit-test API';
+        else
+            msg = sprintf('DragController splitter hit-test missing: methods=%s threshold=%d', ...
+                strjoin(missing, ', '), hasThreshold);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Splitter hit-test check failed: %s', ME.message);
+    end
+end
+
 % -------------------------------------------------------------------------
 % Helpers
 % -------------------------------------------------------------------------
@@ -697,6 +723,22 @@ function tf = hasMetaMethod(metaObj, methodName)
         methods_ = metaObj.MethodList;
         for k = 1:numel(methods_)
             if strcmp(methods_(k).Name, methodName)
+                tf = true;
+                return;
+            end
+        end
+    catch
+        tf = false;
+    end
+end
+
+function tf = hasMetaProperty(metaObj, propName)
+    tf = false;
+    try
+        if isempty(metaObj), return; end
+        props = metaObj.PropertyList;
+        for k = 1:numel(props)
+            if strcmp(props(k).Name, propName)
                 tf = true;
                 return;
             end

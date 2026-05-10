@@ -219,8 +219,8 @@ classdef StudioMouseRouter < handle
 
                 tests = {
                     'MarkerDragCtrl', 'marker',   100
+                    'DragCtrl',       'splitter',  95
                     'PannerCtrl',     'panner',    90
-                    'DragCtrl',       'splitter',  80
                     'RoiCtrl',        'roi',       70
                     'PlotCtrl',       'axes',      50
                     };
