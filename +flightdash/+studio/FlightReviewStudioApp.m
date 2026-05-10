@@ -34,6 +34,12 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         % per-session drag controllers do not race for the single slot.
         MouseRouter           % flightdash.studio.StudioMouseRouter
 
+        % [PHASE 10 prototype] Studio-owned shared services. These are
+        % injected into embedded dashboards but do not replace the current
+        % per-dashboard decode path yet.
+        SharedCacheService
+        SharedDecodeService
+
         % Studio-level state
         % Phase 2: Project model holds Sessions/Figures/Results/Themes.
         Project               % flightdash.project.ProjectModel (value class)
@@ -65,6 +71,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             try
                 % Initialize an empty project before any UI accesses it.
                 app.Project = flightdash.project.ProjectModel('Untitled');
+                app.ensureSharedServices();
                 app.buildShell();
                 app.applyGuiMode(app.Project.GuiMode, false);
                 app.refreshTitle();
@@ -130,6 +137,17 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     warning('FlightReviewStudio:EmbedFailed', '%s', embedME.message);
                 end
             end
+        end
+
+        function [cacheService, decodeService] = ensureSharedServices(app)
+            if isempty(app.SharedCacheService) || ~isvalid(app.SharedCacheService)
+                app.SharedCacheService = flightdash.services.SharedCacheService();
+            end
+            if isempty(app.SharedDecodeService) || ~isvalid(app.SharedDecodeService)
+                app.SharedDecodeService = flightdash.services.SharedDecodeService(app.SharedCacheService);
+            end
+            cacheService = app.SharedCacheService;
+            decodeService = app.SharedDecodeService;
         end
 
         function refreshExplorer(app)
@@ -753,6 +771,13 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             try, delete(app.Workspace);        catch, end
             try, delete(app.RightDock);        catch, end
             try, delete(app.StatusBar);        catch, end
+            try
+                if ~isempty(app.SharedCacheService) && isvalid(app.SharedCacheService)
+                    app.SharedCacheService.clear();
+                end
+            catch, end
+            app.SharedDecodeService = [];
+            app.SharedCacheService = [];
 
             % [PHASE 3.5] Studio owns process-global async resources
             % once embedded sessions skipped pool teardown in their

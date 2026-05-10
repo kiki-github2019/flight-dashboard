@@ -127,6 +127,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % - embedded:   RootContainer = Studio가 넘긴 부모 컨테이너 (uitab/uipanel)
         % createLayout 등 향후 Phase 3b에서 RootContainer를 layout parent로 사용
         RootContainer       = []              % [PHASE 3a] uifigure or parent container
+        SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
+        SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
 
@@ -276,6 +278,16 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             catch ME
                 app.logCaught(ME, 'Layout:startup');
             end
+        end
+
+        function setSharedServices(app, cacheService, decodeService)
+            app.SharedCacheService = cacheService;
+            app.SharedDecodeService = decodeService;
+        end
+
+        function tf = hasSharedServices(app)
+            tf = ~isempty(app.SharedCacheService) && isvalid(app.SharedCacheService) && ...
+                 ~isempty(app.SharedDecodeService) && isvalid(app.SharedDecodeService);
         end
 
         function delete(app)

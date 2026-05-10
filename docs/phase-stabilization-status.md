@@ -66,7 +66,7 @@ future work.
 
 ## Phase 10 Prototype Boundary
 
-The first Phase 10 step is intentionally non-integrated:
+The first Phase 10 step is intentionally light-touch:
 
 - `+flightdash/+services/SharedCacheService.m`
 - `+flightdash/+services/SharedDecodeService.m`
@@ -75,4 +75,5 @@ The first Phase 10 step is intentionally non-integrated:
 The prototype verifies session-scoped cache keys, active-session priority,
 same-stream scrub coalescing, cancellation, and stale-generation discard. It does
 not yet replace the dashboard's existing decode path or introduce shared
-parfeval workers.
+parfeval workers. Studio now owns the shared service handles and injects them
+into embedded dashboards for the next integration step.

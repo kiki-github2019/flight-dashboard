@@ -12,7 +12,8 @@ function results = verifyPhase10()
         'P10-5', @checkCancelPendingSession
         'P10-6', @checkStaleGenerationDiscard
         'P10-7', @checkRunAllAndCacheStats
-        'P10-8', @checkPrototypeScopeGuard
+        'P10-8', @checkStudioInjectionHooks
+        'P10-9', @checkPrototypeScopeGuard
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -145,10 +146,52 @@ function [ok, msg, status] = checkRunAllAndCacheStats()
         'runAll/cache stats mismatch');
 end
 
+function [ok, msg, status] = checkStudioInjectionHooks()
+    status = '';
+    appMeta = meta.class.fromName('flightdash.studio.FlightReviewStudioApp');
+    dashMeta = meta.class.fromName('flightdash.FlightDataDashboard');
+    wsMeta = meta.class.fromName('flightdash.studio.WorkspaceManager');
+    appOk = hasMetaProperty(appMeta, 'SharedCacheService') && ...
+        hasMetaProperty(appMeta, 'SharedDecodeService') && ...
+        hasMetaMethod(appMeta, 'ensureSharedServices');
+    dashOk = hasMetaProperty(dashMeta, 'SharedCacheService') && ...
+        hasMetaProperty(dashMeta, 'SharedDecodeService') && ...
+        hasMetaMethod(dashMeta, 'setSharedServices') && ...
+        hasMetaMethod(dashMeta, 'hasSharedServices');
+    wsOk = hasMetaMethod(wsMeta, 'attachSharedServices');
+    ok = appOk && dashOk && wsOk;
+    msg = passFail(ok, 'Studio and dashboard expose shared service injection hooks', ...
+        'Shared service injection hooks are missing');
+end
+
 function [ok, msg, status] = checkPrototypeScopeGuard()
     status = '';
     ok = true;
     msg = 'Phase 10 prototype is service-level only; dashboard integration remains deferred';
+end
+
+function tf = hasMetaProperty(metaObj, name)
+    tf = false;
+    if isempty(metaObj), return; end
+    props = metaObj.PropertyList;
+    for k = 1:numel(props)
+        if strcmp(props(k).Name, name)
+            tf = true;
+            return;
+        end
+    end
+end
+
+function tf = hasMetaMethod(metaObj, name)
+    tf = false;
+    if isempty(metaObj), return; end
+    methodList = metaObj.MethodList;
+    for k = 1:numel(methodList)
+        if strcmp(methodList(k).Name, name)
+            tf = true;
+            return;
+        end
+    end
 end
 
 function img = decodeFromRequest(req)

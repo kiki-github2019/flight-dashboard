@@ -87,7 +87,8 @@ Phase 7 ROI result plumbing exists in the repository, but broader Analysis
 Dialog work should wait until Phase 1-6 and Phase 9 verification is clean.
 Phase 8c is intentionally a conservative sequential queue; shared parfeval
 priority scheduling remains outside the MVP. Phase 10 currently starts with a
-non-integrated prototype before dashboard decode paths are changed.
+shared service prototype plus Studio/dashboard injection hooks before dashboard
+decode paths are changed.
 
 See `docs/phase-stabilization-status.md` for the current stabilization
 boundary.

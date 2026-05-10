@@ -66,6 +66,7 @@ classdef WorkspaceManager < handle
                 % Create dashboard with this tab as parent. Constructor
                 % builds its full UI inside the tab.
                 dash = flightdash.FlightDataDashboard(tab, sessionId);
+                obj.attachSharedServices(dash);
                 if ~isempty(sessionModel) && ismethod(dash, 'applySessionSnapshot')
                     dash.applySessionSnapshot(sessionModel);
                 end
@@ -309,6 +310,19 @@ classdef WorkspaceManager < handle
                     end
                 end
             catch
+            end
+        end
+
+        function attachSharedServices(obj, dash)
+            try
+                if isempty(dash) || ~isvalid(dash), return; end
+                if isempty(obj.App) || ~isvalid(obj.App), return; end
+                if ~ismethod(obj.App, 'ensureSharedServices'), return; end
+                if ~ismethod(dash, 'setSharedServices'), return; end
+                [cacheService, decodeService] = obj.App.ensureSharedServices();
+                dash.setSharedServices(cacheService, decodeService);
+            catch ME
+                try, obj.App.logCaught(ME, 'Workspace:sharedServices'); catch, end
             end
         end
     end
