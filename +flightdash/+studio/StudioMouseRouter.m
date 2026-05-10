@@ -378,6 +378,7 @@ classdef StudioMouseRouter < handle
                         hitInfo.Type = char(hitType);
                         hitInfo.Priority = double(priority);
                         hitInfo.Point = point;
+                        hitInfo.ControllerHitInfo = target;
                         return;
                     end
                 end
@@ -393,7 +394,8 @@ classdef StudioMouseRouter < handle
                 'Target', [], ...
                 'Type', '', ...
                 'Priority', 0, ...
-                'Point', [NaN NaN]);
+                'Point', [NaN NaN], ...
+                'ControllerHitInfo', []);
         end
     end
 end

@@ -683,13 +683,15 @@ function [ok, msg, status] = checkRoiHitTestPresence()
                 missing{end+1} = required{k}; %#ok<AGROW>
             end
         end
-        hasThreshold = hasMetaProperty(metaObj, 'HitThreshold');
-        ok = ~isempty(metaObj) && isempty(missing) && hasThreshold;
+        hasThreshold = hasMetaProperty(metaObj, 'HitThreshold') && ...
+            hasMetaProperty(metaObj, 'EdgeThreshold');
+        hasRichHit = hasMetaMethod(metaObj, 'testSingleRoiRow');
+        ok = ~isempty(metaObj) && isempty(missing) && hasThreshold && hasRichHit;
         if ok
-            msg = 'RoiController exposes ROI band hit-test API';
+            msg = 'RoiController exposes refined ROI band hit-test API';
         else
-            msg = sprintf('RoiController hit-test missing: methods=%s threshold=%d', ...
-                strjoin(missing, ', '), hasThreshold);
+            msg = sprintf('RoiController hit-test missing: methods=%s threshold=%d rich=%d', ...
+                strjoin(missing, ', '), hasThreshold, hasRichHit);
         end
     catch ME
         ok = false;

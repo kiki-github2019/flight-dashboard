@@ -9,6 +9,7 @@ classdef RoiController < handle
 
     properties
         HitThreshold double = 6
+        EdgeThreshold double = 6
     end
 
     methods
@@ -240,7 +241,7 @@ classdef RoiController < handle
                         if isempty(ax) || ~isvalid(ax) || ~obj.pointInAxes(ax, point)
                             continue;
                         end
-                        [roiIdx, hitType, xData] = obj.hitRoiRows(app.UI(fIdx).roiRows, ax, point);
+                        [roiIdx, hitType, xData, distancePx] = obj.hitRoiRows(app.UI(fIdx).roiRows, ax, point);
                         if roiIdx > 0
                             tf = true;
                             target = struct('ChannelIdx', fIdx, ...
@@ -248,6 +249,7 @@ classdef RoiController < handle
                                 'Axes', ax, ...
                                 'AxesIndex', aIdx, ...
                                 'HitType', hitType, ...
+                                'Distance', distancePx, ...
                                 'XData', xData, ...
                                 'Row', {app.UI(fIdx).roiRows(roiIdx, :)});
                             return;
@@ -283,6 +285,49 @@ classdef RoiController < handle
             end
         end
 
+        function hitInfo = testSingleRoiRow(obj, row, ax, point, roiIndex)
+            hitInfo = struct('Hit', false, ...
+                'RoiIndex', double(roiIndex), ...
+                'HitType', '', ...
+                'Distance', inf, ...
+                'XData', NaN, ...
+                'Row', {row});
+            try
+                pos = getpixelposition(ax, true);
+                if isempty(row) || pos(3) <= 0 || numel(point) < 2
+                    return;
+                end
+                xl = double(ax.XLim);
+                xData = xl(1) + ((point(1) - pos(1)) / pos(3)) * (xl(2) - xl(1));
+                x0 = obj.numericCell(row{1});
+                x1 = obj.numericCell(row{2});
+                if ~isfinite(x0) || ~isfinite(x1)
+                    return;
+                end
+
+                lo = min(x0, x1);
+                hi = max(x0, x1);
+                edgeDistData = min(abs(xData - lo), abs(xData - hi));
+                dataToPixel = pos(3) / max(abs(xl(2) - xl(1)), eps);
+                edgeDistPx = edgeDistData * dataToPixel;
+
+                hitInfo.XData = xData;
+                hitInfo.Distance = edgeDistPx;
+                if edgeDistPx <= double(obj.EdgeThreshold)
+                    hitInfo.Hit = true;
+                    hitInfo.HitType = 'edge';
+                    return;
+                end
+                if xData >= lo && xData <= hi
+                    hitInfo.Hit = true;
+                    hitInfo.HitType = 'body';
+                    hitInfo.Distance = 0;
+                end
+            catch
+                hitInfo.Hit = false;
+            end
+        end
+
         function delete(obj)
             for k = 1:numel(obj.Listeners)
                 try
@@ -306,36 +351,22 @@ classdef RoiController < handle
             end
         end
 
-        function [roiIdx, hitType, xData] = hitRoiRows(obj, rows, ax, point)
+        function [roiIdx, hitType, xData, distancePx] = hitRoiRows(obj, rows, ax, point)
             roiIdx = 0;
             hitType = '';
             xData = NaN;
+            distancePx = inf;
             try
-                pos = getpixelposition(ax, true);
-                if pos(3) <= 0 || isempty(rows)
+                if isempty(rows)
                     return;
                 end
-                xl = double(ax.XLim);
-                xData = xl(1) + ((point(1) - pos(1)) / pos(3)) * (xl(2) - xl(1));
-                pixelToData = abs(xl(2) - xl(1)) / max(pos(3), eps);
-                tol = max(pixelToData * double(obj.HitThreshold), eps);
-
                 for r = size(rows, 1):-1:1
-                    x0 = obj.numericCell(rows{r, 1});
-                    x1 = obj.numericCell(rows{r, 2});
-                    if ~isfinite(x0) || ~isfinite(x1)
-                        continue;
-                    end
-                    lo = min(x0, x1);
-                    hi = max(x0, x1);
-                    if abs(xData - lo) <= tol || abs(xData - hi) <= tol
+                    hitInfo = obj.testSingleRoiRow(rows(r, :), ax, point, r);
+                    if hitInfo.Hit
                         roiIdx = r;
-                        hitType = 'edge';
-                        return;
-                    end
-                    if xData >= lo && xData <= hi
-                        roiIdx = r;
-                        hitType = 'body';
+                        hitType = hitInfo.HitType;
+                        xData = hitInfo.XData;
+                        distancePx = hitInfo.Distance;
                         return;
                     end
                 end
@@ -343,6 +374,7 @@ classdef RoiController < handle
                 roiIdx = 0;
                 hitType = '';
                 xData = NaN;
+                distancePx = inf;
             end
         end
 
