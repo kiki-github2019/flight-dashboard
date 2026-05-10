@@ -296,29 +296,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function prepareForSessionUnload(app)
-            try, app.releaseEmbeddedDragLock(); catch, end
-            try
-                if ~isempty(app.PlaybackCtrl) && isvalid(app.PlaybackCtrl)
-                    app.PlaybackCtrl.stopAllFlightPlayback();
-                end
-            catch ME, app.logCaught(ME, 'SessionUnload:playback'); end
-            try
-                for fIdx = 1:min(2, numel(app.AsyncFutures))
-                    try
-                        app.AsyncGen(fIdx) = app.AsyncGen(fIdx) + 1;
-                        app.PendingFrame(fIdx) = NaN;
-                    catch
-                    end
-                    try
-                        if ~isempty(app.AsyncFutures{fIdx}) && isvalid(app.AsyncFutures{fIdx})
-                            cancel(app.AsyncFutures{fIdx});
-                        end
-                        app.AsyncFutures{fIdx} = [];
-                    catch ME
-                        app.logCaught(ME, 'SessionUnload:future');
-                    end
-                end
-            catch ME, app.logCaught(ME, 'SessionUnload:async'); end
+            try, app.cleanupAllControllers(); catch ME, app.logCaught(ME, 'SessionUnload:controllers'); end
             try
                 if ~isempty(app.SharedDecodeService) && isvalid(app.SharedDecodeService)
                     app.SharedDecodeService.cancelSession(app.ActiveSessionId);
@@ -329,6 +307,111 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.SharedCacheService.invalidateSession(app.ActiveSessionId);
                 end
             catch ME, app.logCaught(ME, 'SessionUnload:sharedCache'); end
+        end
+
+        function cleanupAllControllers(app)
+            % Phase 3 embedded unload cleanup. This is intentionally
+            % idempotent and does not set IsDeleting; delete() owns that flag.
+            try, app.releaseEmbeddedDragLock(); catch, end
+            try
+                if ~isempty(app.PlaybackCtrl) && isvalid(app.PlaybackCtrl)
+                    app.PlaybackCtrl.stopAllFlightPlayback();
+                end
+            catch ME, app.logCaught(ME, 'ControllerCleanup:playback'); end
+            try
+                if ~isempty(app.MarkerDragCtrl) && isvalid(app.MarkerDragCtrl)
+                    app.MarkerDragCtrl.stopDrag();
+                    app.MarkerDragCtrl.clearDraggedMarker();
+                end
+            catch ME, app.logCaught(ME, 'ControllerCleanup:marker'); end
+            try
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    app.PannerCtrl.stopDrag();
+                end
+            catch ME, app.logCaught(ME, 'ControllerCleanup:panner'); end
+            try
+                if app.IsDraggingPanelSplitter || app.IsDraggingSplitter
+                    app.stopDrag();
+                end
+            catch ME, app.logCaught(ME, 'ControllerCleanup:splitter'); end
+            try
+                if ~isempty(app.InfoCtrl) && isvalid(app.InfoCtrl)
+                    app.InfoCtrl.clearState();
+                end
+            catch ME, app.logCaught(ME, 'ControllerCleanup:info'); end
+
+            app.cleanupAsyncOperations();
+            app.cleanupListeners();
+            app.cleanupVideoResources();
+
+            names = {'FileCtrl','VideoSyncCtrl','PlaybackCtrl','PlotCtrl','RoiCtrl', ...
+                'PannerCtrl','PanelCtrl','DragCtrl','MarkerDragCtrl','InfoCtrl', ...
+                'PlotView','PannerView','AuxWindowMgr'};
+            for k = 1:numel(names)
+                app.cleanupHandleProperty(names{k});
+            end
+        end
+
+        function cleanupAsyncOperations(app)
+            try
+                for fIdx = 1:min(2, numel(app.AsyncFutures))
+                    try
+                        app.AsyncGen(fIdx) = app.AsyncGen(fIdx) + 1;
+                        app.AsyncTargetFrame(fIdx) = NaN;
+                        app.PendingFrame(fIdx) = NaN;
+                    catch
+                    end
+                    try
+                        if ~isempty(app.AsyncFutures{fIdx}) && isvalid(app.AsyncFutures{fIdx})
+                            cancel(app.AsyncFutures{fIdx});
+                        end
+                        app.AsyncFutures{fIdx} = [];
+                    catch ME
+                        app.logCaught(ME, 'ControllerCleanup:future');
+                    end
+                end
+            catch ME
+                app.logCaught(ME, 'ControllerCleanup:async');
+            end
+        end
+
+        function cleanupListeners(app)
+            try
+                for fIdx = 1:numel(app.VideoListeners)
+                    L = app.VideoListeners{fIdx};
+                    for k = 1:numel(L)
+                        try
+                            if ~isempty(L{k}) && isvalid(L{k})
+                                delete(L{k});
+                            end
+                        catch
+                        end
+                    end
+                end
+                app.VideoListeners = {[], []};
+            catch ME
+                app.logCaught(ME, 'ControllerCleanup:listeners');
+            end
+        end
+
+        function cleanupHandleProperty(app, propName)
+            try
+                if ~isprop(app, propName), return; end
+                h = app.(propName);
+                if isempty(h)
+                    app.(propName) = [];
+                    return;
+                end
+                if isobject(h) && isvalid(h)
+                    if ismethod(h, 'cleanup')
+                        try, h.cleanup(); catch ME, app.logCaught(ME, ['ControllerCleanup:' propName ':cleanup']); end
+                    end
+                    try, delete(h); catch ME, app.logCaught(ME, ['ControllerCleanup:' propName ':delete']); end
+                end
+                app.(propName) = [];
+            catch ME
+                app.logCaught(ME, ['ControllerCleanup:' propName]);
+            end
         end
 
         function delete(app)
@@ -1961,6 +2044,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         % [V3.22 #3-4] 기존 VideoReader / 비동기 future 명시적 정리
         function cleanupVideoResources(app, fIdx)
+            if nargin < 2 || isempty(fIdx)
+                for idx = 1:min(2, numel(app.VideoState))
+                    app.cleanupVideoResources(idx);
+                end
+                return;
+            end
             app.AsyncGen(fIdx) = app.AsyncGen(fIdx) + 1;
             app.AsyncTargetFrame(fIdx) = NaN;
             try

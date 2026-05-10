@@ -22,6 +22,7 @@ function results = verifyPhase3()
         'P3-12', @checkCleanDeletion
         'P3-13', @checkStudioMouseRouterHardening
         'P3-14', @checkWorkspaceCloseReleasesRouterLock
+        'P3-15', @checkCleanupAllControllersHook
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -567,6 +568,41 @@ function [ok, msg, status] = checkWorkspaceCloseReleasesRouterLock()
     end
 
     safeDelete(studio);
+end
+
+function [ok, msg, status] = checkCleanupAllControllersHook()
+    status = '';
+
+    fig = [];
+    app = [];
+    try
+        fig = uifigure('Visible', 'off', 'Name', 'Phase3 Controller Cleanup Test');
+        panel = uipanel(fig);
+        app = flightdash.FlightDataDashboard(panel, 'P3_CLEANUP_CONTROLLERS');
+
+        hasMethods = ismethod(app, 'cleanupAllControllers') && ...
+            ismethod(app, 'cleanupAsyncOperations') && ...
+            ismethod(app, 'cleanupListeners');
+        app.cleanupAllControllers();
+        appValid = ~isempty(app) && isvalid(app);
+        figValid = ~isempty(fig) && isvalid(fig);
+        controllersCleared = isempty(app.MarkerDragCtrl) && isempty(app.PannerCtrl) && ...
+            isempty(app.PlaybackCtrl);
+
+        ok = hasMethods && appValid && figValid && controllersCleared;
+        if ok
+            msg = 'cleanupAllControllers clears controller handles without deleting host figure';
+        else
+            msg = sprintf('cleanupAllControllers mismatch: methods=%d app=%d fig=%d cleared=%d', ...
+                hasMethods, appValid, figValid, controllersCleared);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('cleanupAllControllers check failed: %s', ME.message);
+    end
+
+    safeDelete(app);
+    safeDelete(fig);
 end
 
 % -------------------------------------------------------------------------
