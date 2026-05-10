@@ -20,6 +20,8 @@ function results = verifyPhase3()
         'P3-10', @checkRefreshLayoutPresence
         'P3-11', @checkEmbeddedNoExtraUIFigure
         'P3-12', @checkCleanDeletion
+        'P3-13', @checkStudioMouseRouterHardening
+        'P3-14', @checkWorkspaceCloseReleasesRouterLock
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -258,15 +260,15 @@ function [ok, msg, status] = checkIsActiveSessionSemantics()
         inactiveOk = ~callIsActiveSession(app);
 
         flightdash.util.SessionScope.clear();
-        broadcastOk = callIsActiveSession(app);
+        clearedBlocks = ~callIsActiveSession(app);
 
-        ok = activeOk && inactiveOk && broadcastOk;
+        ok = activeOk && inactiveOk && clearedBlocks;
 
         if ok
-            msg = 'isActiveSession handles match, mismatch, and cleared active scope';
+            msg = 'isActiveSession handles match, mismatch, and embedded fail-closed scope';
         else
-            msg = sprintf('isActiveSession mismatch: active=%d inactive=%d cleared=%d', ...
-                activeOk, inactiveOk, broadcastOk);
+            msg = sprintf('isActiveSession mismatch: active=%d inactive=%d clearedBlocks=%d', ...
+                activeOk, inactiveOk, clearedBlocks);
         end
     catch ME
         ok = false;
@@ -491,6 +493,80 @@ function [ok, msg, status] = checkCleanDeletion()
     end
 
     safeDelete(fig);
+end
+
+function [ok, msg, status] = checkStudioMouseRouterHardening()
+    status = '';
+
+    fig = [];
+    router = [];
+    try
+        fig = uifigure('Visible', 'off', 'Name', 'Phase3 Router Hardening Test');
+        holder = containers.Map('KeyType', 'char', 'ValueType', 'any');
+        holder('id') = '';
+        ws.activeSessionId = @() holder('id');
+        router = flightdash.studio.StudioMouseRouter(fig, ws);
+        ctrl = event.EventData();
+
+        failEmpty = ~router.requestDragLock('P3_ROUTER_A', ctrl);
+        holder('id') = 'standalone';
+        failStandalone = ~router.requestDragLock('P3_ROUTER_A', ctrl);
+        holder('id') = 'P3_ROUTER_A';
+        grant = router.requestDragLock('P3_ROUTER_A', ctrl, 'left-right', 'split');
+        held = router.hasActiveLock() && router.isLockHeldBy('P3_ROUTER_A') && ...
+            strcmp(router.lockedSessionId(), 'P3_ROUTER_A');
+        router.cancelSession('P3_OTHER');
+        stillHeld = router.hasActiveLock();
+        router.cancelSession('P3_ROUTER_A');
+        released = ~router.hasActiveLock();
+
+        ok = failEmpty && failStandalone && grant && held && stillHeld && released;
+        if ok
+            msg = 'StudioMouseRouter fails closed, exposes lock query, and cancels matching session only';
+        else
+            msg = sprintf('Router hardening mismatch: empty=%d standalone=%d grant=%d held=%d still=%d released=%d', ...
+                failEmpty, failStandalone, grant, held, stillHeld, released);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Router hardening check failed: %s', ME.message);
+    end
+
+    safeDelete(router);
+    safeDelete(fig);
+end
+
+function [ok, msg, status] = checkWorkspaceCloseReleasesRouterLock()
+    status = '';
+
+    studio = [];
+    try
+        studio = createStudioApp();
+        ws = studio.Workspace;
+        sessionId = 'P3_CLOSE_LOCK';
+        callWorkspaceAdd(ws, sessionId, 'Phase3 Close Lock');
+        selectWorkspaceSession(ws, sessionId);
+
+        ctrl = event.EventData();
+        granted = studio.MouseRouter.requestDragLock(sessionId, ctrl, 'fleur', 'drag');
+        heldBefore = studio.MouseRouter.hasActiveLock();
+        callWorkspaceRemove(ws, sessionId);
+        releasedAfter = ~studio.MouseRouter.hasActiveLock();
+        removed = ~workspaceHasSession(ws, sessionId);
+
+        ok = granted && heldBefore && releasedAfter && removed;
+        if ok
+            msg = 'Workspace tab remove releases matching StudioMouseRouter lock';
+        else
+            msg = sprintf('Workspace close lock mismatch: granted=%d held=%d released=%d removed=%d', ...
+                granted, heldBefore, releasedAfter, removed);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Workspace close lock check failed: %s', ME.message);
+    end
+
+    safeDelete(studio);
 end
 
 % -------------------------------------------------------------------------

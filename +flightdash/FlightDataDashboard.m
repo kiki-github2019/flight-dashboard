@@ -3034,7 +3034,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.PanelSplitterKind = '';
                     return;
                 end
-                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
+                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'fleur'; end
             catch ME
                 app.logCaught(ME, 'PanelSplitter:start');
             end
@@ -3146,7 +3146,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.HISplitterFIdx = 0;
                     return;
                 end
-                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
+                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'fleur'; end
             catch ME, app.logCaught(ME, 'HISplitter:start'); end
         end
 

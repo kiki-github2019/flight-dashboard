@@ -100,7 +100,7 @@ classdef PannerController < handle
                     end
                     return;
                 end
-                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'left-right'; end
+                if ~app.IsEmbedded && isprop(app.UIFigure, 'Pointer'), app.UIFigure.Pointer = 'fleur'; end
             catch ME
                 app.logCaught(ME, 'PannerHandle:start');
             end

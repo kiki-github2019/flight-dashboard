@@ -28,6 +28,8 @@ classdef StudioMouseRouter < handle
         Workspace          % flightdash.studio.WorkspaceManager
         ActiveController = []
         ActiveSessionId  = ''
+        ActiveGesture    = ''
+        CurrentPointer   = 'arrow'
         IsAttached       logical = false
     end
 
@@ -47,6 +49,7 @@ classdef StudioMouseRouter < handle
         end
 
         function detach(obj)
+            obj.releaseDragLock();
             try
                 if ~isempty(obj.UIFigure) && isvalid(obj.UIFigure)
                     obj.UIFigure.WindowButtonMotionFcn = '';
@@ -57,17 +60,24 @@ classdef StudioMouseRouter < handle
             obj.IsAttached = false;
             obj.ActiveController = [];
             obj.ActiveSessionId  = '';
+            obj.ActiveGesture = '';
         end
 
-        function tf = requestDragLock(obj, sessionId, controller)
+        function tf = requestDragLock(obj, sessionId, controller, pointerType, gesture)
             % Returns true if the lock was granted (active session
             % matches workspace's currently selected tab AND no other
             % drag is in progress). Callers should fall through silently
             % when false — the click was on a stale tab.
+            if nargin < 4 || isempty(pointerType), pointerType = 'fleur'; end
+            if nargin < 5 || isempty(gesture), gesture = 'drag'; end
             tf = false;
             sessionId = char(sessionId);
             try
-                if ~isempty(obj.ActiveController) && isvalid(obj.ActiveController)
+                if isempty(sessionId) || isempty(controller) || ...
+                        ~isa(controller, 'handle') || ~isvalid(controller)
+                    return;
+                end
+                if obj.hasActiveLock()
                     return;  % another drag still owns the lock
                 end
                 activeId = '';
@@ -80,9 +90,8 @@ classdef StudioMouseRouter < handle
                 end
                 obj.ActiveSessionId  = sessionId;
                 obj.ActiveController = controller;
-                if isprop(obj.UIFigure, 'Pointer')
-                    try, obj.UIFigure.Pointer = 'left-right'; catch, end
-                end
+                obj.ActiveGesture = char(gesture);
+                obj.setPointerSafe(pointerType);
                 tf = true;
             catch
             end
@@ -91,13 +100,8 @@ classdef StudioMouseRouter < handle
         function releaseDragLock(obj)
             obj.ActiveController = [];
             obj.ActiveSessionId  = '';
-            try
-                if ~isempty(obj.UIFigure) && isvalid(obj.UIFigure) ...
-                        && isprop(obj.UIFigure, 'Pointer')
-                    obj.UIFigure.Pointer = 'arrow';
-                end
-            catch
-            end
+            obj.ActiveGesture = '';
+            obj.setPointerSafe('arrow');
         end
 
         function cancelSession(obj, sessionId)
@@ -108,7 +112,7 @@ classdef StudioMouseRouter < handle
                     return;
                 end
                 ctrl = obj.ActiveController;
-                if ~isempty(ctrl) && isvalid(ctrl) && ismethod(ctrl, 'stopDrag')
+                if ~isempty(ctrl) && isa(ctrl, 'handle') && isvalid(ctrl) && ismethod(ctrl, 'stopDrag')
                     try
                         ctrl.stopDrag();
                     catch ME
@@ -124,8 +128,16 @@ classdef StudioMouseRouter < handle
         end
 
         function tf = isLockHeldBy(obj, sessionId)
-            tf = ~isempty(obj.ActiveController) && isvalid(obj.ActiveController) ...
-                && strcmp(obj.ActiveSessionId, char(sessionId));
+            tf = obj.hasActiveLock() && strcmp(obj.ActiveSessionId, char(sessionId));
+        end
+
+        function tf = hasActiveLock(obj)
+            tf = ~isempty(obj.ActiveController) && isa(obj.ActiveController, 'handle') && ...
+                isvalid(obj.ActiveController);
+        end
+
+        function sessionId = lockedSessionId(obj)
+            sessionId = obj.ActiveSessionId;
         end
 
         function delete(obj)
@@ -135,7 +147,7 @@ classdef StudioMouseRouter < handle
 
     methods (Access = private)
         function onMouseMotion(obj)
-            if isempty(obj.ActiveController) || ~isvalid(obj.ActiveController)
+            if ~obj.hasActiveLock()
                 obj.releaseDragLock();
                 return;
             end
@@ -147,7 +159,8 @@ classdef StudioMouseRouter < handle
                 if ~isempty(obj.Workspace) && isvalid(obj.Workspace)
                     activeNow = char(obj.Workspace.activeSessionId());
                 end
-                if ~isempty(activeNow) && ~strcmp(activeNow, obj.ActiveSessionId)
+                if isempty(activeNow) || strcmp(activeNow, 'standalone') || ...
+                        ~strcmp(activeNow, obj.ActiveSessionId)
                     return;
                 end
             catch
@@ -164,7 +177,7 @@ classdef StudioMouseRouter < handle
 
         function onMouseUp(obj)
             ctrl = obj.ActiveController;
-            if isempty(ctrl) || ~isvalid(ctrl)
+            if isempty(ctrl) || ~isa(ctrl, 'handle') || ~isvalid(ctrl)
                 obj.releaseDragLock();
                 return;
             end
@@ -176,6 +189,31 @@ classdef StudioMouseRouter < handle
                 catch, end
             end
             obj.releaseDragLock();
+        end
+
+        function setPointerSafe(obj, pointerType)
+            try
+                if isempty(obj.UIFigure) || ~isvalid(obj.UIFigure) || ...
+                        ~isprop(obj.UIFigure, 'Pointer')
+                    return;
+                end
+                ptr = char(pointerType);
+                if isempty(ptr), ptr = 'arrow'; end
+                if strcmp(ptr, 'left-right')
+                    ptr = 'fleur';
+                end
+                try
+                    obj.UIFigure.Pointer = ptr;
+                    obj.CurrentPointer = ptr;
+                catch
+                    try
+                        obj.UIFigure.Pointer = 'arrow';
+                        obj.CurrentPointer = 'arrow';
+                    catch
+                    end
+                end
+            catch
+            end
         end
     end
 end
