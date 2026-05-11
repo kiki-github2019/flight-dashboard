@@ -186,10 +186,10 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
         function test_T3b_UndoRedo_Service_Isolation(testCase)
             s1 = flightdash.studio.UndoService('S1');
             s2 = flightdash.studio.UndoService('S2');
-            target = SuiteUndoTarget(0);
+            target = flightdash.test.CounterTarget(0);
 
-            cmd1 = SuiteCounterCommand('S1', target, 0, 10, 'Set S1');
-            cmd2 = SuiteCounterCommand('S2', target, 10, 20, 'Set S2');
+            cmd1 = flightdash.test.CounterCommand('S1', target, 0, 10, 'Set S1');
+            cmd2 = flightdash.test.CounterCommand('S2', target, 10, 20, 'Set S2');
 
             s1.push(cmd1, true);
             testCase.verifyEqual(target.Value, 10);
@@ -214,11 +214,11 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
         function test_T3c_UndoRedo_MaxHistory_And_CommandNoop(testCase)
             svc = flightdash.studio.UndoService('S1');
             svc.MaxHistory = 2;
-            target = SuiteUndoTarget(0);
+            target = flightdash.test.CounterTarget(0);
 
-            svc.push(SuiteCounterCommand('S1', target, 0, 1, 'One'), true);
-            svc.push(SuiteCounterCommand('S1', target, 1, 2, 'Two'), true);
-            svc.push(SuiteCounterCommand('S1', target, 2, 3, 'Three'), true);
+            svc.push(flightdash.test.CounterCommand('S1', target, 0, 1, 'One'), true);
+            svc.push(flightdash.test.CounterCommand('S1', target, 1, 2, 'Two'), true);
+            svc.push(flightdash.test.CounterCommand('S1', target, 2, 3, 'Three'), true);
 
             testCase.verifyEqual(svc.MaxDepth, 2);
             testCase.verifyEqual(numel(svc.UndoStack), 2);
@@ -246,8 +246,8 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.assumeTrue(isprop(dash, 'UndoService') && ~isempty(dash.UndoService), ...
                 'Dashboard UndoService was not injected.');
 
-            target = SuiteUndoTarget(0);
-            cmd = SuiteCounterCommand(sid, target, 0, 5, 'Suite UI Action');
+            target = flightdash.test.CounterTarget(0);
+            cmd = flightdash.test.CounterCommand(sid, target, 0, 5, 'Suite UI Action');
             dash.UndoService.push(cmd, true);
             drawnow limitrate;
 
@@ -282,8 +282,8 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
 
             dash = app.getActiveDashboard();
             testCase.assumeFalse(isempty(dash), 'No active dashboard was available.');
-            target = SuiteUndoTarget(0);
-            dash.UndoService.push(SuiteCounterCommand(sid, target, 0, 1, 'Close Cleanup'), true);
+            target = flightdash.test.CounterTarget(0);
+            dash.UndoService.push(flightdash.test.CounterCommand(sid, target, 0, 1, 'Close Cleanup'), true);
 
             testCase.verifyTrue(app.UndoServices.isKey(char(sid)), ...
                 'UndoService was not registered for the new session.');
@@ -841,8 +841,8 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 testCase.selectSessionViaPublicApi(app, sessionIds{k});
                 dash = app.getActiveDashboard();
                 testCase.assumeFalse(isempty(dash), 'No active dashboard was available.');
-                targets{k} = SuiteUndoTarget(0);
-                dash.UndoService.push(SuiteCounterCommand( ...
+                targets{k} = flightdash.test.CounterTarget(0);
+                dash.UndoService.push(flightdash.test.CounterCommand( ...
                     sessionIds{k}, targets{k}, 0, k, sprintf('Set Session %d', k)), true);
                 expectedValues(k) = k;
             end
@@ -1420,45 +1420,6 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyFalse( ...
                 any(upper(statuses) == "FAIL"), ...
                 failMessage);
-        end
-    end
-end
-
-classdef SuiteUndoTarget < handle
-    properties
-        Value double = 0
-    end
-
-    methods
-        function obj = SuiteUndoTarget(value)
-            if nargin >= 1
-                obj.Value = value;
-            end
-        end
-    end
-end
-
-classdef SuiteCounterCommand < flightdash.command.Command
-    properties
-        Target
-        OldValue double = 0
-        NewValue double = 0
-    end
-
-    methods
-        function obj = SuiteCounterCommand(sessionId, target, oldValue, newValue, description)
-            obj@flightdash.command.Command(sessionId, description);
-            obj.Target = target;
-            obj.OldValue = oldValue;
-            obj.NewValue = newValue;
-        end
-
-        function execute(obj)
-            obj.Target.Value = obj.NewValue;
-        end
-
-        function undo(obj)
-            obj.Target.Value = obj.OldValue;
         end
     end
 end

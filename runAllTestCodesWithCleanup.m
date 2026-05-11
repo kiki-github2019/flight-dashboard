@@ -18,12 +18,13 @@ function results = runAllTestCodesWithCleanup()
         rootDir = pwd;
     end
     addpath(rootDir);
-    rehash toolboxcache;
+    rehashToolboxcacheQuietly('startup');
 
     fprintf('==================================================\n');
     fprintf('  FlightReviewStudio ALL TEST CODES WITH CLEANUP\n');
     fprintf('==================================================\n\n');
 
+    warningCleanup = suppressPathConflictWarnings(); %#ok<NASGU>
     entries = {};
 
     entries = appendEntries(entries, runSuiteElements( ...
@@ -251,10 +252,35 @@ function cleanupEnvironment(label)
             'close all force failed after %s: %s', char(label), ME.message);
     end
     try
-        evalin('base', 'rehash toolboxcache');
+        rehashToolboxcacheQuietly(label);
     catch ME
         warning('FlightDashboard:TestCleanup:RehashToolboxcache', ...
             'rehash toolboxcache failed after %s: %s', char(label), ME.message);
+    end
+end
+
+function rehashToolboxcacheQuietly(~)
+    % MATLAB Online can warn repeatedly when a user-path function shadows
+    % a builtin such as license(). Keep the required rehash while avoiding
+    % one duplicate warning per test entry.
+    warnState = warning('off', 'MATLAB:dispatcher:nameConflict');
+    warnState2 = warning('off', 'MATLAB:dispatcher:ShadowedMFile');
+    restoreWarning = onCleanup(@() restoreWarnings(warnState, warnState2)); %#ok<NASGU>
+    evalin('base', 'rehash toolboxcache');
+end
+
+function cleanupObj = suppressPathConflictWarnings()
+    warnState = warning('off', 'MATLAB:dispatcher:nameConflict');
+    warnState2 = warning('off', 'MATLAB:dispatcher:ShadowedMFile');
+    cleanupObj = onCleanup(@() restoreWarnings(warnState, warnState2));
+end
+
+function restoreWarnings(varargin)
+    for k = 1:nargin
+        try
+            warning(varargin{k});
+        catch
+        end
     end
 end
 
