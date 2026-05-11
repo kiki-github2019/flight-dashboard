@@ -11,6 +11,8 @@ classdef MarkerDragController < handle
         DraggedMarker            = []
         DraggedFIdx      double  = 0
         DraggedFromVideo logical = false
+        OriginalMarkerPosition double = []
+        OriginalMarkerIndex double = NaN
         VideoThrottleDyn double  = 0.05
         LastDragTime     cell    = {uint64(0), uint64(0)}
     end
@@ -31,6 +33,8 @@ classdef MarkerDragController < handle
             obj.DraggedMarker = src;
             obj.DraggedFIdx = fIdx;
             obj.DraggedFromVideo = false;
+            obj.OriginalMarkerPosition = obj.readMarkerPosition(src);
+            obj.OriginalMarkerIndex = obj.readCurrentIndex(fIdx);
             obj.VideoThrottleDyn = 0.05;
             obj.LastDragTime{fIdx} = tic;
             try
@@ -79,6 +83,8 @@ classdef MarkerDragController < handle
             obj.DraggedMarker = src;
             obj.DraggedFIdx = fIdx;
             obj.DraggedFromVideo = true;
+            obj.OriginalMarkerPosition = obj.readMarkerPosition(src);
+            obj.OriginalMarkerIndex = obj.readCurrentIndex(fIdx);
             obj.VideoThrottleDyn = 0.05;
             obj.LastDragTime{fIdx} = tic;
             app.State = 'DRAGGING';
@@ -223,6 +229,11 @@ classdef MarkerDragController < handle
             if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
             app = obj.App;
             wasDraggingFIdx = obj.DraggedFIdx;
+            draggedMarker = obj.DraggedMarker;
+            oldPosition = obj.OriginalMarkerPosition;
+            newPosition = obj.readMarkerPosition(draggedMarker);
+            oldIndex = obj.OriginalMarkerIndex;
+            newIndex = obj.readCurrentIndex(wasDraggingFIdx);
             obj.IsDraggingMarker = false;
             app.State = 'IDLE';
 
@@ -251,7 +262,11 @@ classdef MarkerDragController < handle
             obj.DraggedMarker = [];
             obj.DraggedFIdx = 0;
             obj.DraggedFromVideo = false;
+            obj.OriginalMarkerPosition = [];
+            obj.OriginalMarkerIndex = NaN;
             obj.VideoThrottleDyn = 0.05;
+
+            obj.pushMoveMarkerCommand(wasDraggingFIdx, draggedMarker, oldPosition, newPosition, oldIndex, newIndex);
 
             for fIdx = 1:2
                 try
@@ -295,6 +310,60 @@ classdef MarkerDragController < handle
 
         function clearDraggedMarker(obj)
             obj.DraggedMarker = [];
+        end
+
+        function pos = readMarkerPosition(~, marker)
+            pos = [];
+            try
+                if isempty(marker) || ~isvalid(marker)
+                    return;
+                end
+                if isprop(marker, 'Position')
+                    pos = marker.Position;
+                elseif isprop(marker, 'Value')
+                    pos = marker.Value;
+                elseif isprop(marker, 'XData') && isprop(marker, 'YData')
+                    x = marker.XData;
+                    y = marker.YData;
+                    if ~isempty(x) && ~isempty(y)
+                        pos = [x(1), y(1)];
+                    end
+                end
+            catch
+                pos = [];
+            end
+        end
+
+        function idx = readCurrentIndex(obj, fIdx)
+            idx = NaN;
+            try
+                app = obj.App;
+                if fIdx >= 1 && fIdx <= numel(app.Models)
+                    idx = app.Models(fIdx).currentIndex;
+                end
+            catch
+                idx = NaN;
+            end
+        end
+
+        function pushMoveMarkerCommand(obj, fIdx, marker, oldPosition, newPosition, oldIndex, newIndex)
+            try
+                app = obj.App;
+                markerMoved = ~(isempty(oldPosition) || isempty(newPosition) || isequal(oldPosition, newPosition));
+                indexMoved = ~(isempty(oldIndex) || isempty(newIndex) || isnan(oldIndex) || isnan(newIndex) || oldIndex == newIndex);
+                if ~markerMoved && ~indexMoved
+                    return;
+                end
+                if isempty(marker) || ~isvalid(marker), return; end
+                if isempty(app) || ~isvalid(app) || ~isprop(app, 'UndoService') || isempty(app.UndoService)
+                    return;
+                end
+                cmd = flightdash.command.MoveMarkerCommand(app.ActiveSessionId, marker, ...
+                    oldPosition, newPosition, 'Move Marker', app, fIdx, oldIndex, newIndex);
+                app.UndoService.push(cmd);
+            catch ME
+                try, obj.App.logCaught(ME, 'MarkerDrag:undoPush'); catch, end
+            end
         end
     end
 

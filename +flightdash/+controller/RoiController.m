@@ -58,15 +58,8 @@ classdef RoiController < handle
                     signalName = app.UI(fIdx).plotMeta{tabIdx}{plotIdx}.YColumn;
                 end
                 row = {xlims(1), xlims(2), signalName, '--', '--'};
-                if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows)
-                    app.UI(fIdx).roiRows = row;
-                else
-                    app.UI(fIdx).roiRows(end+1, :) = row;
-                end
-                app.UI(fIdx).selectedRoiIdx = size(app.UI(fIdx).roiRows, 1);
-                obj.refreshTable(fIdx);
-                obj.drawBands(fIdx);
-                app.AuxWindowMgr.openRoiFigure(app, fIdx);
+                rowIdx = obj.insertRoiRow(fIdx, row, Inf);
+                obj.pushRoiRowsCommand(fIdx, rowIdx, row, 'create', 'Create ROI');
             catch ME
                 app.logCaught(ME, 'ROI:add');
             end
@@ -93,11 +86,9 @@ classdef RoiController < handle
                 row = 0;
                 if isfield(app.UI(fIdx), 'selectedRoiIdx'), row = app.UI(fIdx).selectedRoiIdx; end
                 if isempty(row) || row < 1 || row > size(app.UI(fIdx).roiRows, 1), return; end
-                app.UI(fIdx).roiRows(row, :) = [];
-                app.UI(fIdx).selectedRoiIdx = min(row, size(app.UI(fIdx).roiRows, 1));
-                obj.refreshTable(fIdx);
-                obj.drawBands(fIdx);
-                app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
+                rowData = app.UI(fIdx).roiRows(row, :);
+                obj.removeRoiRowAt(fIdx, row);
+                obj.pushRoiRowsCommand(fIdx, row, rowData, 'delete', 'Delete ROI');
             catch ME
                 app.logCaught(ME, 'ROI:deleteSelected');
             end
@@ -492,6 +483,60 @@ classdef RoiController < handle
             end
         end
 
+        function rowIdx = insertRoiRow(obj, fIdx, rowData, rowIdx)
+            app = obj.App;
+            if nargin < 4 || isempty(rowIdx) || isnan(rowIdx) || isinf(rowIdx)
+                rowIdx = Inf;
+            end
+            try
+                if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows)
+                    app.UI(fIdx).roiRows = cell(0, 5);
+                end
+                if isempty(rowData)
+                    return;
+                end
+                rowData = rowData(1, :);
+                nRows = size(app.UI(fIdx).roiRows, 1);
+                rowIdx = max(1, min(rowIdx, nRows + 1));
+                if nRows == 0
+                    app.UI(fIdx).roiRows = rowData;
+                elseif rowIdx > nRows
+                    app.UI(fIdx).roiRows(end+1, :) = rowData;
+                else
+                    app.UI(fIdx).roiRows = [app.UI(fIdx).roiRows(1:rowIdx-1, :); ...
+                        rowData; app.UI(fIdx).roiRows(rowIdx:end, :)];
+                end
+                app.UI(fIdx).selectedRoiIdx = rowIdx;
+                obj.refreshTable(fIdx);
+                obj.drawBands(fIdx);
+                app.AuxWindowMgr.openRoiFigure(app, fIdx);
+            catch ME
+                app.logCaught(ME, 'ROI:insertRow');
+            end
+        end
+
+        function rowData = removeRoiRowAt(obj, fIdx, rowIdx)
+            app = obj.App;
+            rowData = {};
+            try
+                if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows), return; end
+                if isempty(rowIdx) || isnan(rowIdx), return; end
+                rowIdx = round(rowIdx);
+                if rowIdx < 1 || rowIdx > size(app.UI(fIdx).roiRows, 1), return; end
+                rowData = app.UI(fIdx).roiRows(rowIdx, :);
+                app.UI(fIdx).roiRows(rowIdx, :) = [];
+                app.UI(fIdx).selectedRoiIdx = min(rowIdx, size(app.UI(fIdx).roiRows, 1));
+                if isempty(app.UI(fIdx).selectedRoiIdx)
+                    app.UI(fIdx).selectedRoiIdx = 0;
+                end
+                obj.refreshTable(fIdx);
+                obj.drawBands(fIdx);
+                app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
+            catch ME
+                app.logCaught(ME, 'ROI:removeRow');
+            end
+        end
+
         function delete(obj)
             obj.clearHover();
             for k = 1:numel(obj.Listeners)
@@ -501,6 +546,20 @@ classdef RoiController < handle
                 end
             end
             obj.Listeners = {};
+        end
+
+        function pushRoiRowsCommand(obj, fIdx, rowIdx, rowData, operation, description)
+            try
+                app = obj.App;
+                if isempty(app) || ~isvalid(app) || ~isprop(app, 'UndoService') || isempty(app.UndoService)
+                    return;
+                end
+                cmd = flightdash.command.RoiRowsCommand(app.ActiveSessionId, obj, ...
+                    fIdx, rowIdx, rowData, operation, description);
+                app.UndoService.push(cmd);
+            catch ME
+                try, obj.App.logCaught(ME, 'ROI:undoPush'); catch, end
+            end
         end
     end
 

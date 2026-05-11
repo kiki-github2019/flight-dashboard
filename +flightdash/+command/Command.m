@@ -1,9 +1,11 @@
 classdef (Abstract) Command < handle
-    %COMMAND Base class for undoable, session-scoped actions.
+    % flightdash.command.Command
+    % Base class for undoable per-session operations.
 
     properties
         SessionId char = ''
-        Description char = 'Action'
+        Description char = 'Command'
+        CreatedAt = []
         Timestamp = []
     end
 
@@ -16,14 +18,16 @@ classdef (Abstract) Command < handle
                 obj.Description = char(description);
             end
             try
-                obj.Timestamp = datetime('now');
+                obj.CreatedAt = datetime('now');
+                obj.Timestamp = obj.CreatedAt;
             catch
+                obj.CreatedAt = [];
                 obj.Timestamp = [];
             end
         end
 
         function tf = belongsToSession(obj, sessionId)
-            tf = strcmp(obj.SessionId, char(sessionId));
+            tf = strcmp(char(obj.SessionId), char(sessionId));
         end
 
         function redo(obj)

@@ -1,7 +1,12 @@
 classdef MoveROICommand < flightdash.command.Command
-    %MOVEROICOMMAND Undoable edit for the dashboard's ROI row model.
+    % flightdash.command.MoveROICommand
+    % Undoable movement for either graphics ROI objects or table-backed ROI rows.
 
     properties
+        Mode char = 'object'
+        ROI = []
+        OldPosition double = []
+        NewPosition double = []
         App = []
         ChannelIdx double = 0
         RoiIndex double = 0
@@ -10,24 +15,51 @@ classdef MoveROICommand < flightdash.command.Command
     end
 
     methods
-        function obj = MoveROICommand(sessionId, app, channelIdx, roiIndex, oldRow, newRow, description)
-            if nargin < 7 || isempty(description)
-                description = 'Move ROI';
+        function obj = MoveROICommand(sessionId, target, varargin)
+            description = 'Move ROI';
+            isRowCommand = numel(varargin) >= 5 && isnumeric(varargin{1}) && isnumeric(varargin{2}) && ...
+                    iscell(varargin{3}) && iscell(varargin{4});
+            if isRowCommand
+                description = varargin{5};
+            elseif numel(varargin) >= 3 && ~isempty(varargin{3})
+                description = varargin{3};
             end
+
             obj@flightdash.command.Command(sessionId, description);
-            if nargin >= 2, obj.App = app; end
-            if nargin >= 3, obj.ChannelIdx = double(channelIdx); end
-            if nargin >= 4, obj.RoiIndex = double(roiIndex); end
-            if nargin >= 5, obj.OldRow = oldRow; end
-            if nargin >= 6, obj.NewRow = newRow; end
+
+            if isRowCommand
+                obj.Mode = 'row';
+                obj.App = target;
+                obj.ChannelIdx = double(varargin{1});
+                obj.RoiIndex = double(varargin{2});
+                obj.OldRow = varargin{3};
+                obj.NewRow = varargin{4};
+            else
+                obj.Mode = 'object';
+                obj.ROI = target;
+                if numel(varargin) >= 1, obj.OldPosition = varargin{1}; end
+                if numel(varargin) >= 2 && ~isempty(varargin{2})
+                    obj.NewPosition = varargin{2};
+                else
+                    obj.NewPosition = flightdash.command.MoveROICommand.readPosition(target);
+                end
+            end
         end
 
         function execute(obj)
-            obj.applyRow(obj.NewRow);
+            if strcmp(obj.Mode, 'row')
+                obj.applyRow(obj.NewRow);
+            else
+                obj.applyPosition(obj.NewPosition);
+            end
         end
 
         function undo(obj)
-            obj.applyRow(obj.OldRow);
+            if strcmp(obj.Mode, 'row')
+                obj.applyRow(obj.OldRow);
+            else
+                obj.applyPosition(obj.OldPosition);
+            end
         end
     end
 
@@ -53,6 +85,38 @@ classdef MoveROICommand < flightdash.command.Command
                 end
             catch ME
                 try, app.logCaught(ME, 'Undo:MoveROI'); catch, end
+            end
+        end
+
+        function applyPosition(obj, pos)
+            if isempty(pos) || ~flightdash.command.MoveROICommand.isValidHandle(obj.ROI)
+                return;
+            end
+            try
+                obj.ROI.Position = pos;
+            catch
+            end
+        end
+    end
+
+    methods (Static, Access = private)
+        function pos = readPosition(roi)
+            pos = [];
+            try
+                if flightdash.command.MoveROICommand.isValidHandle(roi) && isprop(roi, 'Position')
+                    pos = roi.Position;
+                end
+            catch
+                pos = [];
+            end
+        end
+
+        function tf = isValidHandle(h)
+            tf = false;
+            try
+                tf = ~isempty(h) && isvalid(h);
+            catch
+                tf = false;
             end
         end
     end

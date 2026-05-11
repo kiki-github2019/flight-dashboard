@@ -281,6 +281,7 @@ classdef WorkspaceManager < handle
                 end
                 obj.refreshActiveLayout('tabActivated');
                 obj.refreshActiveInspector();
+                obj.refreshActiveUndoUi();
             catch
             end
         end
@@ -293,6 +294,21 @@ classdef WorkspaceManager < handle
                 if isempty(obj.App.RightDock) || ~isvalid(obj.App.RightDock), return; end
                 dash = obj.activeDashboard();
                 obj.App.RightDock.refreshObjectsFor(dash);
+            catch
+            end
+        end
+
+        function refreshActiveUndoUi(obj)
+            try
+                if isempty(obj.App) || ~isvalid(obj.App), return; end
+                dash = obj.activeDashboard();
+                if ~isempty(obj.App.RightDock) && isvalid(obj.App.RightDock) && ...
+                        ismethod(obj.App.RightDock, 'refreshHistoryForDashboard')
+                    obj.App.RightDock.refreshHistoryForDashboard(dash);
+                end
+                if ismethod(obj.App, 'refreshUndoStateForActiveSession')
+                    obj.App.refreshUndoStateForActiveSession();
+                end
             catch
             end
         end
@@ -324,10 +340,13 @@ classdef WorkspaceManager < handle
                         isvalid(obj.App.MouseRouter) && ismethod(dash, 'setMouseRouter')
                     dash.setMouseRouter(obj.App.MouseRouter);
                 end
-                if ~ismethod(obj.App, 'ensureSharedServices'), return; end
-                if ~ismethod(dash, 'setSharedServices'), return; end
-                [cacheService, decodeService] = obj.App.ensureSharedServices();
-                dash.setSharedServices(cacheService, decodeService);
+                if ismethod(obj.App, 'ensureSharedServices') && ismethod(dash, 'setSharedServices')
+                    [cacheService, decodeService] = obj.App.ensureSharedServices();
+                    dash.setSharedServices(cacheService, decodeService);
+                end
+                if isprop(dash, 'UndoService') && ismethod(obj.App, 'getUndoService')
+                    dash.UndoService = obj.App.getUndoService(dash.ActiveSessionId);
+                end
             catch ME
                 try, obj.App.logCaught(ME, 'Workspace:sharedServices'); catch, end
             end
@@ -366,6 +385,12 @@ classdef WorkspaceManager < handle
                 if ~isempty(obj.App) && isvalid(obj.App) && ...
                         ~isempty(obj.App.SharedCacheService) && isvalid(obj.App.SharedCacheService)
                     obj.App.SharedCacheService.invalidateSession(sessionId);
+                end
+            catch
+            end
+            try
+                if ~isempty(obj.App) && isvalid(obj.App) && ismethod(obj.App, 'removeUndoService')
+                    obj.App.removeUndoService(sessionId);
                 end
             catch
             end

@@ -183,6 +183,34 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.safeDeleteApp(app);
         end
 
+        function test_T3b_UndoRedo_Service_Isolation(testCase)
+            s1 = flightdash.studio.UndoService('S1');
+            s2 = flightdash.studio.UndoService('S2');
+            target = SuiteUndoTarget(0);
+
+            cmd1 = SuiteCounterCommand('S1', target, 0, 10, 'Set S1');
+            cmd2 = SuiteCounterCommand('S2', target, 10, 20, 'Set S2');
+
+            s1.push(cmd1, true);
+            testCase.verifyEqual(target.Value, 10);
+            testCase.verifyTrue(s1.canUndo());
+            testCase.verifyFalse(s1.canRedo());
+            testCase.verifyEqual(numel(s1.UndoStack), 1);
+            testCase.verifyEmpty(s2.UndoStack);
+
+            s2.push(cmd2, true);
+            testCase.verifyEqual(target.Value, 20);
+            s2.undo();
+            testCase.verifyEqual(target.Value, 10);
+            testCase.verifyTrue(s2.canRedo());
+            testCase.verifyTrue(s1.canUndo());
+
+            s1.undo();
+            testCase.verifyEqual(target.Value, 0);
+            s1.redo();
+            testCase.verifyEqual(target.Value, 10);
+        end
+
         function test_T4_Event_Isolation(testCase)
             % Preferred path:
             % Use repository diagnostic if it exists. This avoids assuming
@@ -1069,6 +1097,45 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyFalse( ...
                 any(upper(statuses) == "FAIL"), ...
                 failMessage);
+        end
+    end
+end
+
+classdef SuiteUndoTarget < handle
+    properties
+        Value double = 0
+    end
+
+    methods
+        function obj = SuiteUndoTarget(value)
+            if nargin >= 1
+                obj.Value = value;
+            end
+        end
+    end
+end
+
+classdef SuiteCounterCommand < flightdash.command.Command
+    properties
+        Target
+        OldValue double = 0
+        NewValue double = 0
+    end
+
+    methods
+        function obj = SuiteCounterCommand(sessionId, target, oldValue, newValue, description)
+            obj@flightdash.command.Command(sessionId, description);
+            obj.Target = target;
+            obj.OldValue = oldValue;
+            obj.NewValue = newValue;
+        end
+
+        function execute(obj)
+            obj.Target.Value = obj.NewValue;
+        end
+
+        function undo(obj)
+            obj.Target.Value = obj.OldValue;
         end
     end
 end

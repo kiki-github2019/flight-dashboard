@@ -128,9 +128,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % createLayout 등 향후 Phase 3b에서 RootContainer를 layout parent로 사용
         RootContainer       = []              % [PHASE 3a] uifigure or parent container
         MouseRouter         = []              % [PHASE 3.5] Studio-owned mouse router hook
-        UndoService         = []              % session-scoped undo/redo history
         SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
         SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
+        UndoService         = []              % Per-session undo/redo service injected by Studio
         UseSharedDecodeService logical = false % [PHASE 10] opt-in only
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
