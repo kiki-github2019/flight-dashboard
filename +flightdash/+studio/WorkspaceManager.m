@@ -320,10 +320,13 @@ classdef WorkspaceManager < handle
             try
                 if isempty(dash) || ~isvalid(dash), return; end
                 if isempty(obj.App) || ~isvalid(obj.App), return; end
-                if ~ismethod(obj.App, 'ensureSharedServices'), return; end
-                if ~ismethod(dash, 'setSharedServices'), return; end
-                [cacheService, decodeService] = obj.App.ensureSharedServices();
-                dash.setSharedServices(cacheService, decodeService);
+                if ismethod(obj.App, 'ensureSharedServices') && ismethod(dash, 'setSharedServices')
+                    [cacheService, decodeService] = obj.App.ensureSharedServices();
+                    dash.setSharedServices(cacheService, decodeService);
+                end
+                if isprop(dash, 'UndoService') && ismethod(obj.App, 'getUndoService')
+                    dash.UndoService = obj.App.getUndoService(dash.ActiveSessionId);
+                end
             catch ME
                 try, obj.App.logCaught(ME, 'Workspace:sharedServices'); catch, end
             end
@@ -362,6 +365,12 @@ classdef WorkspaceManager < handle
                 if ~isempty(obj.App) && isvalid(obj.App) && ...
                         ~isempty(obj.App.SharedCacheService) && isvalid(obj.App.SharedCacheService)
                     obj.App.SharedCacheService.invalidateSession(sessionId);
+                end
+            catch
+            end
+            try
+                if ~isempty(obj.App) && isvalid(obj.App) && ismethod(obj.App, 'removeUndoService')
+                    obj.App.removeUndoService(sessionId);
                 end
             catch
             end

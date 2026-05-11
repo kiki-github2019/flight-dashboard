@@ -129,6 +129,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         RootContainer       = []              % [PHASE 3a] uifigure or parent container
         SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
         SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
+        UndoService         = []              % Per-session undo/redo service injected by Studio
         UseSharedDecodeService logical = false % [PHASE 10] opt-in only
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end

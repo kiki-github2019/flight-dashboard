@@ -41,7 +41,7 @@ classdef CommandRouter < handle
 
             globalCommands = { ...
                 'Toolbar:New', 'Toolbar:Open', 'Toolbar:Save', 'Toolbar:AddSession', ...
-                'Toolbar:ToggleExplorer', ...
+                'Toolbar:ToggleExplorer', 'Edit:Undo', 'Edit:Redo', ...
                 'File:NewProject', 'File:OpenProject', 'File:SaveProject', ...
                 'File:SaveProjectAs', 'File:PackProject', 'File:Exit', ...
                 'Project:AddSession', 'Project:Find', 'Project:Properties', ...
@@ -121,6 +121,10 @@ classdef CommandRouter < handle
                     app.saveProjectAs();
                 case {'Toolbar:AddSession', 'Project:AddSession'}
                     app.addSession();
+                case 'Edit:Undo'
+                    obj.dispatchUndo();
+                case 'Edit:Redo'
+                    obj.dispatchRedo();
                 case 'Window:CloseActive'
                     if ~isempty(app.Workspace) && isvalid(app.Workspace)
                         app.Workspace.closeActiveTab();
@@ -212,6 +216,44 @@ classdef CommandRouter < handle
         function publishDashboardEvent(~, eventName, channelIdx, payload, sessionId)
             data = flightdash.util.AppEventData(channelIdx, payload, sessionId);
             flightdash.util.EventBus.publish(eventName, data);
+        end
+
+        function dispatchUndo(obj)
+            svc = obj.activeUndoService();
+            if isempty(svc) || ~isvalid(svc)
+                obj.setStatus('No undo stack for active session');
+                return;
+            end
+            if ~svc.canUndo()
+                obj.setStatus('Nothing to undo');
+                return;
+            end
+            svc.undo();
+        end
+
+        function dispatchRedo(obj)
+            svc = obj.activeUndoService();
+            if isempty(svc) || ~isvalid(svc)
+                obj.setStatus('No redo stack for active session');
+                return;
+            end
+            if ~svc.canRedo()
+                obj.setStatus('Nothing to redo');
+                return;
+            end
+            svc.redo();
+        end
+
+        function svc = activeUndoService(obj)
+            svc = [];
+            try
+                dash = obj.App.getActiveDashboard();
+                if ~isempty(dash) && isvalid(dash) && isprop(dash, 'UndoService')
+                    svc = dash.UndoService;
+                end
+            catch
+                svc = [];
+            end
         end
 
         function promptAndRename(obj, sessionId)

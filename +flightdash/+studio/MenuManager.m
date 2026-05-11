@@ -56,6 +56,10 @@ classdef MenuManager < handle
             obj.addLeaf(obj.Roots.File, 'Export Session Config', 'File:ExportSession');
             obj.addSeparator(obj.Roots.File, 'Exit', 'File:Exit');
 
+            obj.Roots.Edit = obj.makeRoot(fig, 'Edit');
+            obj.addLeaf(obj.Roots.Edit, 'Undo', 'Edit:Undo');
+            obj.addLeaf(obj.Roots.Edit, 'Redo', 'Edit:Redo');
+
             obj.Roots.Project = obj.makeRoot(fig, 'Project');
             obj.addLeaf(obj.Roots.Project, 'Add Review Session', 'Project:AddSession');
             obj.addLeaf(obj.Roots.Project, 'Duplicate Session',  'Project:DuplicateSession');
