@@ -41,6 +41,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         SharedDecodeService
         UndoService
         UndoServices
+        UndoListeners
         StatusRestoreTimer
 
         % Studio-level state
@@ -158,6 +159,9 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             if isempty(app.UndoServices) || ~isa(app.UndoServices, 'containers.Map')
                 app.UndoServices = containers.Map('KeyType', 'char', 'ValueType', 'any');
             end
+            if isempty(app.UndoListeners) || ~isa(app.UndoListeners, 'containers.Map')
+                app.UndoListeners = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            end
             services = app.UndoServices;
         end
 
@@ -175,7 +179,9 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             undoService = flightdash.studio.UndoService(sessionId);
             undoService.StatusCallback = @(msg, duration) app.updateStatusBar(msg, duration);
             app.UndoServices(sessionId) = undoService;
+            app.attachUndoStateListener(sessionId, undoService);
             app.UndoService = undoService;
+            app.refreshUndoStateForActiveSession();
         end
 
         function removeUndoService(app, sessionId)
@@ -189,7 +195,76 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     end
                     app.UndoServices.remove(sessionId);
                 end
+                if ~isempty(app.UndoListeners) && isa(app.UndoListeners, 'containers.Map') && ...
+                        app.UndoListeners.isKey(sessionId)
+                    listener = app.UndoListeners(sessionId);
+                    try
+                        if ~isempty(listener) && isvalid(listener), delete(listener); end
+                    catch
+                    end
+                    app.UndoListeners.remove(sessionId);
+                end
+                app.refreshUndoStateForActiveSession();
             catch
+            end
+        end
+
+        function refreshUndoStateForActiveSession(app)
+            canUndo = false;
+            canRedo = false;
+            try
+                svc = app.getActiveUndoService();
+                if ~isempty(svc) && isvalid(svc)
+                    canUndo = svc.canUndo();
+                    canRedo = svc.canRedo();
+                    app.UndoService = svc;
+                end
+            catch
+            end
+            try
+                if ~isempty(app.ToolbarMgr) && isvalid(app.ToolbarMgr) && ismethod(app.ToolbarMgr, 'setUndoState')
+                    app.ToolbarMgr.setUndoState(canUndo, canRedo);
+                end
+            catch
+            end
+            try
+                if ~isempty(app.MenuMgr) && isvalid(app.MenuMgr) && ismethod(app.MenuMgr, 'setUndoState')
+                    app.MenuMgr.setUndoState(canUndo, canRedo);
+                end
+            catch
+            end
+        end
+
+        function svc = getActiveUndoService(app)
+            svc = [];
+            try
+                dash = app.getActiveDashboard();
+                if ~isempty(dash) && isvalid(dash) && isprop(dash, 'UndoService')
+                    svc = dash.UndoService;
+                    return;
+                end
+                sessionId = app.activeSessionIdFromWorkspace();
+                if ~isempty(sessionId) && ~strcmp(char(sessionId), 'standalone') && ...
+                        ~isempty(app.UndoServices) && isa(app.UndoServices, 'containers.Map') && ...
+                        app.UndoServices.isKey(char(sessionId))
+                    svc = app.UndoServices(char(sessionId));
+                end
+            catch
+                svc = [];
+            end
+        end
+
+        function onUndoStateChanged(app, ~, evt)
+            try
+                activeId = app.activeSessionIdFromWorkspace();
+                if isempty(activeId) || strcmp(char(activeId), 'standalone')
+                    activeId = app.ActiveSessionId;
+                end
+                if isempty(evt) || strcmp(char(evt.SessionId), char(activeId))
+                    app.refreshUndoStateForActiveSession();
+                end
+            catch
+                app.refreshUndoStateForActiveSession();
             end
         end
 
@@ -864,6 +939,20 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.SharedCacheService = [];
             app.UndoService = [];
             try
+                if ~isempty(app.UndoListeners) && isa(app.UndoListeners, 'containers.Map')
+                    keys_ = app.UndoListeners.keys;
+                    for k = 1:numel(keys_)
+                        listener = app.UndoListeners(keys_{k});
+                        try
+                            if ~isempty(listener) && isvalid(listener), delete(listener); end
+                        catch
+                        end
+                    end
+                    remove(app.UndoListeners, keys_);
+                end
+            catch, end
+            app.UndoListeners = [];
+            try
                 if ~isempty(app.UndoServices) && isa(app.UndoServices, 'containers.Map')
                     remove(app.UndoServices, app.UndoServices.keys);
                 end
@@ -898,6 +987,29 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     delete(app.UIFigure);
                 end
             catch, end
+        end
+
+        function attachUndoStateListener(app, sessionId, undoService)
+            try
+                sessionId = char(sessionId);
+                if isempty(app.UndoListeners) || ~isa(app.UndoListeners, 'containers.Map')
+                    app.UndoListeners = containers.Map('KeyType', 'char', 'ValueType', 'any');
+                end
+                if app.UndoListeners.isKey(sessionId)
+                    listener = app.UndoListeners(sessionId);
+                    try
+                        if ~isempty(listener) && isvalid(listener), delete(listener); end
+                    catch
+                    end
+                    app.UndoListeners.remove(sessionId);
+                end
+                if ~isempty(undoService) && isvalid(undoService)
+                    app.UndoListeners(sessionId) = addlistener(undoService, 'StateChanged', ...
+                        @(src, evt) app.onUndoStateChanged(src, evt));
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:undoListener'); catch, end
+            end
         end
 
         function refreshTitle(app)
@@ -997,6 +1109,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 setappdata(app.UIFigure, 'StudioMouseRouter', app.MouseRouter);
             catch
             end
+            app.refreshUndoStateForActiveSession();
         end
 
         function onCloseRequest(app)

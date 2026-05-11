@@ -281,6 +281,7 @@ classdef WorkspaceManager < handle
                 end
                 obj.refreshActiveLayout('tabActivated');
                 obj.refreshActiveInspector();
+                obj.refreshActiveUndoUi();
             catch
             end
         end
@@ -293,6 +294,21 @@ classdef WorkspaceManager < handle
                 if isempty(obj.App.RightDock) || ~isvalid(obj.App.RightDock), return; end
                 dash = obj.activeDashboard();
                 obj.App.RightDock.refreshObjectsFor(dash);
+            catch
+            end
+        end
+
+        function refreshActiveUndoUi(obj)
+            try
+                if isempty(obj.App) || ~isvalid(obj.App), return; end
+                dash = obj.activeDashboard();
+                if ~isempty(obj.App.RightDock) && isvalid(obj.App.RightDock) && ...
+                        ismethod(obj.App.RightDock, 'refreshHistoryForDashboard')
+                    obj.App.RightDock.refreshHistoryForDashboard(dash);
+                end
+                if ismethod(obj.App, 'refreshUndoStateForActiveSession')
+                    obj.App.refreshUndoStateForActiveSession();
+                end
             catch
             end
         end

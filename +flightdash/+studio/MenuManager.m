@@ -9,6 +9,7 @@ classdef MenuManager < handle
     properties (Access = public)
         App
         Roots struct = struct()    % Map of menu name -> root uimenu
+        Items struct = struct()
         ModeMenus struct = struct()
     end
 
@@ -21,7 +22,16 @@ classdef MenuManager < handle
         function delete(obj)
             % Menus auto-delete when uifigure is deleted.
             obj.Roots = struct();
+            obj.Items = struct();
             obj.ModeMenus = struct();
+        end
+
+        function setUndoState(obj, canUndo, canRedo)
+            try
+                obj.setMenuEnabled('Undo', canUndo);
+                obj.setMenuEnabled('Redo', canRedo);
+            catch
+            end
         end
 
         function syncGuiMode(obj, modeName)
@@ -57,8 +67,9 @@ classdef MenuManager < handle
             obj.addSeparator(obj.Roots.File, 'Exit', 'File:Exit');
 
             obj.Roots.Edit = obj.makeRoot(fig, 'Edit');
-            obj.addLeaf(obj.Roots.Edit, 'Undo', 'Edit:Undo');
-            obj.addLeaf(obj.Roots.Edit, 'Redo', 'Edit:Redo');
+            obj.Items.Undo = obj.addLeaf(obj.Roots.Edit, 'Undo', 'Edit:Undo', 'Z');
+            obj.Items.Redo = obj.addLeaf(obj.Roots.Edit, 'Redo', 'Edit:Redo', 'Y');
+            obj.setUndoState(false, false);
 
             obj.Roots.Project = obj.makeRoot(fig, 'Project');
             obj.addLeaf(obj.Roots.Project, 'Add Review Session', 'Project:AddSession');
@@ -159,9 +170,15 @@ classdef MenuManager < handle
             m = uimenu(fig, 'Text', label);
         end
 
-        function m = addLeaf(obj, parent, label, cmdId)
+        function m = addLeaf(obj, parent, label, cmdId, accelerator)
+            if nargin < 5
+                accelerator = '';
+            end
             m = uimenu(parent, 'Text', label, ...
                 'MenuSelectedFcn', @(~,~) obj.dispatch(cmdId));
+            if ~isempty(accelerator)
+                try, m.Accelerator = char(accelerator); catch, end
+            end
         end
 
         function m = addSeparator(obj, parent, label, cmdId)
@@ -184,6 +201,26 @@ classdef MenuManager < handle
                 if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
                     obj.App.StatusBar.setMessage(sprintf('Menu %s failed: %s', cmdId, ME.message));
                 end
+            end
+        end
+
+        function setMenuEnabled(obj, name, tf)
+            try
+                if isfield(obj.Items, name)
+                    item = obj.Items.(name);
+                    if ~isempty(item) && isvalid(item)
+                        item.Enable = obj.onOff(tf);
+                    end
+                end
+            catch
+            end
+        end
+
+        function value = onOff(~, tf)
+            if tf
+                value = 'on';
+            else
+                value = 'off';
             end
         end
 

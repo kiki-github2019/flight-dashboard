@@ -21,6 +21,14 @@ classdef ToolbarManager < handle
         function delete(~)
             % UI components auto-delete with parent grid.
         end
+
+        function setUndoState(obj, canUndo, canRedo)
+            try
+                obj.setButtonEnabled('Undo', canUndo);
+                obj.setButtonEnabled('Redo', canRedo);
+            catch
+            end
+        end
     end
 
     methods (Access = private)
@@ -32,14 +40,14 @@ classdef ToolbarManager < handle
             obj.Panel.Layout.Row = 2;
 
             % Variable-width row: groups separated by spacers.
-            grid = uigridlayout(obj.Panel, [1 24], 'RowHeight', {'1x'}, ...
+            grid = uigridlayout(obj.Panel, [1 26], 'RowHeight', {'1x'}, ...
                 'ColumnSpacing', 3, 'Padding', [6 4 6 4]);
 
             buttonW = UIScale.px(64);
             iconW   = UIScale.px(48);
             sepW    = UIScale.px(8);
             grid.ColumnWidth = { ...
-                buttonW, buttonW, buttonW, sepW, ...   % New / Open / Save | sep
+                buttonW, buttonW, buttonW, iconW, iconW, sepW, ... % New / Open / Save / Undo / Redo | sep
                 iconW, sepW, ...                        % Add Session | sep
                 buttonW, buttonW, sepW, ...             % Load Data / Load Video | sep
                 iconW, iconW, sepW, ...                 % Sync / Sync Quality | sep
@@ -51,6 +59,9 @@ classdef ToolbarManager < handle
             obj.Buttons.New        = obj.addButton(grid, 'New',     'Toolbar:New');
             obj.Buttons.Open       = obj.addButton(grid, 'Open',    'Toolbar:Open');
             obj.Buttons.Save       = obj.addButton(grid, 'Save',    'Toolbar:Save');
+            obj.Buttons.Undo       = obj.addButton(grid, 'Undo',    'Edit:Undo');
+            obj.Buttons.Redo       = obj.addButton(grid, 'Redo',    'Edit:Redo');
+            obj.setUndoState(false, false);
             obj.addSpacer(grid);
             obj.Buttons.AddSession = obj.addButton(grid, '+ Sess',  'Toolbar:AddSession');
             obj.addSpacer(grid);
@@ -96,6 +107,26 @@ classdef ToolbarManager < handle
                 if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
                     obj.App.StatusBar.setMessage(sprintf('Toolbar %s failed: %s', cmdId, ME.message));
                 end
+            end
+        end
+
+        function setButtonEnabled(obj, name, tf)
+            try
+                if isfield(obj.Buttons, name)
+                    btn = obj.Buttons.(name);
+                    if ~isempty(btn) && isvalid(btn)
+                        btn.Enable = obj.onOff(tf);
+                    end
+                end
+            catch
+            end
+        end
+
+        function value = onOff(~, tf)
+            if tf
+                value = 'on';
+            else
+                value = 'off';
             end
         end
     end

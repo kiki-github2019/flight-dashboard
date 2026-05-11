@@ -16,8 +16,10 @@ classdef RightDockManager < handle
         TabGroup           % uitabgroup
         InspectorTab       % uitab
         ObjectManagerTab   % uitab
+        HistoryTab         % uitab
         LogsTab            % uitab
         AppsTab            % uitab
+        HistoryPanel       % flightdash.studio.HistoryPanel
 
         % Inspector content (Phase 6c: quick action row goes here)
         InspectorQuickRow  % uigridlayout
@@ -42,7 +44,13 @@ classdef RightDockManager < handle
             obj.build(parentGrid);
         end
 
-        function delete(~)
+        function delete(obj)
+            try
+                if ~isempty(obj.HistoryPanel) && isvalid(obj.HistoryPanel)
+                    delete(obj.HistoryPanel);
+                end
+            catch
+            end
         end
     end
 
@@ -60,6 +68,7 @@ classdef RightDockManager < handle
 
             obj.InspectorTab     = obj.buildInspectorTab();
             obj.ObjectManagerTab = obj.buildObjectManagerTab();
+            obj.HistoryTab       = obj.buildHistoryTab();
             obj.LogsTab          = obj.buildLogsTab();
             obj.AppsTab          = obj.buildAppsTab();
         end
@@ -97,6 +106,11 @@ classdef RightDockManager < handle
             obj.ObjectTree = uitree(grid, 'tree');
             obj.ObjectTree.SelectionChangedFcn = @(~,evt) obj.onObjectTreeSelect(evt);
             obj.populateObjectTreeForDashboard([]);
+        end
+
+        function tab = buildHistoryTab(obj)
+            tab = uitab(obj.TabGroup, 'Title', 'History');
+            obj.HistoryPanel = flightdash.studio.HistoryPanel(tab, []);
         end
 
         function tab = buildLogsTab(obj)
@@ -151,6 +165,20 @@ classdef RightDockManager < handle
 
         function refreshForDashboard(obj, dashboard)
             obj.refreshObjectsFor(dashboard);
+            obj.refreshHistoryForDashboard(dashboard);
+        end
+
+        function refreshHistoryForDashboard(obj, dashboard)
+            try
+                svc = [];
+                if ~isempty(dashboard) && isvalid(dashboard) && isprop(dashboard, 'UndoService')
+                    svc = dashboard.UndoService;
+                end
+                if ~isempty(obj.HistoryPanel) && isvalid(obj.HistoryPanel)
+                    obj.HistoryPanel.bindUndoService(svc);
+                end
+            catch
+            end
         end
 
         function selectObject(obj, h)
