@@ -149,7 +149,13 @@ classdef FlightReviewStudioStressTests < matlab.unittest.TestCase
             testCase.verifyTrue(router.requestDragLock(sid, ctrl, 'fleur', 'close'), ...
                 'Router did not grant drag lock before close request.');
 
-            testCase.Studio.onCloseRequest();
+            fig = testCase.Studio.UIFigure;
+            testCase.assumeFalse(isempty(fig) || ~isvalid(fig), ...
+                'Studio figure is not available for close-request test.');
+            closeFcn = fig.CloseRequestFcn;
+            testCase.assumeFalse(isempty(closeFcn), ...
+                'Studio figure does not expose a CloseRequestFcn.');
+            closeFcn([], []);
             testCase.Studio = [];
 
             testCase.verifyFalse(isvalid(router), ...

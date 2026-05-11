@@ -13,10 +13,10 @@ function teardown(~)
 end
 
 function testUndoRedoFunctionality(testCase)
-    target = LocalCounterTarget(0);
+    target = flightdash.test.CounterTarget(0);
     svc = flightdash.studio.UndoService('UndoTest');
 
-    cmd = LocalCounterCommand('UndoTest', target, 0, 5, 'Set Value');
+    cmd = flightdash.test.CounterCommand('UndoTest', target, 0, 5, 'Set Value');
     svc.push(cmd, true);
 
     testCase.verifyEqual(target.Value, 5, ...
@@ -40,12 +40,12 @@ function testUndoRedoFunctionality(testCase)
 end
 
 function testUndoRedoCrossSessionIsolation(testCase)
-    targetA = LocalCounterTarget(0);
-    targetB = LocalCounterTarget(100);
+    targetA = flightdash.test.CounterTarget(0);
+    targetB = flightdash.test.CounterTarget(100);
     svcA = flightdash.studio.UndoService('SessionA');
     svcB = flightdash.studio.UndoService('SessionB');
 
-    cmdA = LocalCounterCommand('SessionA', targetA, 0, 10, 'Set A');
+    cmdA = flightdash.test.CounterCommand('SessionA', targetA, 0, 10, 'Set A');
     svcA.push(cmdA, true);
     svcB.push(cmdA, true);  % Must be ignored by SessionB service.
 
@@ -58,12 +58,12 @@ function testUndoRedoCrossSessionIsolation(testCase)
 end
 
 function testUndoAfterMultipleOperations(testCase)
-    target = LocalCounterTarget(0);
+    target = flightdash.test.CounterTarget(0);
     svc = flightdash.studio.UndoService('MultiOp');
 
-    svc.push(LocalCounterCommand('MultiOp', target, 0, 1, 'One'), true);
-    svc.push(LocalCounterCommand('MultiOp', target, 1, 2, 'Two'), true);
-    svc.push(LocalCounterCommand('MultiOp', target, 2, 3, 'Three'), true);
+    svc.push(flightdash.test.CounterCommand('MultiOp', target, 0, 1, 'One'), true);
+    svc.push(flightdash.test.CounterCommand('MultiOp', target, 1, 2, 'Two'), true);
+    svc.push(flightdash.test.CounterCommand('MultiOp', target, 2, 3, 'Three'), true);
 
     testCase.verifyEqual(target.Value, 3);
     testCase.verifyEqual(numel(svc.UndoStack), 3);
@@ -82,13 +82,13 @@ function testUndoAfterMultipleOperations(testCase)
 end
 
 function testUndoStackLimit(testCase)
-    target = LocalCounterTarget(0);
+    target = flightdash.test.CounterTarget(0);
     svc = flightdash.studio.UndoService('LimitTest');
     svc.MaxHistory = 2;
 
-    svc.push(LocalCounterCommand('LimitTest', target, 0, 1, 'One'), true);
-    svc.push(LocalCounterCommand('LimitTest', target, 1, 2, 'Two'), true);
-    svc.push(LocalCounterCommand('LimitTest', target, 2, 3, 'Three'), true);
+    svc.push(flightdash.test.CounterCommand('LimitTest', target, 0, 1, 'One'), true);
+    svc.push(flightdash.test.CounterCommand('LimitTest', target, 1, 2, 'Two'), true);
+    svc.push(flightdash.test.CounterCommand('LimitTest', target, 2, 3, 'Three'), true);
 
     testCase.verifyEqual(numel(svc.UndoStack), 2, ...
         'UndoService did not enforce MaxHistory/MaxDepth.');
@@ -99,7 +99,7 @@ end
 function testUndoStateChangedEventIsSessionScoped(testCase)
     hitsA = 0;
     hitsB = 0;
-    target = LocalCounterTarget(0);
+    target = flightdash.test.CounterTarget(0);
     svc = flightdash.studio.UndoService('EventSessionA');
 
     listenerA = flightdash.util.EventBus.subscribe( ...
@@ -108,7 +108,7 @@ function testUndoStateChangedEventIsSessionScoped(testCase)
         'UndoStateChanged', @(~,~) bumpB(), 'EventSessionB');
     cleanupObj = onCleanup(@() deleteListeners(listenerA, listenerB)); %#ok<NASGU>
 
-    svc.push(LocalCounterCommand('EventSessionA', target, 0, 1, 'Event Push'), true);
+    svc.push(flightdash.test.CounterCommand('EventSessionA', target, 0, 1, 'Event Push'), true);
     drawnow limitrate;
 
     testCase.verifyGreaterThanOrEqual(hitsA, 1, ...
@@ -161,48 +161,5 @@ function safeDelete(obj)
             delete(obj);
         end
     catch
-    end
-end
-
-classdef LocalCounterTarget < handle
-    properties
-        Value double = 0
-    end
-
-    methods
-        function obj = LocalCounterTarget(value)
-            if nargin >= 1
-                obj.Value = value;
-            end
-        end
-    end
-end
-
-classdef LocalCounterCommand < flightdash.command.Command
-    properties
-        Target
-        OldValue double = 0
-        NewValue double = 0
-    end
-
-    methods
-        function obj = LocalCounterCommand(sessionId, target, oldValue, newValue, description)
-            obj@flightdash.command.Command(sessionId, description);
-            obj.Target = target;
-            obj.OldValue = oldValue;
-            obj.NewValue = newValue;
-        end
-
-        function execute(obj)
-            if ~isempty(obj.Target) && isvalid(obj.Target)
-                obj.Target.Value = obj.NewValue;
-            end
-        end
-
-        function undo(obj)
-            if ~isempty(obj.Target) && isvalid(obj.Target)
-                obj.Target.Value = obj.OldValue;
-            end
-        end
     end
 end

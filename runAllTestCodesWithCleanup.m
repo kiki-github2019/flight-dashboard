@@ -28,7 +28,7 @@ function results = runAllTestCodesWithCleanup()
 
     entries = appendEntries(entries, runSuiteElements( ...
         'FlightReviewStudioTestSuite', ...
-        @() matlab.unittest.TestSuite.fromFile(fullfile(rootDir, 'FlightReviewStudioTestSuite.m'))));
+        @() matlab.unittest.TestSuite.fromClass(?FlightReviewStudioTestSuite)));
 
     entries = appendEntries(entries, runSuiteElements( ...
         'FlightReviewStudioStressTests', ...
@@ -76,21 +76,19 @@ end
 
 function entries = runSuiteElements(groupName, suiteFactory)
     entries = {};
-    suite = [];
     try
         suite = suiteFactory();
         names = string({suite.Name});
     catch ME
         entries{1} = failedEntry(groupName, 'suite-discovery', ME);
+        fprintf('FAILED suite discovery for %s: %s\n', groupName, ME.message);
         cleanupEnvironment(groupName);
         return;
     end
-    suite = [];
 
     for k = 1:numel(names)
-        testName = names(k);
-        entries{end+1} = runEntry(char(testName), groupName, ... %#ok<AGROW>
-            @() runSingleSuiteElement(suiteFactory, testName));
+        entries{end+1} = runEntry(char(names(k)), groupName, ... %#ok<AGROW>
+            @() runSingleSuiteElement(suiteFactory, names(k)));
     end
 end
 
