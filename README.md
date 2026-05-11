@@ -68,13 +68,13 @@ final filename to avoid MATLAB `zip()` producing `*.frsproj.zip`.
 
 ## Current Phase Scope
 
-The active stabilization focus is Phase 1 through Phase 6, Phase 8a/8b/8c, and
-Phase 9:
+The active stabilization focus is Phase 1 through Phase 6, Phase 8a/8b/8c,
+Phase 9, and the Phase 4 per-session Undo/Redo stabilization gate:
 
 - Phase 1: Studio shell
 - Phase 2: Project/session/value models
 - Phase 3: embedded dashboard tabs
-- Phase 4: session-scoped EventBus routing
+- Phase 4: session-scoped EventBus routing and per-session Undo/Redo
 - Phase 5: Project Explorer and Object Manager MVP
 - Phase 6: toolbar, menu, Inspector MVP, GUI mode MVP, status bar shell
 - Phase 8a: single ROI result Manual/Auto/Frozen recalculate MVP
@@ -90,6 +90,10 @@ priority scheduling remains outside the MVP. Phase 10 currently starts with a
 shared service prototype plus Studio/dashboard injection hooks before dashboard
 decode paths are changed. Dashboard decode has an opt-in gate for targeted
 runtime testing while legacy decode remains the default.
+
+Undo/Redo is session-scoped: each embedded dashboard receives a per-session
+`UndoService`, ROI/marker operations push command objects, and Studio toolbar,
+menu, status, and History dock state follow the active session.
 
 See `docs/phase-stabilization-status.md` for the current stabilization
 boundary.
@@ -121,18 +125,26 @@ results1  = flightdash.studio.diag.verifyPhase1();
 results2  = flightdash.studio.diag.verifyPhase2();
 results3  = flightdash.studio.diag.verifyPhase3();
 results4  = flightdash.studio.diag.verifyPhase4();
+results37 = flightdash.studio.diag.verifyPhase3_Phase7();
+quick37   = flightdash.studio.diag.verifyPhase3_Phase7(false); % skip stress tests
 results5  = flightdash.studio.diag.verifyPhase5();
 results6  = flightdash.studio.diag.verifyPhase6();
 results8  = flightdash.studio.diag.verifyPhase8();
 results9  = flightdash.studio.diag.verifyPhase9();
 results10 = flightdash.studio.diag.verifyPhase10();
 multi     = flightdash.studio.diag.runMultiInstanceTests();
+full      = runFullStabilizationTests();
+isolated  = runAllTestCodesWithCleanup(); % reset after every test function
 ```
 
 Important manual/runtime scenarios:
 
 - create and delete multiple embedded dashboard tabs
 - switch tabs while dragging markers or splitters
+- perform ROI/marker edits in multiple tabs and verify undo/redo remains
+  isolated per tab
+- close a tab that has undo history and verify the remaining tabs keep their
+  own undo stacks
 - save `temp.frsproj` and confirm no `temp.frsproj.zip` remains
 - load a project whose external flight/video files are missing
 - save/load under a Korean or other non-ASCII path
@@ -146,4 +158,5 @@ Important manual/runtime scenarios:
 - Status bar values are partly placeholders.
 - Object Manager covers MVP handles and does not yet expose a full plot/ROI
   object hierarchy.
+- History panel is an MVP undo/redo list for the active session.
 - Full Recalculate UX is deferred; Phase 8a/8b/8c currently provide service-level MVP coverage.

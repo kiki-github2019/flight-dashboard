@@ -211,6 +211,232 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(target.Value, 10);
         end
 
+        function test_T3c_UndoRedo_MaxHistory_And_CommandNoop(testCase)
+            svc = flightdash.studio.UndoService('S1');
+            svc.MaxHistory = 2;
+            target = SuiteUndoTarget(0);
+
+            svc.push(SuiteCounterCommand('S1', target, 0, 1, 'One'), true);
+            svc.push(SuiteCounterCommand('S1', target, 1, 2, 'Two'), true);
+            svc.push(SuiteCounterCommand('S1', target, 2, 3, 'Three'), true);
+
+            testCase.verifyEqual(svc.MaxDepth, 2);
+            testCase.verifyEqual(numel(svc.UndoStack), 2);
+            testCase.verifyEqual(svc.UndoStack{1}.Description, 'Two');
+            testCase.verifyEqual(svc.UndoStack{2}.Description, 'Three');
+
+            missingMarker = flightdash.command.MoveMarkerCommand( ...
+                'S1', [], [0 0], [1 1], 'Move Missing Marker');
+            missingMarker.execute();
+            missingMarker.undo();
+
+            missingRoi = flightdash.command.MoveROICommand( ...
+                'S1', [], [0 0 1 1], [1 1 1 1], 'Move Missing ROI');
+            missingRoi.execute();
+            missingRoi.undo();
+        end
+
+        function test_T3d_UndoRedo_UiStateAndHistoryBinding(testCase)
+            app = testCase.launchStudio();
+            sid = app.addSession('Undo UI Session');
+            drawnow limitrate;
+
+            dash = app.getActiveDashboard();
+            testCase.assumeFalse(isempty(dash), 'No active dashboard was available.');
+            testCase.assumeTrue(isprop(dash, 'UndoService') && ~isempty(dash.UndoService), ...
+                'Dashboard UndoService was not injected.');
+
+            target = SuiteUndoTarget(0);
+            cmd = SuiteCounterCommand(sid, target, 0, 5, 'Suite UI Action');
+            dash.UndoService.push(cmd, true);
+            drawnow limitrate;
+
+            testCase.verifyEqual(target.Value, 5);
+            testCase.verifyUndoUiState(app, true, false);
+
+            if ~isempty(app.RightDock) && isvalid(app.RightDock)
+                app.RightDock.refreshHistoryForDashboard(dash);
+                drawnow limitrate;
+                if ~isempty(app.RightDock.HistoryPanel) && isvalid(app.RightDock.HistoryPanel)
+                    items = string(app.RightDock.HistoryPanel.ListBox.Items);
+                    testCase.verifyTrue(any(contains(items, "Suite UI Action")), ...
+                        'History panel did not show the pushed command.');
+                end
+            end
+
+            app.dispatchCommand('Edit:Undo', 'Test');
+            drawnow limitrate;
+            testCase.verifyEqual(target.Value, 0);
+            testCase.verifyUndoUiState(app, false, true);
+
+            app.dispatchCommand('Edit:Redo', 'Test');
+            drawnow limitrate;
+            testCase.verifyEqual(target.Value, 5);
+            testCase.verifyUndoUiState(app, true, false);
+        end
+
+        function test_T3e_CloseSessionClearsUndoService(testCase)
+            app = testCase.launchStudio();
+            sid = app.addSession('Undo Close Session');
+            drawnow limitrate;
+
+            dash = app.getActiveDashboard();
+            testCase.assumeFalse(isempty(dash), 'No active dashboard was available.');
+            target = SuiteUndoTarget(0);
+            dash.UndoService.push(SuiteCounterCommand(sid, target, 0, 1, 'Close Cleanup'), true);
+
+            testCase.verifyTrue(app.UndoServices.isKey(char(sid)), ...
+                'UndoService was not registered for the new session.');
+
+            closed = testCase.closeSessionViaPublicApi(app, sid);
+            drawnow limitrate;
+
+            testCase.verifyTrue(closed, 'Session close API did not report success.');
+            testCase.verifyFalse(testCase.workspaceHasSession(app, sid), ...
+                'Workspace still contains the closed session.');
+            testCase.verifyFalse(app.UndoServices.isKey(char(sid)), ...
+                'UndoService was not removed when the session closed.');
+        end
+
+        function test_T3f_Mouse_CloseTabDuringDragDoesNotCrash(testCase)
+            app = testCase.launchStudio();
+            sidA = app.addSession('Mouse Drag Session A');
+            sidB = app.addSession('Mouse Drag Session B');
+            drawnow limitrate;
+
+            testCase.selectSessionViaPublicApi(app, sidA);
+            ctrl = flightdash.studio.diag.RouterTestController();
+            granted = app.MouseRouter.requestDragLock(sidA, ctrl, 'fleur', 'drag');
+
+            testCase.verifyTrue(granted, 'MouseRouter did not grant drag lock to active session.');
+            testCase.verifyTrue(app.MouseRouter.isLockHeldBy(sidA));
+
+            closed = testCase.closeSessionViaPublicApi(app, sidA);
+            drawnow limitrate;
+
+            testCase.verifyTrue(closed, 'Session A close failed during active drag.');
+            testCase.verifyFalse(app.MouseRouter.isLockHeldBy(sidA), ...
+                'MouseRouter kept a lock for the closed session.');
+            testCase.verifyFalse(app.MouseRouter.hasActiveLock(), ...
+                'MouseRouter still has an active lock after closing the dragged session.');
+            testCase.verifyGreaterThanOrEqual(ctrl.StopCount, 1, ...
+                'Drag controller was not stopped during close.');
+            testCase.verifyTrue(testCase.workspaceHasSession(app, sidB), ...
+                'Session B disappeared after closing Session A during drag.');
+        end
+
+        function test_T3g_Mouse_TabSwitchDuringDragIsSuppressed(testCase)
+            app = testCase.launchStudio();
+            sidA = app.addSession('Mouse Switch Session A');
+            sidB = app.addSession('Mouse Switch Session B');
+            drawnow limitrate;
+
+            testCase.selectSessionViaPublicApi(app, sidA);
+            ctrl = flightdash.studio.diag.RouterTestController();
+            testCase.verifyTrue(app.MouseRouter.requestDragLock(sidA, ctrl), ...
+                'MouseRouter did not grant drag lock to active session.');
+
+            testCase.selectSessionViaPublicApi(app, sidB);
+            testCase.invokeFigureMotion(app);
+
+            testCase.verifyFalse(app.MouseRouter.hasActiveLock(), ...
+                'MouseRouter did not release lock after active tab changed.');
+            testCase.verifyEqual(ctrl.MotionCount, 0, ...
+                'Inactive session received drag motion after tab switch.');
+            testCase.verifyEqual(ctrl.StopCount, 1, ...
+                'Controller stopDrag was not called after tab switch.');
+        end
+
+        function test_T3h_Mouse_MultiControllerDragIsolation(testCase)
+            app = testCase.launchStudio();
+            sidA = app.addSession('Mouse Isolation Session A');
+            sidB = app.addSession('Mouse Isolation Session B');
+            drawnow limitrate;
+
+            testCase.selectSessionViaPublicApi(app, sidA);
+            markerLike = flightdash.studio.diag.RouterTestController();
+            splitterLike = flightdash.studio.diag.RouterTestController();
+
+            testCase.verifyTrue(app.MouseRouter.requestDragLock(sidA, markerLike, 'fleur', 'marker'));
+            testCase.verifyFalse(app.MouseRouter.requestDragLock(sidA, splitterLike, 'fleur', 'split'), ...
+                'MouseRouter granted a second controller lock while marker lock was active.');
+
+            app.MouseRouter.releaseDragLock();
+            testCase.verifyTrue(app.MouseRouter.requestDragLock(sidA, splitterLike, 'fleur', 'split'));
+
+            testCase.selectSessionViaPublicApi(app, sidB);
+            testCase.invokeFigureMotion(app);
+
+            testCase.verifyFalse(app.MouseRouter.isLockHeldBy(sidA), ...
+                'MouseRouter kept Session A splitter lock after switching to Session B.');
+            testCase.verifyEqual(splitterLike.StopCount, 1, ...
+                'Splitter-like controller was not stopped after rapid switch.');
+            testCase.verifyEqual(markerLike.StopCount, 0, ...
+                'Inactive marker-like controller was stopped even though it no longer owned the lock.');
+        end
+
+        function test_T3i_Mouse_RoiHoverHighlightingDoesNotCrash(testCase)
+            app = testCase.launchStudio();
+            sid = app.addSession('Mouse Hover ROI Session');
+            drawnow limitrate;
+
+            testCase.selectSessionViaPublicApi(app, sid);
+            dash = app.getActiveDashboard();
+            testCase.assumeFalse(isempty(dash), 'No active dashboard was available.');
+            testCase.assumeTrue(isprop(dash, 'RoiCtrl') && ~isempty(dash.RoiCtrl) && ...
+                isvalid(dash.RoiCtrl) && ismethod(dash.RoiCtrl, 'handleHover'), ...
+                'ROI hover controller API was not available.');
+
+            dash.RoiCtrl.handleHover([100 100]);
+            if ismethod(dash.RoiCtrl, 'clearHover')
+                dash.RoiCtrl.clearHover();
+            end
+
+            testCase.verifyTrue(true, 'ROI hover handling completed without throwing.');
+        end
+
+        function test_T3j_Mouse_RapidTabCreateCloseStress(testCase)
+            app = testCase.launchStudio();
+
+            for k = 1:6
+                sid = app.addSession(sprintf('Mouse Stress Session %d', k));
+                drawnow limitrate;
+                testCase.selectSessionViaPublicApi(app, sid);
+
+                ctrl = flightdash.studio.diag.RouterTestController();
+                if app.MouseRouter.requestDragLock(sid, ctrl, 'fleur', 'stress')
+                    testCase.invokeFigureMotion(app);
+                end
+
+                if mod(k, 2) == 0
+                    closed = testCase.closeSessionViaPublicApi(app, sid);
+                    drawnow limitrate;
+                    testCase.verifyTrue(closed, sprintf('Failed to close stress session %d.', k));
+                    testCase.verifyFalse(app.MouseRouter.isLockHeldBy(sid), ...
+                        sprintf('MouseRouter kept lock for closed stress session %d.', k));
+                else
+                    app.MouseRouter.releaseDragLock();
+                end
+            end
+
+            testCase.verifyFalse(app.MouseRouter.hasActiveLock(), ...
+                'MouseRouter retained a lock after rapid create/close stress.');
+        end
+
+        function test_T3k_Mouse_StandaloneCompatibility(testCase)
+            dash = [];
+            cleanupObj = onCleanup(@() testCase.safeDeleteApp(dash)); %#ok<NASGU>
+            dash = FlightDataDashboard();
+            drawnow limitrate;
+
+            testCase.verifyNotEmpty(dash);
+            testCase.verifyTrue(isvalid(dash));
+            testCase.verifyTrue(isprop(dash, 'MouseRouter'), ...
+                'Standalone dashboard should expose MouseRouter property for compatibility.');
+            testCase.verifyEmpty(dash.MouseRouter, ...
+                'Standalone dashboard should not be assigned a Studio MouseRouter.');
+        end
+
         function test_T4_Event_Isolation(testCase)
             % Preferred path:
             % Use repository diagnostic if it exists. This avoids assuming
@@ -602,6 +828,49 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
 
             testCase.safeDeleteApp(app);
         end
+
+        function test_TStress_UndoRedo_MultiSessionIsolation(testCase)
+            app = testCase.launchStudio();
+            sessionIds = cell(1, 4);
+            targets = cell(1, 4);
+            expectedValues = zeros(1, 4);
+
+            for k = 1:numel(sessionIds)
+                sessionIds{k} = app.addSession(sprintf('Undo Stress Session %d', k));
+                drawnow limitrate;
+                testCase.selectSessionViaPublicApi(app, sessionIds{k});
+                dash = app.getActiveDashboard();
+                testCase.assumeFalse(isempty(dash), 'No active dashboard was available.');
+                targets{k} = SuiteUndoTarget(0);
+                dash.UndoService.push(SuiteCounterCommand( ...
+                    sessionIds{k}, targets{k}, 0, k, sprintf('Set Session %d', k)), true);
+                expectedValues(k) = k;
+            end
+
+            for k = 1:numel(sessionIds)
+                testCase.selectSessionViaPublicApi(app, sessionIds{k});
+                drawnow limitrate;
+                app.dispatchCommand('Edit:Undo', 'Test');
+                drawnow limitrate;
+                expectedValues(k) = 0;
+                for j = 1:numel(sessionIds)
+                    testCase.verifyEqual(targets{j}.Value, expectedValues(j), ...
+                        sprintf('Undo leaked from session %d into session %d.', k, j));
+                end
+            end
+
+            for k = 1:numel(sessionIds)
+                testCase.selectSessionViaPublicApi(app, sessionIds{k});
+                drawnow limitrate;
+                app.dispatchCommand('Edit:Redo', 'Test');
+                drawnow limitrate;
+                expectedValues(k) = k;
+                for j = 1:numel(sessionIds)
+                    testCase.verifyEqual(targets{j}.Value, expectedValues(j), ...
+                        sprintf('Redo leaked from session %d into session %d.', k, j));
+                end
+            end
+        end
     end
 
     methods (Access = private)
@@ -819,7 +1088,7 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
 
                 if ismethod(app, methodName)
                     try
-                        out = app.(methodName)(sessionId);
+                        out = testCase.invokeMaybeNoOutput(app, methodName, sessionId);
                         drawnow limitrate;
                         tf = testCase.normalizeLogicalReturn(out);
                         if tf
@@ -848,7 +1117,7 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
 
                     if ismethod(workspace, methodName)
                         try
-                            out = workspace.(methodName)(sessionId);
+                            out = testCase.invokeMaybeNoOutput(workspace, methodName, sessionId);
                             drawnow limitrate;
                             tf = testCase.normalizeLogicalReturn(out);
 
@@ -863,6 +1132,21 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function out = invokeMaybeNoOutput(~, obj, methodName, sessionId)
+            try
+                out = obj.(methodName)(sessionId);
+            catch ME
+                if strcmp(ME.identifier, 'MATLAB:maxlhs') || ...
+                        strcmp(ME.identifier, 'MATLAB:TooManyOutputs') || ...
+                        contains(ME.message, 'Too many output')
+                    obj.(methodName)(sessionId);
+                    out = [];
+                else
+                    rethrow(ME);
+                end
+            end
+        end
+
         function tf = normalizeLogicalReturn(~, out)
             if isempty(out)
                 tf = true;
@@ -872,6 +1156,45 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 tf = strlength(string(out)) > 0;
             else
                 tf = true;
+            end
+        end
+
+        function verifyUndoUiState(testCase, app, canUndo, canRedo)
+            expectedUndo = testCase.onOff(canUndo);
+            expectedRedo = testCase.onOff(canRedo);
+
+            if ~isempty(app.ToolbarMgr) && isvalid(app.ToolbarMgr)
+                testCase.verifyEqual(app.ToolbarMgr.Buttons.Undo.Enable, expectedUndo, ...
+                    'Toolbar Undo state mismatch.');
+                testCase.verifyEqual(app.ToolbarMgr.Buttons.Redo.Enable, expectedRedo, ...
+                    'Toolbar Redo state mismatch.');
+            end
+
+            if ~isempty(app.MenuMgr) && isvalid(app.MenuMgr)
+                testCase.verifyEqual(app.MenuMgr.Items.Undo.Enable, expectedUndo, ...
+                    'Menu Undo state mismatch.');
+                testCase.verifyEqual(app.MenuMgr.Items.Redo.Enable, expectedRedo, ...
+                    'Menu Redo state mismatch.');
+            end
+        end
+
+        function value = onOff(~, tf)
+            if tf
+                value = 'on';
+            else
+                value = 'off';
+            end
+        end
+
+        function invokeFigureMotion(~, app)
+            try
+                if ~isempty(app) && isvalid(app) && isprop(app, 'UIFigure') && ...
+                        ~isempty(app.UIFigure) && isvalid(app.UIFigure) && ...
+                        ~isempty(app.UIFigure.WindowButtonMotionFcn)
+                    app.UIFigure.WindowButtonMotionFcn([], []);
+                end
+            catch ME
+                rethrow(ME);
             end
         end
 

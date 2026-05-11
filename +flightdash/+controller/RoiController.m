@@ -29,7 +29,7 @@ classdef RoiController < handle
         end
 
         function subscribeEvents(obj)
-            EB = @flightdash.util.EventBus.subscribe;
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
             % [PHASE 4] Each handler bails when this controller's app
             % is not the active Studio session.
             obj.Listeners{end+1} = EB('RoiAddRequested',            @(~,d) obj.gated(@(d_) obj.addCurrentRoi(d_.ChannelIdx), d));

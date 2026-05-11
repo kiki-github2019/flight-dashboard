@@ -17,7 +17,7 @@ classdef PannerController < handle
         end
 
         function subscribeEvents(obj)
-            EB = @flightdash.util.EventBus.subscribe;
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
             % [PHASE 4] Skip event when this dashboard is not the active Studio session.
             obj.Listeners{end+1} = EB('PannerToggled',        @(~,d) obj.gated(@(d_) obj.togglePanner(d_.ChannelIdx), d));
             obj.Listeners{end+1} = EB('PannerClicked',        @(~,d) obj.gated(@(d_) obj.onPannerClicked(d_.ChannelIdx), d));

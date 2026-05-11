@@ -120,18 +120,27 @@ classdef StudioMouseRouter < handle
                         ~strcmp(obj.ActiveSessionId, sessionId)
                     return;
                 end
-                ctrl = obj.ActiveController;
-                if ~isempty(ctrl) && isa(ctrl, 'handle') && isvalid(ctrl) && ismethod(ctrl, 'stopDrag')
-                    try
-                        ctrl.stopDrag();
-                    catch ME
-                        try
-                            flightdash.util.ErrorLog.log(ME, 'StudioMouseRouter:CancelSession', false);
-                        catch
-                        end
-                    end
-                end
+                obj.cancelActiveDrag();
+                return;
             catch
+            end
+            obj.releaseDragLock();
+        end
+
+        function cancelActiveDrag(obj)
+            %CANCELACTIVEDRAG Stop the owning controller, then release lock.
+            % Used when a tab switches/closes or a drag callback errors.
+            ctrl = obj.ActiveController;
+            try
+                if ~isempty(ctrl) && isa(ctrl, 'handle') && isvalid(ctrl) && ...
+                        ismethod(ctrl, 'stopDrag')
+                    ctrl.stopDrag();
+                end
+            catch ME
+                try
+                    flightdash.util.ErrorLog.log(ME, 'StudioMouseRouter:CancelActiveDrag', false);
+                catch
+                end
             end
             obj.releaseDragLock();
         end
@@ -298,10 +307,11 @@ classdef StudioMouseRouter < handle
                 return;
             end
             % If the user switched tabs while the drag was in progress
-            % the active session changed; suppress motion until either
-            % the drag is released or focus returns.
+            % the active session changed; stop the old controller so its
+            % internal IsDragging state cannot linger after the router lock
+            % is released.
             if ~obj.isSessionActive(obj.ActiveSessionId)
-                obj.releaseDragLock();
+                obj.cancelActiveDrag();
                 return;
             end
 
@@ -311,6 +321,7 @@ classdef StudioMouseRouter < handle
                 try
                     flightdash.util.ErrorLog.log(ME, 'StudioMouseRouter:Motion', false);
                 catch, end
+                obj.cancelActiveDrag();
             end
         end
 

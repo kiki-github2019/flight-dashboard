@@ -132,6 +132,13 @@ classdef EventBus < handle
             end
         end
 
+        function listener = subscribeForApp(app, eventName, callback)
+            %SUBSCRIBEFORAPP Subscribe using an app's embedded session id.
+            %   Standalone dashboards intentionally stay broadcast listeners.
+            sessionId = flightdash.util.EventBus.sessionIdForApp(app);
+            listener = flightdash.util.EventBus.subscribe(eventName, callback, sessionId);
+        end
+
         function tf = acceptsSession(listenerSessionId, eventSessionId)
             listenerSessionId = char(listenerSessionId);
             eventSessionId = char(eventSessionId);
@@ -141,6 +148,26 @@ classdef EventBus < handle
     end
 
     methods (Static, Access = private)
+        function sessionId = sessionIdForApp(app)
+            sessionId = '';
+            try
+                if isempty(app) || (isa(app, 'handle') && ~isvalid(app))
+                    return;
+                end
+                if isstruct(app)
+                    if ~isfield(app, 'ActiveSessionId'), return; end
+                elseif ~isprop(app, 'ActiveSessionId')
+                    return;
+                end
+                candidate = char(app.ActiveSessionId);
+                if ~isempty(candidate) && ~strcmp(candidate, 'standalone')
+                    sessionId = candidate;
+                end
+            catch
+                sessionId = '';
+            end
+        end
+
         function data = normalizePayload(data)
             if isempty(data)
                 data = flightdash.util.AppEventData();

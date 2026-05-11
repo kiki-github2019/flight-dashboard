@@ -26,6 +26,11 @@ function results = verifyPhase3()
         'P3-16', @checkControllerBasePresence
         'P3-17', @checkSplitterHitTestPresence
         'P3-18', @checkRoiHitTestPresence
+        'P3-19', @checkRouterTabSwitchCancelsDrag
+        'P3-20', @checkRouterMotionErrorCancelsDrag
+        'P3-21', @checkCloseTabDuringDragDoesNotCrash
+        'P3-22', @checkRoiHoverNoCrash
+        'P3-23', @checkStandaloneMouseRouterCompatibility
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -701,6 +706,157 @@ function [ok, msg, status] = checkRoiHitTestPresence()
     end
 end
 
+function [ok, msg, status] = checkRouterTabSwitchCancelsDrag()
+    status = '';
+    fig = [];
+    router = [];
+    try
+        fig = uifigure('Visible', 'off', 'Name', 'Phase3 Router Tab Switch Test');
+        holder = containers.Map('KeyType', 'char', 'ValueType', 'any');
+        holder('id') = 'P3_TABSWITCH_A';
+        ws.activeSessionId = @() holder('id');
+        router = flightdash.studio.StudioMouseRouter(fig, ws);
+        ctrl = flightdash.studio.diag.RouterTestController();
+
+        granted = router.requestDragLock('P3_TABSWITCH_A', ctrl);
+        holder('id') = 'P3_TABSWITCH_B';
+        fig.WindowButtonMotionFcn([], []);
+
+        ok = granted && ~router.hasActiveLock() && ctrl.MotionCount == 0 && ctrl.StopCount == 1;
+        if ok
+            msg = 'Router stops active controller and releases lock after mid-drag tab switch';
+        else
+            msg = sprintf('Router tab-switch cancel mismatch: granted=%d lock=%d motion=%d stop=%d', ...
+                granted, router.hasActiveLock(), ctrl.MotionCount, ctrl.StopCount);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Router tab-switch cancel check failed: %s', ME.message);
+    end
+    safeDelete(router);
+    safeDelete(fig);
+end
+
+function [ok, msg, status] = checkRouterMotionErrorCancelsDrag()
+    status = '';
+    fig = [];
+    router = [];
+    try
+        fig = uifigure('Visible', 'off', 'Name', 'Phase3 Router Motion Error Test');
+        holder = containers.Map('KeyType', 'char', 'ValueType', 'any');
+        holder('id') = 'P3_MOTION_ERR';
+        ws.activeSessionId = @() holder('id');
+        router = flightdash.studio.StudioMouseRouter(fig, ws);
+        ctrl = flightdash.studio.diag.RouterTestController();
+        ctrl.ThrowOnMotion = true;
+
+        granted = router.requestDragLock('P3_MOTION_ERR', ctrl);
+        fig.WindowButtonMotionFcn([], []);
+
+        ok = granted && ~router.hasActiveLock() && ctrl.MotionCount == 1 && ctrl.StopCount == 1;
+        if ok
+            msg = 'Router releases lock and stops controller after motion callback error';
+        else
+            msg = sprintf('Router motion-error cancel mismatch: granted=%d lock=%d motion=%d stop=%d', ...
+                granted, router.hasActiveLock(), ctrl.MotionCount, ctrl.StopCount);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Router motion-error cancel check failed: %s', ME.message);
+    end
+    safeDelete(router);
+    safeDelete(fig);
+end
+
+function [ok, msg, status] = checkCloseTabDuringDragDoesNotCrash()
+    status = '';
+    studio = [];
+    try
+        studio = createStudioApp();
+        ws = studio.Workspace;
+        s1 = 'P3_CLOSE_DRAG_A';
+        s2 = 'P3_CLOSE_DRAG_B';
+        callWorkspaceAdd(ws, s1, 'Phase3 Close Drag A');
+        callWorkspaceAdd(ws, s2, 'Phase3 Close Drag B');
+        selectWorkspaceSession(ws, s1);
+
+        ctrl = flightdash.studio.diag.RouterTestController();
+        granted = studio.MouseRouter.requestDragLock(s1, ctrl, 'fleur', 'drag');
+        callWorkspaceRemove(ws, s1);
+
+        lockReleased = ~studio.MouseRouter.hasActiveLock() && ~studio.MouseRouter.isLockHeldBy(s1);
+        s2Alive = workspaceHasSession(ws, s2);
+        stopped = ctrl.StopCount >= 1;
+
+        ok = granted && lockReleased && s2Alive && stopped;
+        if ok
+            msg = 'Closing a tab during drag stops controller, releases router lock, and preserves other sessions';
+        else
+            msg = sprintf('Close-during-drag mismatch: granted=%d released=%d s2Alive=%d stopped=%d', ...
+                granted, lockReleased, s2Alive, stopped);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Close-during-drag check failed: %s', ME.message);
+    end
+    safeDelete(studio);
+end
+
+function [ok, msg, status] = checkRoiHoverNoCrash()
+    status = '';
+    studio = [];
+    try
+        studio = createStudioApp();
+        ws = studio.Workspace;
+        sessionId = 'P3_ROI_HOVER';
+        callWorkspaceAdd(ws, sessionId, 'Phase3 ROI Hover');
+        selectWorkspaceSession(ws, sessionId);
+
+        dash = activeDashboardForDiag(ws, sessionId);
+        hasApi = ~isempty(dash) && isvalid(dash) && isprop(dash, 'RoiCtrl') && ...
+            ~isempty(dash.RoiCtrl) && isvalid(dash.RoiCtrl) && ...
+            ismethod(dash.RoiCtrl, 'handleHover') && ismethod(dash.RoiCtrl, 'clearHover');
+        if hasApi
+            dash.RoiCtrl.handleHover([100 100]);
+            dash.RoiCtrl.clearHover();
+        end
+
+        ok = hasApi;
+        if ok
+            msg = 'RoiController hover/clearHover API completes without error';
+        else
+            msg = 'RoiController hover API was not available on embedded dashboard';
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('ROI hover no-crash check failed: %s', ME.message);
+    end
+    safeDelete(studio);
+end
+
+function [ok, msg, status] = checkStandaloneMouseRouterCompatibility()
+    status = '';
+    app = [];
+    try
+        app = flightdash.FlightDataDashboard();
+        ok = ~isempty(app) && isvalid(app) && isprop(app, 'MouseRouter') && isempty(app.MouseRouter) && ...
+            isprop(app, 'IsEmbedded') && ~app.IsEmbedded;
+        if ok
+            msg = 'Standalone dashboard keeps MouseRouter empty and remains non-embedded';
+        else
+            hasRouterProp = ~isempty(app) && isvalid(app) && isprop(app, 'MouseRouter');
+            routerEmpty = hasRouterProp && isempty(app.MouseRouter);
+            isStandalone = ~isempty(app) && isvalid(app) && isprop(app, 'IsEmbedded') && ~app.IsEmbedded;
+            msg = sprintf('Standalone MouseRouter mismatch: hasProp=%d empty=%d standalone=%d', ...
+                hasRouterProp, routerEmpty, isStandalone);
+        end
+    catch ME
+        ok = false;
+        msg = sprintf('Standalone MouseRouter compatibility check failed: %s', ME.message);
+    end
+    safeDelete(app);
+end
+
 % -------------------------------------------------------------------------
 % Helpers
 % -------------------------------------------------------------------------
@@ -901,6 +1057,22 @@ function tf = workspaceHasSession(ws, sessionId)
         end
     catch
         tf = false;
+    end
+end
+
+function dash = activeDashboardForDiag(ws, sessionId)
+    dash = [];
+    try
+        sessionId = char(sessionId);
+        if isprop(ws, 'DashboardEntries') && ~isempty(ws.DashboardEntries) && ...
+                isKey(ws.DashboardEntries, sessionId)
+            entry = ws.DashboardEntries(sessionId);
+            if isfield(entry, 'Dashboard') && ~isempty(entry.Dashboard) && isvalid(entry.Dashboard)
+                dash = entry.Dashboard;
+            end
+        end
+    catch
+        dash = [];
     end
 end
 

@@ -11,6 +11,10 @@ classdef UndoService < handle
         StatusCallback = []
     end
 
+    properties (Dependent)
+        MaxHistory
+    end
+
     events
         StateChanged
     end
@@ -92,6 +96,14 @@ classdef UndoService < handle
             obj.RedoStack = {};
             obj.LastCommand = [];
             obj.notifyStateChanged('clear', []);
+        end
+
+        function value = get.MaxHistory(obj)
+            value = obj.MaxDepth;
+        end
+
+        function set.MaxHistory(obj, value)
+            obj.MaxDepth = value;
         end
     end
 

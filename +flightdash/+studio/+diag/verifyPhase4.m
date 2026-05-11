@@ -24,6 +24,7 @@ function results = verifyPhase4()
 %     P4-9  EventBus session-filtered subscriptions and target publish
 %     P4-10 SessionScopedListener / ControllerBase helper presence
 %     P4-11 UndoService session stack + UndoStateChanged event
+%     P4-12 UndoService MaxHistory alias + deleted-target command no-op
 %     P9-1  ProjectSerializer save+load round-trip (Phase 9)
 
     fprintf('\n=== Phase 4 verification ===\n');
@@ -40,6 +41,7 @@ function results = verifyPhase4()
         'P4-9', @p49_eventBusSessionFilters; ...
         'P4-10', @p410_sessionScopedListenerApi; ...
         'P4-11', @p411_undoServiceSessionStack; ...
+        'P4-12', @p412_undoServiceMaxHistoryAndNoop; ...
         'P9-1', @p91_serializerRoundTrip ...
     };
 
@@ -465,8 +467,22 @@ function r = p49_eventBusSessionFilters()
             return;
         end
 
+        try, if ~isempty(la) && isvalid(la), delete(la); end, catch, end
+        la = flightdash.util.EventBus.subscribeForApp( ...
+            struct('ActiveSessionId', 'P4_A'), 'FlightStopRequested', @(~,~) bumpA());
+        flightdash.util.EventBus.publish('FlightStopRequested', flightdash.util.AppEventData(1, [], 'P4_B'));
+        if hitsA ~= 3
+            r.Message = sprintf('subscribeForApp leaked P4_B event into P4_A listener: A=%d', hitsA);
+            return;
+        end
+        flightdash.util.EventBus.publish('FlightStopRequested', flightdash.util.AppEventData(1, [], 'P4_A'));
+        if hitsA ~= 4
+            r.Message = sprintf('subscribeForApp did not deliver P4_A event: A=%d', hitsA);
+            return;
+        end
+
         r.Passed = true;
-        r.Message = 'EventBus session filters, target publish, struct SessionId, and broadcast semantics correct';
+        r.Message = 'EventBus session filters, subscribeForApp, target publish, struct SessionId, and broadcast semantics correct';
     catch ME
         r.Message = sprintf('EventBus session filter check errored: %s', ME.message);
     end
@@ -557,6 +573,44 @@ function r = p411_undoServiceSessionStack()
 
     function cleanup()
         try, if ~isempty(listener) && isvalid(listener), delete(listener); end, catch, end
+    end
+end
+
+function r = p412_undoServiceMaxHistoryAndNoop()
+    r = struct('Passed', false, 'Message', '', 'Details', struct());
+    try
+        svc = flightdash.studio.UndoService('P4_LIMIT');
+        svc.MaxHistory = 2;
+        if svc.MaxDepth ~= 2 || svc.MaxHistory ~= 2
+            r.Message = sprintf('MaxHistory alias mismatch: MaxDepth=%g MaxHistory=%g', ...
+                svc.MaxDepth, svc.MaxHistory);
+            return;
+        end
+
+        row0 = {0, 1, 'sig', '--', '--'};
+        row1 = {1, 2, 'sig', '--', '--'};
+        row2 = {2, 3, 'sig', '--', '--'};
+        row3 = {3, 4, 'sig', '--', '--'};
+        svc.push(flightdash.command.MoveROICommand('P4_LIMIT', [], 1, 1, row0, row1, 'Move ROI 1'));
+        svc.push(flightdash.command.MoveROICommand('P4_LIMIT', [], 1, 1, row1, row2, 'Move ROI 2'));
+        svc.push(flightdash.command.MoveROICommand('P4_LIMIT', [], 1, 1, row2, row3, 'Move ROI 3'));
+        if numel(svc.UndoStack) ~= 2
+            r.Message = sprintf('MaxHistory/MaxDepth trim failed: stack=%d', numel(svc.UndoStack));
+            return;
+        end
+
+        markerCmd = flightdash.command.MoveMarkerCommand('P4_LIMIT', [], [1 2], [3 4], 'Move missing marker');
+        markerCmd.execute();
+        markerCmd.undo();
+
+        roiCmd = flightdash.command.MoveROICommand('P4_LIMIT', [], [1 2 3 4], [5 6 7 8], 'Move missing ROI');
+        roiCmd.execute();
+        roiCmd.undo();
+
+        r.Passed = true;
+        r.Message = 'MaxHistory alias trims stack and missing graphics command targets are safe no-ops';
+    catch ME
+        r.Message = sprintf('UndoService MaxHistory/no-op check errored: %s', ME.message);
     end
 end
 

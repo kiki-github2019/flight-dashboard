@@ -1,3 +1,18 @@
+
+
+콘텐츠로 건너뛰기
+스크린 리더로 Gmail 사용하기
+2,665개 중 1개
+참고
+받은편지함
+
+jungsub shin <jungsub99@gmail.com>
+첨부파일
+오후 6:11 (0분 전)
+나에게
+
+ 첨부파일 1개
+  •  Gmail에서 검사함
 먼저 두 문서를 읽어서 검토하겠습니다.
 
 두 문서를 모두 분석했습니다. 계획서의 타당성과 단계별 마이그레이션 로드맵을 검토해서 출력합니다.
@@ -3313,4 +3328,14 @@ https://github.dev/kiki-github2019/flight-dashboard.git
 =================================================================================================================
 =================================================================================================================
 ==================================================================================================================
+echo "alias go-codex='proot-distro login ubuntu --bind /storage/emulated/0:/sdcard --shared-tmp -- bash -c \"cd /sdcard/Download/flight-dashboard && exec bash\"'" >> ~/.bashrc
+source ~/.bashrc
 
+go-codex
+
+dex-codex-260511
+
+
+
+claude_gui to origin pro style_260508.md.txt
+claude_gui to origin pro style_260508.md.txt 표시 중입니다.

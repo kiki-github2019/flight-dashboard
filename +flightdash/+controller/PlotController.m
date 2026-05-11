@@ -14,7 +14,7 @@ classdef PlotController < handle
         end
 
         function subscribeEvents(obj)
-            EB = @flightdash.util.EventBus.subscribe;
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
             obj.Listeners{end+1} = EB('PlotSelected',           @(~,d) obj.onPlotSelected(d));
             obj.Listeners{end+1} = EB('PlotTabAddRequested',    @(~,d) obj.onAddTab(d));
             obj.Listeners{end+1} = EB('PlotTabClearRequested',  @(~,d) obj.onClearTab(d));

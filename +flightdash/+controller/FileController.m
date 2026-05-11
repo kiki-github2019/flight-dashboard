@@ -14,7 +14,7 @@ classdef FileController < handle
         end
         
         function subscribeEvents(obj)
-            EB = @flightdash.util.EventBus.subscribe;
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
             obj.Listeners{end+1} = EB('FlightFileRequested', @(~,d) obj.onFlightFile(d));
             obj.Listeners{end+1} = EB('AviFileRequested',    @(~,d) obj.onAviFile(d));
             obj.Listeners{end+1} = EB('CoastFileRequested',  @(~,~) obj.onCoastFile());

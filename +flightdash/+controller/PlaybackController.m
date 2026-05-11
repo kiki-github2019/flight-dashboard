@@ -16,7 +16,7 @@ classdef PlaybackController < handle
         end
         
         function subscribeEvents(obj)
-            EB = @flightdash.util.EventBus.subscribe;
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
             obj.Listeners{end+1} = EB('SliderChanging',         @(~,d) obj.onSliderChanging(d));
             obj.Listeners{end+1} = EB('SliderChanged',          @(~,d) obj.onSliderChanged(d));
             obj.Listeners{end+1} = EB('NavActionRequested',     @(~,d) obj.onNav(d));

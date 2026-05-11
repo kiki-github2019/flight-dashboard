@@ -10,7 +10,7 @@ The current stabilization scope is:
 - Phase 1: Studio shell
 - Phase 2: project/session/value models
 - Phase 3: embedded dashboard tabs
-- Phase 4: session-scoped EventBus routing
+- Phase 4: session-scoped EventBus routing + per-session Undo/Redo
 - Phase 5: Project Explorer and Object Manager MVP
 - Phase 6: toolbar/menu/Inspector/GUI mode MVP
 - Phase 8a: single ROI result Manual/Auto/Frozen recalculate MVP
@@ -18,6 +18,29 @@ The current stabilization scope is:
 - Phase 8c: debounce queue for Auto result recalculation
 - Phase 9: linked `.frsproj` save/load
 - Phase 10 prototype: service-level shared decode/cache scheduling
+
+## Phase 4 + Undo/Redo Boundary
+
+Phase 4 now covers both event isolation and per-session command history:
+
+- `+flightdash/+util/EventBus.m` supports `acceptsSession(...)`,
+  session-filtered `subscribe(...)`, and app-scoped `subscribeForApp(...)`.
+- `+flightdash/+event/SessionScopedListener.m` and
+  `+flightdash/+controller/ControllerBase.m` provide the preferred listener
+  cleanup pattern for new controllers.
+- Existing controllers are not required to inherit from `ControllerBase`.
+  They retain their local `isActiveSession(...)` guards and now subscribe
+  through app-scoped EventBus filters where practical.
+- `+flightdash/+studio/UndoService.m` owns per-session undo/redo stacks.
+  `MaxDepth` is the canonical limit name; `MaxHistory` is retained as a
+  compatibility alias.
+- ROI row create/delete/move and marker move operations push command objects.
+- Toolbar, Edit menu, status bar, and the History dock follow
+  `UndoService.StateChanged` for the active workspace tab.
+
+Do not expand this gate into a full command palette, persistent history file,
+or global multi-session history browser until the runtime close/switch stress
+tests are clean.
 
 ## Phase 7 Boundary
 

@@ -14,7 +14,7 @@ classdef PanelToggleController < handle
         end
         
         function subscribeEvents(obj)
-            EB = @flightdash.util.EventBus.subscribe;
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
             obj.Listeners{end+1} = EB('PanelToggled',      @(~,d) obj.onPanelToggled(d));
             obj.Listeners{end+1} = EB('DebugModeToggled',  @(~,d) obj.onDebugToggled(d));
             obj.Listeners{end+1} = EB('SyncToggled',       @(~,~) obj.onSyncToggled());

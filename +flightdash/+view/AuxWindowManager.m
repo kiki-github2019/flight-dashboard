@@ -10,7 +10,7 @@ classdef AuxWindowManager < handle
     methods
         function obj = AuxWindowManager(app)
             if nargin > 0 && ~isempty(app)
-                EB = @flightdash.util.EventBus.subscribe;
+                EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
                 obj.Listeners{end+1} = EB('DetailsToggleRequested', @(~,d) obj.onDetailsToggle(app, d));
             end
         end
