@@ -16,6 +16,60 @@ classdef ProjectExplorerPanel < handle
     end
 
     methods
+        function id = getSelectedNodeId(obj)
+            id = '';
+            try
+                if isempty(obj.Tree) || ~isvalid(obj.Tree)
+                    return;
+                end
+
+                sel = obj.Tree.SelectedNodes;
+                if isempty(sel)
+                    return;
+                end
+
+                nd = sel(1).NodeData;
+                if isstruct(nd) && isfield(nd, 'SessionId')
+                    id = char(nd.SessionId);
+                elseif isstruct(nd) && isfield(nd, 'ResultId')
+                    id = char(nd.ResultId);
+                elseif isstruct(nd) && isfield(nd, 'ThemeId')
+                    id = char(nd.ThemeId);
+                else
+                    id = char(sel(1).Text);
+                end
+            catch
+                id = '';
+            end
+        end
+        function tf = selectSession(obj, sessionId)
+            tf = false;
+            try
+                if isempty(obj.Tree) || ~isvalid(obj.Tree)
+                    return;
+                end
+
+                sid = char(sessionId);
+                node = obj.findSessionNode(sid);
+
+                if isempty(node) || ~isvalid(node)
+                    return;
+                end
+
+                obj.Tree.SelectedNodes = node;
+                drawnow limitrate;
+
+                if ~isempty(obj.App) && isvalid(obj.App) && ...
+                        ~isempty(obj.App.Workspace) && isvalid(obj.App.Workspace)
+                    obj.App.Workspace.selectSession(sid);
+                end
+
+                tf = true;
+            catch
+                tf = false;
+            end
+        end
+
         function obj = ProjectExplorerPanel(app, parentGrid)
             obj.App = app;
             obj.build(parentGrid);
@@ -83,6 +137,29 @@ classdef ProjectExplorerPanel < handle
     end
 
     methods (Access = private)
+    
+        function node = findSessionNode(obj, sessionId)
+            node = [];
+            try
+                if isempty(obj.Roots) || ~isfield(obj.Roots, 'Sessions')
+                    return;
+                end
+
+                children = obj.Roots.Sessions.Children;
+                sid = char(sessionId);
+
+                for k = 1:numel(children)
+                    nd = children(k).NodeData;
+                    if isstruct(nd) && isfield(nd, 'SessionId') && ...
+                            strcmp(char(nd.SessionId), sid)
+                        node = children(k);
+                        return;
+                    end
+                end
+            catch
+                node = [];
+            end
+        end
         function build(obj, parentGrid)
             UIScale = flightdash.util.UIScale;
 
