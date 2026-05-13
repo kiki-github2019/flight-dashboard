@@ -466,22 +466,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.(propName) = [];
                     return;
                 end
-                %-------------------------------------------------------------%
-                % chatgpt 260513 1600
-                if isobject(h)
-                    for n = 1(h)
-                    try
-                        if isa(h(n), 'handle') && isvalid(h(n))
-                            if ismethod(h(n), 'cleanup')
-                                h(n).cleanup();
-                            end
-                            delete(h(n));
-                        end
-                    catch ME
-                        app.logCaught(ME, ['ControllerCleanup:' propName '']);
+                if isobject(h) && isvalid(h)
+                    if ismethod(h, 'cleanup')
+                        try, h.cleanup(); catch ME, app.logCaught(ME, ['ControllerCleanup:' propName ':cleanup']); end
                     end
+                    try, delete(h); catch ME, app.logCaught(ME, ['ControllerCleanup:' propName ':delete']); end
                 end
-                %-------------------------------------------------------------%
                 app.(propName) = [];
             catch ME
                 app.logCaught(ME, ['ControllerCleanup:' propName]);
