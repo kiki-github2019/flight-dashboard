@@ -1,4 +1,4 @@
-classdef FlightDataDashboard < matlab.apps.AppBase
+classdef FlightReviewStudioTestSuite < matlab.apps.AppBase
     % =========================================================================
     % 비행 데이터 리뷰 대시보드 - V3.22 (리팩토링: 모듈 분해 + 캐시 자료구조 개선)
     % 설명:
