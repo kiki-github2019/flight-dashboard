@@ -3337,5 +3337,4 @@ dex-codex-260511
 
 
 
-claude_gui to origin pro style_260508.md.txt
-claude_gui to origin pro style_260508.md.txt 표시 중입니다.
+스마트폰이나 PC 브라우저에서 👉 https://github.com/settings/tokens 에 접속합니다.
