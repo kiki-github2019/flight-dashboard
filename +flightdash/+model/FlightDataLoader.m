@@ -54,8 +54,18 @@ classdef FlightDataLoader < handle
                         if length(parts) >= 2
                             k = char(strtrim(parts(1)));
                             v = char(strtrim(parts(2)));
-                            if isfield(mappedCols, k) && ismember(v, csvHeaders)
-                                mappedCols.(k) = v;
+                            if isfield(mappedCols, k)
+                                if ismember(v, csvHeaders)
+                                    mappedCols.(k) = v;
+                                else
+                                    % Option file's target column isn't in CSV →
+                                    % try resolving the target via the same
+                                    % normalize-and-alias path used for inference.
+                                    resolved = obj.inferRequiredColumn(k, csvHeaders, v);
+                                    if ~isempty(resolved)
+                                        mappedCols.(k) = resolved;
+                                    end
+                                end
                             end
                         end
                     elseif section == 2
@@ -356,20 +366,36 @@ classdef FlightDataLoader < handle
 
     methods (Access = private)
         function validateRequiredColumns(~, dataTbl, mappedCols, fIdx)
-            reqKeys = flightdash.util.AppConstants.REQ_KEYS;
+            % Commit 1: split severity. Missing critical → hard error so
+            % the workflow stops. Missing optional (Roll/Pitch/Heading) →
+            % warning so attitude-less files still load; downstream views
+            % must disable attitude gauge / analysis when these are blank.
+            critical = flightdash.util.AppConstants.REQ_KEYS_CRITICAL;
+            optional = flightdash.util.AppConstants.REQ_KEYS_OPTIONAL;
             vars = dataTbl.Properties.VariableNames;
-            missing = {};
-            for i = 1:numel(reqKeys)
-                keyName = reqKeys{i};
-                if ~isfield(mappedCols, keyName) || isempty(mappedCols.(keyName)) || ...
-                        ~ismember(mappedCols.(keyName), vars)
-                    missing{end+1} = keyName; %#ok<AGROW>
-                end
+            missCrit = {};
+            missOpt  = {};
+            checkKey = @(k) ~isfield(mappedCols, k) || isempty(mappedCols.(k)) || ...
+                ~ismember(mappedCols.(k), vars);
+            for i = 1:numel(critical)
+                k = critical{i};
+                if checkKey(k), missCrit{end+1} = k; end %#ok<AGROW>
             end
-            if ~isempty(missing)
-                error('flightdash:DataMapping:MissingRequiredColumn', ...
-                    'Required flight-data columns were not mapped: %s. Check option%d.dat or file headers.', ...
-                    strjoin(missing, ', '), fIdx);
+            for i = 1:numel(optional)
+                k = optional{i};
+                if checkKey(k), missOpt{end+1} = k; end %#ok<AGROW>
+            end
+            if ~isempty(missCrit)
+                error('flightdash:DataMapping:MissingCritical', ...
+                    ['Critical flight-data columns were not mapped: %s. ', ...
+                     'Check option%d.dat or CSV headers.'], ...
+                    strjoin(missCrit, ', '), fIdx);
+            end
+            if ~isempty(missOpt)
+                warning('flightdash:DataMapping:MissingOptional', ...
+                    ['Optional flight-data columns missing: %s. ', ...
+                     'Attitude features will be disabled for option%d.dat.'], ...
+                    strjoin(missOpt, ', '), fIdx);
             end
         end
 
@@ -392,42 +418,63 @@ classdef FlightDataLoader < handle
             end
         end
 
-        function colName = inferRequiredColumn(obj, reqKey, csvHeaders)
+        function colName = inferRequiredColumn(obj, reqKey, csvHeaders, optTargetValue)
+            % Resolve `reqKey` (e.g. 'Roll') to an actual CSV column name.
+            % Match order:
+            %   1. Exact case-insensitive equal of reqKey to a header.
+            %   2. Alias list from AppConstants.columnAliases() (normalized).
+            %   3. The option-file value (optTargetValue) when provided.
+            %   4. Partial contains() fallback against all candidates.
             colName = '';
+            if isempty(csvHeaders), return; end
+            if nargin < 4, optTargetValue = ''; end
+
             candidates = obj.requiredColumnCandidates(reqKey);
-            if isempty(candidates), return; end
+            candidates{end+1} = char(reqKey);
+            if ~isempty(optTargetValue)
+                candidates{end+1} = char(optTargetValue);
+            end
+
             normalizedHeaders = cell(size(csvHeaders));
             for hIdx = 1:numel(csvHeaders)
                 normalizedHeaders{hIdx} = obj.normalizeHeaderName(csvHeaders{hIdx});
             end
+
+            % Exact normalized match
             for cIdx = 1:numel(candidates)
-                normalizedCandidate = obj.normalizeHeaderName(candidates{cIdx});
-                matchIdx = find(strcmp(normalizedHeaders, normalizedCandidate), 1, 'first');
+                normCand = obj.normalizeHeaderName(candidates{cIdx});
+                if isempty(normCand), continue; end
+                matchIdx = find(strcmp(normalizedHeaders, normCand), 1, 'first');
                 if ~isempty(matchIdx)
                     colName = csvHeaders{matchIdx};
                     return;
                 end
             end
+
+            % Partial contains() fallback (last resort). Require alias
+            % length ≥ 4 to avoid spurious 3-char matches like 'lat' inside
+            % 'latencyms' or 'alt' inside 'altimode'.
+            for cIdx = 1:numel(candidates)
+                normCand = obj.normalizeHeaderName(candidates{cIdx});
+                if numel(normCand) < 4, continue; end
+                for hIdx = 1:numel(normalizedHeaders)
+                    h = normalizedHeaders{hIdx};
+                    if numel(h) < 4, continue; end
+                    if contains(h, normCand) || contains(normCand, h)
+                        colName = csvHeaders{hIdx};
+                        return;
+                    end
+                end
+            end
         end
 
         function candidates = requiredColumnCandidates(~, reqKey)
-            switch char(reqKey)
-                case 'Time'
-                    candidates = {'time_s', 'time', 'times', 'timestamp', 'elapsed_time', 'elapsedtime', 'seconds', 'sec', 't'};
-                case 'Roll'
-                    candidates = {'Roll', 'roll_deg', 'rolldeg', 'phi'};
-                case 'Pitch'
-                    candidates = {'Pitch', 'pitch_deg', 'pitchdeg', 'theta'};
-                case 'Heading'
-                    candidates = {'Heading', 'heading_deg', 'headingdeg', 'Yaw', 'yaw_deg', 'yawdeg', 'CourseAngle', 'course_angle', 'course', 'track', 'psi'};
-                case 'Alt'
-                    candidates = {'Altitude', 'altitude_m', 'altitude_ft', 'alt', 'PressAltitude', 'press_altitude', 'baro_altitude', 'height'};
-                case 'Lat'
-                    candidates = {'Latitude', 'latitude_deg', 'lat_deg', 'lat', 'gps_lat', 'gpslatitude'};
-                case 'Lon'
-                    candidates = {'Longitude', 'longitude_deg', 'lon_deg', 'lon', 'lng', 'long', 'gps_lon', 'gpslongitude'};
-                otherwise
-                    candidates = {};
+            key = char(reqKey);
+            aliases = flightdash.util.AppConstants.columnAliases();
+            if isfield(aliases, key)
+                candidates = aliases.(key);
+            else
+                candidates = {};
             end
         end
 

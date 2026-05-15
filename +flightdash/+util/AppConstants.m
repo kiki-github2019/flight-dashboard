@@ -85,5 +85,25 @@ classdef AppConstants
         WORKER_VR_CACHE_SLOTS = 4
         MAX_SEQ_READ_STEP     = 4
         MAX_PENDING_ITERS     = 10
+
+        % --- Column severity split (Commit 1) ---
+        REQ_KEYS_CRITICAL = {'Time', 'Lat', 'Lon', 'Alt'}
+        REQ_KEYS_OPTIONAL = {'Roll', 'Pitch', 'Heading'}
+    end
+
+    methods (Static)
+        function aliases = columnAliases()
+            % Central alias source for tolerant CSV header → required-key
+            % mapping. Match is performed on normalized (lower + alnum only)
+            % forms in FlightDataLoader.normalizeHeaderName.
+            aliases = struct();
+            aliases.Time    = {'time','time_s','timestamp','t','sec','seconds','elapsedtime','elapsed_time'};
+            aliases.Roll    = {'roll','rollangle','phi','bank','roll_deg','rolldeg','flight_roll'};
+            aliases.Pitch   = {'pitch','pitchangle','theta','pitch_deg','pitchdeg','flight_pitch'};
+            aliases.Heading = {'heading','yaw','course','track','hdg','psi','headingangle','flight_heading','course_angle','courseangle'};
+            aliases.Alt     = {'alt','altitude','height','alt_ft','altitude_ft','altitude_m','flight_alt','pressaltitude','press_altitude','baro_altitude'};
+            aliases.Lat     = {'lat','latitude','lat_deg','flight_lat','gps_lat','gpslatitude'};
+            aliases.Lon     = {'lon','longitude','long','lon_deg','flight_lon','lng','gps_lon','gpslongitude'};
+        end
     end
 end
