@@ -47,6 +47,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         DebugMode         = false   % [V3.14 항목 6] true 시 zoom/pan off 등 로그 출력
         State             = 'IDLE'  % [V3.17 (8)] 'IDLE' | 'DRAGGING' | 'UPDATING' | 'DECODING'
         UseAsyncDecode    = false   % [V3.19 (1)] 비동기 디코딩 활성화 (Parallel Toolbox 필요)
+
+        % Timer-based slider scrubbing (review report: timer-based scrubbing).
+        % onVdubSliderChanging only records SliderPendingFrame; the timer
+        % drains it at ~30 fps with BusyMode='drop' so a slow decode just
+        % throttles itself instead of blocking the UI thread.
+        SliderScrubTimer       = []
+        SliderPendingFrame     = [NaN NaN]   % per-channel pending target frame
+        SliderLastRendered     = [NaN NaN]   % per-channel last rendered frame
+        SliderTimerActive      = false
     end
 
     % [PHASE 0 / Studio prep] Manager classes (LayoutMgr, AuxWindowMgr, controllers)
@@ -380,6 +389,17 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % released even when stopDrag below fails partway through.
             try, app.forceEndAllDrag('cleanupAllControllers'); catch, end
             try, app.releaseEmbeddedDragLock(); catch, end
+            % Timer-based scrubbing: stop + delete the scrub timer so it
+            % cannot fire after the dashboard / session is torn down.
+            try
+                if ~isempty(app.SliderScrubTimer) && isa(app.SliderScrubTimer, 'timer') ...
+                        && isvalid(app.SliderScrubTimer)
+                    try, stop(app.SliderScrubTimer); catch, end
+                    try, delete(app.SliderScrubTimer); catch, end
+                end
+                app.SliderScrubTimer = [];
+                app.SliderTimerActive = false;
+            catch, end
             try
                 if ~isempty(app.PlaybackCtrl) && isvalid(app.PlaybackCtrl)
                     app.PlaybackCtrl.stopAllFlightPlayback();
@@ -2708,28 +2728,35 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        % [V3.15 항목 1] 슬라이더 드래그 중 콜백 (ValueChangingFcn)
-        % - throttle 0.03s(33fps) 적용으로 디코딩 큐 적체 방지
-        % - 'drag' 모드로 goToFrame 호출 → 경량 갱신만 수행
+        % Timer-based ValueChangingFcn: this stays ultra-light. It only
+        % records the target frame and starts the scrub timer. The timer
+        % does the actual decode + image update at ~30 fps with BusyMode
+        % ='drop', so a slow decode just throttles itself and the UI stays
+        % responsive even when the user scrubs across uncached frames.
         function onVdubSliderChanging(app, fIdx, evtValue)
-            % 슬라이더 throttle: 너무 자주 호출되면 무시
-            if app.throttleHit('LastSliderUpdate', fIdx, flightdash.util.AppConstants.SLIDER_THROTTLE_S), return; end
-
-            frameNo = round(evtValue);
-            try, app.updateVdubFrameLabel(fIdx, frameNo); catch, end
-
-            app.updateDragVelocity(fIdx, frameNo);
-
-            app.goToFrame(fIdx, evtValue, 'drag');
+            try
+                frameNo = round(evtValue);
+                if fIdx >= 1 && fIdx <= numel(app.SliderPendingFrame)
+                    app.SliderPendingFrame(fIdx) = frameNo;
+                end
+                try, app.updateVdubFrameLabel(fIdx, frameNo); catch, end
+                app.updateDragVelocity(fIdx, frameNo);
+                app.ensureSliderScrubTimer();
+            catch
+            end
         end
 
-        % [V3.15 항목 1] 슬라이더 드래그 종료 시 콜백 (ValueChangedFcn)
-        % - 'final' 모드로 goToFrame 호출 → 전체 패널 1회 동기화 보장
+        % [V3.15] ValueChangedFcn — stop the scrub timer and run the full
+        % synchronous commit (data plot, gauges, markers, prefetch).
         function onVdubSliderChanged(app, fIdx, src)
+            try, app.stopSliderScrubTimer(); catch, end
             try
                 target = round(src.Value);
+                if fIdx >= 1 && fIdx <= numel(app.SliderPendingFrame)
+                    app.SliderPendingFrame(fIdx) = NaN;
+                    app.SliderLastRendered(fIdx) = NaN;
+                end
                 if app.VideoSyncState(fIdx).CurrentFrame == target
-                    % final 모드 1회 강제 호출로 전체 동기화 보장
                     if app.VideoSyncState(fIdx).IsSynced && ~isempty(app.Models(fIdx).rawData)
                         app.setStateUpdating(fIdx, true);
                         cleanup_ = onCleanup(@() resetIsUpdating(app, fIdx)); %#ok<NASGU>
@@ -2739,9 +2766,91 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     return;
                 end
                 app.goToFrame(fIdx, src.Value, 'final');
-                % [V3.19 (2)] 슬라이더 드래그 종료 시 adaptive prefetch
                 app.prefetchAdjacentFrames(fIdx);
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
+        end
+
+        function ensureSliderScrubTimer(app)
+            % Lazy-create the scrub timer the first time the user drags.
+            try
+                if ~isempty(app.SliderScrubTimer) && isa(app.SliderScrubTimer, 'timer') ...
+                        && isvalid(app.SliderScrubTimer)
+                    if strcmp(app.SliderScrubTimer.Running, 'off')
+                        start(app.SliderScrubTimer);
+                    end
+                    app.SliderTimerActive = true;
+                    return;
+                end
+                app.SliderScrubTimer = timer( ...
+                    'ExecutionMode', 'fixedSpacing', ...
+                    'Period',        1/30, ...
+                    'BusyMode',      'drop', ...
+                    'StartDelay',    0, ...
+                    'TimerFcn',      @(~,~) app.scrubTick(), ...
+                    'ErrorFcn',      @(~,evt) app.logCaught(evt, 'SliderScrubTimer'));
+                start(app.SliderScrubTimer);
+                app.SliderTimerActive = true;
+            catch ME
+                app.logCaught(ME, 'SliderScrubTimer:start');
+            end
+        end
+
+        function stopSliderScrubTimer(app)
+            try
+                if ~isempty(app.SliderScrubTimer) && isa(app.SliderScrubTimer, 'timer') ...
+                        && isvalid(app.SliderScrubTimer)
+                    if strcmp(app.SliderScrubTimer.Running, 'on')
+                        stop(app.SliderScrubTimer);
+                    end
+                end
+            catch
+            end
+            app.SliderTimerActive = false;
+        end
+
+        function scrubTick(app)
+            % Timer drain: render the latest pending frame for each
+            % channel. BusyMode='drop' means an overlapping tick is
+            % discarded if this call is still running — so a slow decode
+            % self-throttles instead of blocking the UI thread queue.
+            try
+                if app.IsDeleting, return; end
+                anyPending = false;
+                n = min(numel(app.SliderPendingFrame), numel(app.SliderLastRendered));
+                for fIdx = 1:n
+                    target = app.SliderPendingFrame(fIdx);
+                    if isnan(target), continue; end
+                    if ~isnan(app.SliderLastRendered(fIdx)) ...
+                            && target == app.SliderLastRendered(fIdx)
+                        continue;
+                    end
+                    anyPending = true;
+                    if ~app.isVideoReady(fIdx), continue; end
+                    % Route through the existing decode pipeline. In drag
+                    % mode requestFrame is non-blocking; here we want the
+                    % decode to actually happen so the timer DOES wait,
+                    % but BusyMode='drop' on the timer caps the rate.
+                    try
+                        totalF = app.VideoSyncState(fIdx).TotalFrames;
+                        clamped = max(1, min(round(target), max(1, totalF)));
+                        cached = app.cacheGetFrame(fIdx, clamped);
+                        if ~isempty(cached)
+                            app.displayFrame(fIdx, clamped, cached, true);
+                        else
+                            img = app.decodeFrameSync(fIdx, clamped);
+                            if ~isempty(img)
+                                app.displayFrame(fIdx, clamped, img, false);
+                            end
+                        end
+                        app.SliderLastRendered(fIdx) = target;
+                    catch
+                    end
+                end
+                if anyPending
+                    drawnow limitrate nocallbacks;
+                end
+            catch
+            end
         end
 
         % [V3.16 / V3.17 (8)] goToFrame 재진입 플래그 해제 (onCleanup 콜백)
