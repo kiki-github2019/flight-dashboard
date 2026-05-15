@@ -288,6 +288,19 @@ classdef WorkspaceManager < handle
                 else
                     flightdash.util.SessionScope.setActive(newId);
                 end
+                % Phase 10: notify the shared decode service so requests
+                % from the newly active session get priority 0 and stale
+                % background-session requests fall to priority 10.
+                try
+                    if ~isempty(obj.App) && isvalid(obj.App) ...
+                            && isprop(obj.App, 'SharedDecodeService') ...
+                            && ~isempty(obj.App.SharedDecodeService) ...
+                            && isvalid(obj.App.SharedDecodeService) ...
+                            && ismethod(obj.App.SharedDecodeService, 'setActiveSession')
+                        obj.App.SharedDecodeService.setActiveSession(newId);
+                    end
+                catch
+                end
                 obj.refreshActiveLayout('tabActivated');
                 obj.refreshActiveInspector();
                 obj.refreshActiveUndoUi();

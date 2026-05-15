@@ -2754,6 +2754,27 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % synchronous commit (data plot, gauges, markers, prefetch).
         function onVdubSliderChanged(app, fIdx, src)
             try, app.stopSliderScrubTimer(); catch, end
+            % Phase 10: cancel any in-flight decodes queued during the
+            % drag for THIS session — the final 'final' goToFrame below
+            % carries the only frame that matters now.
+            try
+                sds = [];
+                if isprop(app, 'SharedDecodeService') && ~isempty(app.SharedDecodeService) ...
+                        && isvalid(app.SharedDecodeService)
+                    sds = app.SharedDecodeService;
+                end
+                if isempty(sds)
+                    sds = getappdata(app.UIFigure, 'SharedDecodeService');
+                end
+                if ~isempty(sds) && isvalid(sds) ...
+                        && ismethod(sds, 'advanceSessionGeneration')
+                    sid = char(app.ActiveSessionId);
+                    if ~isempty(sid)
+                        sds.advanceSessionGeneration(sid);
+                    end
+                end
+            catch
+            end
             try
                 target = round(src.Value);
                 if fIdx >= 1 && fIdx <= numel(app.SliderPendingFrame)

@@ -66,6 +66,7 @@ classdef CommandRouter < handle
                 'Toolbar:Load', 'Toolbar:Sync', 'Toolbar:Play', 'Toolbar:Stop', ...
                 'Toolbar:Prev', 'Toolbar:Next', 'Toolbar:ROI', 'Toolbar:Marker', ...
                 'Toolbar:Analyze', 'Toolbar:Recalc', ...
+                'Analysis:SyncCheck', 'Analysis:SyncQuality', ...
                 'Project:DuplicateSession', 'Project:RenameSession', 'Project:DeleteSession', ...
                 'File:ImportSession', 'File:ExportSession', ...
                 'Edit:', ...
@@ -211,6 +212,9 @@ classdef CommandRouter < handle
                     obj.publishDashboardEvent('RoiAddRequested', 1, [], sessionId);
                 case {'Toolbar:Analyze', 'Analysis:RoiStats'}
                     obj.publishDashboardEvent('AnalysisComputeRequested', 1, [], sessionId);
+                    obj.openAnalysisDialog(app, 'flightdash.analysis.RoiStatisticsDialog', sessionId, 1);
+                case {'Analysis:SyncCheck', 'Analysis:SyncQuality'}
+                    obj.openAnalysisDialog(app, 'flightdash.analysis.SyncQualityDialog', sessionId, 1);
                 case 'Edit:Undo'
                     if ismethod(dashboard, 'undo')
                         dashboard.undo();
@@ -316,6 +320,24 @@ classdef CommandRouter < handle
                 obj.setStatus(sprintf('%s: %s', label, char(mgr.Panel.Visible)));
             catch ME
                 obj.reportException('Command', label, ME);
+            end
+        end
+
+        function openAnalysisDialog(obj, app, dialogClass, sessionId, channelIdx)
+            % Phase 7 entry point: instantiate an AnalysisDialog subclass
+            % for the active session, switch the right-dock to the
+            % Analysis tab as a visual cue, and show the dialog.
+            try
+                if isempty(sessionId)
+                    sessionId = char(app.ActiveSessionId);
+                end
+                if nargin < 5 || isempty(channelIdx), channelIdx = 1; end
+                ctor = str2func(char(dialogClass));
+                dlg = ctor(app, sessionId, channelIdx);
+                obj.showRightDockTab('AnalysisTab', 'Analysis');
+                dlg.show();
+            catch ME
+                obj.reportException('Command', 'openAnalysisDialog', ME);
             end
         end
 

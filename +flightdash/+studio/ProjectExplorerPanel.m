@@ -284,13 +284,69 @@ classdef ProjectExplorerPanel < handle
         end
 
         function onSearch(obj, query)
+            % Phase 5: walk the tree depth-first, find the first node
+            % whose visible label contains `query` (case-insensitive),
+            % expand its ancestors, select it, and scroll it into view.
             try
-                if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
-                    if isempty(query)
+                query = char(query);
+                if isempty(obj.Tree) || ~isvalid(obj.Tree), return; end
+                if isempty(query)
+                    if ~isempty(obj.App) && isvalid(obj.App) ...
+                            && ~isempty(obj.App.StatusBar)
                         obj.App.StatusBar.setMessage('Search cleared');
-                    else
-                        obj.App.StatusBar.setMessage(sprintf('Search: "%s" (Phase 5 wiring)', query));
                     end
+                    return;
+                end
+                hit = obj.findFirstMatching(obj.Tree, lower(query));
+                if isempty(hit)
+                    if ~isempty(obj.App) && isvalid(obj.App) ...
+                            && ~isempty(obj.App.StatusBar)
+                        obj.App.StatusBar.setMessage( ...
+                            sprintf('Search: "%s" - no match', query));
+                    end
+                    return;
+                end
+                obj.expandAncestors(hit);
+                try, obj.Tree.SelectedNodes = hit; catch, end
+                try, scroll(obj.Tree, hit); catch, end
+                if ~isempty(obj.App) && isvalid(obj.App) ...
+                        && ~isempty(obj.App.StatusBar)
+                    obj.App.StatusBar.setMessage( ...
+                        sprintf('Search: "%s" -> %s', query, char(hit.Text)));
+                end
+            catch ME
+                warning('ProjectExplorerPanel:Search', '%s', ME.message);
+            end
+        end
+
+        function node = findFirstMatching(obj, root, queryLower)
+            node = [];
+            try
+                kids = root.Children;
+            catch
+                kids = [];
+            end
+            for k = 1:numel(kids)
+                child = kids(k);
+                try
+                    label = lower(char(child.Text));
+                    if ~isempty(label) && contains(label, queryLower)
+                        node = child;
+                        return;
+                    end
+                catch
+                end
+                node = obj.findFirstMatching(child, queryLower);
+                if ~isempty(node), return; end
+            end
+        end
+
+        function expandAncestors(~, node)
+            try
+                p = node.Parent;
+                while ~isempty(p) && isa(p, 'matlab.ui.container.TreeNode')
+                    try, expand(p); catch, end
+                    p = p.Parent;
                 end
             catch
             end
