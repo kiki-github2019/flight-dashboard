@@ -376,6 +376,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function cleanupAllControllers(app)
             % Phase 3 embedded unload cleanup. This is intentionally
             % idempotent and does not set IsDeleting; delete() owns that flag.
+            % Commit 3: forceEndAllDrag guarantees cursor/drag state is
+            % released even when stopDrag below fails partway through.
+            try, app.forceEndAllDrag('cleanupAllControllers'); catch, end
             try, app.releaseEmbeddedDragLock(); catch, end
             try
                 if ~isempty(app.PlaybackCtrl) && isvalid(app.PlaybackCtrl)
@@ -459,6 +462,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function cleanupHandleProperty(app, propName)
+            % Commit 3: handle-array safe cleanup. The previous form
+            %   if isobject(h) && isvalid(h)
+            % would throw "Operands to && must be convertible to logical
+            % scalar" when `h` was a handle array because isvalid returns
+            % a logical vector. Iterate per-element instead.
             try
                 if ~isprop(app, propName), return; end
                 h = app.(propName);
@@ -466,16 +474,63 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.(propName) = [];
                     return;
                 end
-                if isobject(h) && isvalid(h)
-                    if ismethod(h, 'cleanup')
-                        try, h.cleanup(); catch ME, app.logCaught(ME, ['ControllerCleanup:' propName ':cleanup']); end
+                if isobject(h)
+                    for n = 1:numel(h)
+                        try
+                            item = h(n);
+                            if isa(item, 'handle') && isvalid(item)
+                                if ismethod(item, 'cleanup')
+                                    try, item.cleanup(); catch ME
+                                        app.logCaught(ME, ['ControllerCleanup:' propName ':cleanup:item']);
+                                    end
+                                end
+                                try, delete(item); catch ME
+                                    app.logCaught(ME, ['ControllerCleanup:' propName ':delete:item']);
+                                end
+                            end
+                        catch ME
+                            app.logCaught(ME, ['ControllerCleanup:' propName ':item']);
+                        end
                     end
-                    try, delete(h); catch ME, app.logCaught(ME, ['ControllerCleanup:' propName ':delete']); end
                 end
                 app.(propName) = [];
             catch ME
                 app.logCaught(ME, ['ControllerCleanup:' propName]);
             end
+        end
+
+        function forceEndAllDrag(app, reason)
+            % Commit 3: fail-safe to fully release every drag/cursor state
+            % when an exception or external event (modal dialog, tab close,
+            % ESC, figure close) interrupts the normal mouse-up path.
+            % Safe to call from any code path including catch blocks and
+            % destructors; never throws.
+            if nargin < 2, reason = 'unknown'; end %#ok<NASGU>
+            try, app.IsDraggingSplitter = false;       catch, end
+            try, app.IsDraggingPanelSplitter = false;  catch, end
+            try, app.IsDraggingPanner = false;         catch, end
+            try
+                if ~isempty(app.MarkerDragCtrl) && isvalid(app.MarkerDragCtrl)
+                    try, app.MarkerDragCtrl.stopDrag(); catch, end
+                    try, app.MarkerDragCtrl.clearDraggedMarker(); catch, end
+                end
+            catch, end
+            try
+                if ~isempty(app.PannerCtrl) && isvalid(app.PannerCtrl)
+                    try, app.PannerCtrl.stopDrag(); catch, end
+                end
+            catch, end
+            try
+                if ~isempty(app.MouseRouter) && isvalid(app.MouseRouter)
+                    app.MouseRouter.releaseDragLock();
+                end
+            catch, end
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
+                        && isprop(app.UIFigure, 'Pointer')
+                    app.UIFigure.Pointer = 'arrow';
+                end
+            catch, end
         end
 
         function delete(app)
