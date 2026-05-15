@@ -28,7 +28,7 @@ classdef ProjectModel
         AnalysisThemes % flightdash.project.AnalysisThemeModel array
 
         % Global preferences (Phase 6 wiring)
-        GuiMode             char     = 'Review'      % Review|Analysis|Plot|Report|Compact
+        GuiMode             char     = 'Studio'      % Studio|Classic|Review|Analysis|Plot|Report|Compact|DockedFigure
         AutoUpdateMode      char     = 'Manual'      % Manual|Auto|Frozen
 
         DirtyFlag           logical  = false

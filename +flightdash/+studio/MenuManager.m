@@ -155,6 +155,7 @@ classdef MenuManager < handle
             obj.ModeMenus.Plot     = obj.addLeaf(modeRoot, 'Plot Mode',       'Pref:Mode:Plot');
             obj.ModeMenus.Report   = obj.addLeaf(modeRoot, 'Report Mode',     'Pref:Mode:Report');
             obj.ModeMenus.Compact  = obj.addLeaf(modeRoot, 'Compact Mode',    'Pref:Mode:Compact');
+            obj.ModeMenus.DockedFigure = obj.addLeaf(modeRoot, 'Docked Figure (optional)', 'Pref:Mode:DockedFigure');
             obj.addLeaf(obj.Roots.Preferences, 'Auto Update Mode',     'Pref:AutoUpdate');
             obj.addLeaf(obj.Roots.Preferences, 'Toolbar Customize',    'Pref:ToolbarCustomize');
             obj.addLeaf(obj.Roots.Preferences, 'Shortcut Settings',    'Pref:Shortcuts');

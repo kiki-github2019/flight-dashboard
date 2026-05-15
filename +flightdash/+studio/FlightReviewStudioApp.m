@@ -667,7 +667,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
         function applyGuiMode(app, modeName, markDirty)
             if nargin < 2 || isempty(modeName)
-                modeName = 'Review';
+                modeName = 'Studio';
             end
             if nargin < 3 || isempty(markDirty)
                 markDirty = true;
@@ -701,13 +701,13 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function mode = currentGuiMode(app)
-            mode = 'Review';
+            mode = 'Studio';
             try
                 if ~isempty(app.Project) && isprop(app.Project, 'GuiMode')
                     mode = app.normalizeGuiMode(app.Project.GuiMode);
                 end
             catch
-                mode = 'Review';
+                mode = 'Studio';
             end
         end
 
@@ -718,22 +718,23 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 'ToolbarVisible', true, ...
                 'ExplorerVisible', true, ...
                 'RightDockVisible', true, ...
-                'ExplorerWidth',  200, ...
-                'RightDockWidth', 260);
+                'ExplorerWidth',  220, ...
+                'RightDockWidth', 300, ...
+                'WindowStyle',   'normal');
 
             switch mode
                 case 'Classic'
                     profile.ExplorerVisible = true;
                     profile.RightDockVisible = true;
                     profile.ToolbarVisible = true;
-                    profile.ExplorerWidth = 220;
-                    profile.RightDockWidth = 300;
+                    profile.ExplorerWidth = 240;
+                    profile.RightDockWidth = 320;
                 case 'Studio'
                     profile.ExplorerVisible = true;
                     profile.RightDockVisible = true;
                     profile.ToolbarVisible = true;
-                    profile.ExplorerWidth = 200;
-                    profile.RightDockWidth = 260;
+                    profile.ExplorerWidth = 220;
+                    profile.RightDockWidth = 300;
                 case 'Review'
                     profile.ExplorerVisible = false;
                     profile.RightDockVisible = false;
@@ -745,7 +746,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     profile.RightDockVisible = true;
                     profile.ToolbarVisible = true;
                     profile.ExplorerWidth = 0;
-                    profile.RightDockWidth = 300;
+                    profile.RightDockWidth = 320;
                 case 'Plot'
                     profile.ExplorerVisible = false;
                     profile.RightDockVisible = true;
@@ -764,15 +765,23 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     profile.ToolbarVisible = true;
                     profile.ExplorerWidth = 0;
                     profile.RightDockWidth = 0;
+                case 'DockedFigure'
+                    profile.ExplorerVisible = true;
+                    profile.RightDockVisible = true;
+                    profile.ToolbarVisible = true;
+                    profile.ExplorerWidth = 220;
+                    profile.RightDockWidth = 300;
+                    profile.WindowStyle = 'docked';
             end
         end
 
         function mode = normalizeGuiMode(~, modeName)
             if nargin < 2 || isempty(modeName)
-                modeName = 'Review';
+                modeName = 'Studio';
             end
             requested = char(modeName);
-            valid = {'Classic', 'Studio', 'Review', 'Analysis', 'Plot', 'Report', 'Compact'};
+            valid = {'Classic', 'Studio', 'Review', 'Analysis', 'Plot', ...
+                'Report', 'Compact', 'DockedFigure'};
             hit = find(strcmpi(requested, valid), 1);
             if isempty(hit)
                 error('FlightReviewStudio:InvalidGuiMode', ...
@@ -787,8 +796,27 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.setManagerPanelVisible(app.ProjectExplorer, profile.ExplorerVisible);
                 app.setManagerPanelVisible(app.RightDock, profile.RightDockVisible);
                 app.setBodyColumnWidths(profile);
+                if isfield(profile, 'WindowStyle') && ~isempty(profile.WindowStyle)
+                    app.applyWindowStyle(profile.WindowStyle);
+                end
             catch ME
                 try, app.logCaught(ME, 'Studio:applyGuiModeProfile'); catch, end
+            end
+        end
+
+        function applyWindowStyle(app, style)
+            % Phase 10: optional WindowStyle='docked' for local MATLAB. On
+            % MATLAB Online or any environment that rejects the setter the
+            % failure is logged and the figure stays in its previous style.
+            try
+                if isempty(app.UIFigure) || ~isvalid(app.UIFigure), return; end
+                s = lower(char(style));
+                if ~ismember(s, {'normal','docked'}), s = 'normal'; end
+                app.UIFigure.WindowStyle = s;
+            catch ME
+                try, app.logCaught(ME, 'Studio:WindowStyle'); catch
+                    warning('FlightReviewStudio:WindowStyle', '%s', ME.message);
+                end
             end
         end
 
@@ -1048,12 +1076,13 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
     methods (Access = private)
         function buildShell(app)
             UIScale = flightdash.util.UIScale;
+            theme = flightdash.ui.StudioTheme.colors();
 
             % --- Figure ---
             app.UIFigure = uifigure( ...
                 'Name', 'FlightDataReviewStudio', ...
                 'Position', app.initialFigurePosition(), ...
-                'Color', [0.94 0.94 0.96], ...
+                'Color', theme.Background, ...
                 'AutoResizeChildren', 'off');
             try
                 setappdata(app.UIFigure, 'FlightReviewStudioApp', app);
@@ -1088,7 +1117,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
             % --- Header (menu + toolbar) ---
             app.HeaderPanel = uipanel(shellGrid, 'BorderType', 'none', ...
-                'BackgroundColor', [0.97 0.97 0.98]);
+                'BackgroundColor', theme.Header);
             app.HeaderPanel.Layout.Row = 1;
             headerGrid = uigridlayout(app.HeaderPanel, [2 1], ...
                 'RowHeight', {UIScale.px(28), UIScale.px(36)}, ...
@@ -1103,10 +1132,10 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             % column has enough width to keep the embedded
             % FlightDataDashboard out of NARROW profile (rail mode).
             app.BodyGrid = uigridlayout(shellGrid, [1 3], ...
-                'ColumnWidth', {UIScale.px(200), '1x', UIScale.px(260)}, ...
+                'ColumnWidth', {UIScale.px(220), '1x', UIScale.px(300)}, ...
                 'RowHeight', {'1x'}, ...
                 'ColumnSpacing', 4, 'Padding', [4 4 4 4], ...
-                'BackgroundColor', [0.94 0.94 0.96]);
+                'BackgroundColor', theme.Background);
             app.BodyGrid.Layout.Row = 2;
 
             app.ProjectExplorer = flightdash.studio.ProjectExplorerPanel(app, app.BodyGrid);
@@ -1115,7 +1144,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
             % --- Status bar ---
             app.StatusBarPanel = uipanel(shellGrid, 'BorderType', 'none', ...
-                'BackgroundColor', [0.92 0.92 0.94]);
+                'BackgroundColor', theme.Header);
             app.StatusBarPanel.Layout.Row = 3;
             app.StatusBar = flightdash.studio.StatusBarManager(app, app.StatusBarPanel);
 

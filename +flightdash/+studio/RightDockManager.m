@@ -19,6 +19,7 @@ classdef RightDockManager < handle
         HistoryTab         % uitab
         LogsTab            % uitab
         AppsTab            % uitab
+        AnalysisTab        % uitab (Path 2 placeholder)
         HistoryPanel       % flightdash.studio.HistoryPanel
 
         % Inspector content (Phase 6c: quick action row goes here)
@@ -69,8 +70,20 @@ classdef RightDockManager < handle
             obj.InspectorTab     = obj.buildInspectorTab();
             obj.ObjectManagerTab = obj.buildObjectManagerTab();
             obj.HistoryTab       = obj.buildHistoryTab();
+            obj.AnalysisTab      = obj.buildAnalysisTab();
             obj.LogsTab          = obj.buildLogsTab();
             obj.AppsTab          = obj.buildAppsTab();
+        end
+
+        function tab = buildAnalysisTab(obj)
+            % Path 2 placeholder: future home for Analyzer / ROI / Plot
+            % Detail panels that currently spawn as separate aux figures.
+            tab = uitab(obj.TabGroup, 'Title', 'Analysis');
+            grid = uigridlayout(tab, [1 1], 'Padding', [12 12 12 12]);
+            uilabel(grid, ...
+                'Text', '(Analysis tools will dock here — Analyzer, ROI, Plot Detail)', ...
+                'FontColor', [0.5 0.5 0.5], ...
+                'HorizontalAlignment', 'center', 'WordWrap', 'on');
         end
 
         function tab = buildInspectorTab(obj)
