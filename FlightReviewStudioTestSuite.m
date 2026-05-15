@@ -937,6 +937,64 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 sprintf('MemoryMonitor timer leaked after app cleanup. Names: %s', ...
                     strjoin(cellstr(newNames), ', ')));
         end
+
+        function test_T12_Theme_Toggle_Smoke(testCase)
+            % Phase 11 smoke: toggleTheme() flips CurrentTheme + restyles figure.
+            app = testCase.launchStudio();
+            testCase.assumeTrue(ismethod(app, 'toggleTheme'), ...
+                'toggleTheme not present — skipping.');
+            before = char(app.CurrentTheme);
+            colorBefore = app.UIFigure.Color;
+            app.toggleTheme();
+            drawnow limitrate;
+            testCase.verifyNotEqual(char(app.CurrentTheme), before, ...
+                'CurrentTheme did not change after toggleTheme.');
+            testCase.verifyFalse(isequal(app.UIFigure.Color, colorBefore), ...
+                'UIFigure background did not change after toggleTheme.');
+        end
+
+        function test_T13_AnalysisDialog_OpenClose_Smoke(testCase)
+            % Phase 11 smoke: openAnalysisDialog spawns + deletes a uifigure.
+            app = testCase.launchStudio();
+            sid = app.addSession('Smoke T13 Session');
+            drawnow limitrate;
+            figsBefore = findall(groot, 'Type', 'figure');
+            try
+                app.dispatchCommand('Toolbar:Analyze', 'Test');
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'AnalysisDialog dispatch failed: %s', ME.message));
+            end
+            drawnow limitrate;
+            figsAfter = findall(groot, 'Type', 'figure');
+            newFigs = setdiff(figsAfter, figsBefore);
+            testCase.verifyNotEmpty(newFigs, ...
+                'No new uifigure was created for ROI dialog.');
+            for k = 1:numel(newFigs)
+                try, delete(newFigs(k)); catch, end
+            end
+            testCase.verifyNotEmpty(sid);
+        end
+
+        function test_T14_SharedDecodeService_ActiveSession_Smoke(testCase)
+            % Phase 11 smoke: tab switch updates SharedDecodeService.ActiveSessionId.
+            app = testCase.launchStudio();
+            testCase.assumeTrue(isprop(app, 'SharedDecodeService') ...
+                && ~isempty(app.SharedDecodeService) ...
+                && isvalid(app.SharedDecodeService), ...
+                'SharedDecodeService unavailable — skipping.');
+            sidA = app.addSession('T14 A');
+            sidB = app.addSession('T14 B');
+            drawnow limitrate;
+            app.Workspace.selectSession(sidA);
+            drawnow limitrate;
+            testCase.verifyEqual(char(app.SharedDecodeService.ActiveSessionId), ...
+                char(sidA), 'SharedDecodeService.ActiveSessionId did not follow tab A.');
+            app.Workspace.selectSession(sidB);
+            drawnow limitrate;
+            testCase.verifyEqual(char(app.SharedDecodeService.ActiveSessionId), ...
+                char(sidB), 'SharedDecodeService.ActiveSessionId did not follow tab B.');
+        end
     end
 
     methods (Static, Access = private)

@@ -11,11 +11,27 @@ Run from the repository root:
 cd <repo-root>
 addpath(genpath(pwd))
 
-% Integrated Studio shell
+% Integrated Studio shell (recommended — multi-session project,
+% Project Explorer, Workspace tabs, Inspector / Object Manager,
+% Light/Dark theme, .frsproj save/load)
 FlightReviewStudio
 
-% Legacy standalone dashboard
+% Legacy standalone dashboard (single-channel/dual-channel review
+% only, no project model, kept for backward compatibility)
 FlightDataDashboard
+```
+
+Quick smoke test after addpath:
+
+```matlab
+results = runtests('FlightReviewStudioTestSuite');
+table(results)
+```
+
+Full sweep:
+
+```matlab
+runAllTestCodesWithCleanup
 ```
 
 `FlightReviewStudio.m` is the Studio entry point. The implementation lives in

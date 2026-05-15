@@ -46,6 +46,7 @@ grok/                       # 외부 LLM 작업 백업
 merged_output_*.m           # 임시 머지 파일
 function_catalog*.csv       # 자동 생성 카탈로그
 function_catalog_slides.md  # 자동 생성 슬라이드
+root.zip                    # 개발자 로컬 백업 (Phase 11 repo-hygiene)
 
 # --- HTML/이미지 (선택적 추적) ---
 # - 루트의 임시 HTML 제외, docs/ 하위는 허용

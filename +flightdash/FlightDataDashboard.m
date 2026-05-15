@@ -21,7 +21,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     %     Layer 2 decodeFrameSync / startAsyncDecode: 디코딩 (전략 패턴)
     %     Layer 3 displayFrame: 표시 + 캐시 store (write-through 단일 출구)
     %   [V3.21 #2-A] persistent VideoReader in worker:
-    %     asyncDecodeFramePersistent 외부 함수에서 persistent 변수로 VR 재사용
+    %     flightdash.services.asyncDecodeFramePersistent 외부 함수에서 persistent 변수로 VR 재사용
     %   [V3.20 유지] 명시적 리소스 정리, 동기화 로그 prefix 표준화.
     %   [V3.18 유지] cache lookup clamp, Pending 완전 소진, hard limit 1.0.
     %   [V3.17 유지] InGoToFrame coalescing, IsDecoding 가드.
@@ -661,7 +661,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 % [PATCH / V3.22 #6 / FIX] 워커 persistent VR 명시 해제 - 2s timeout으로 hang 차단
                 try
                     if ~isempty(app.AsyncPool) && isvalid(app.AsyncPool)
-                        fCleanup = parfevalOnAll(app.AsyncPool, @cleanupAsyncDecodeCache, 0);
+                        fCleanup = parfevalOnAll(app.AsyncPool, @flightdash.services.cleanupAsyncDecodeCache, 0);
                         cleanupOk = false;
                         try
                             wait(fCleanup, 'finished', 5);
@@ -5614,13 +5614,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
     % [REFACTOR Step 5-C] 이전 Static wrapper(workerDecodeFrame/workerCleanupCache)는
     % 사용처 0 → 완전 제거. parfeval은 이제 file-level 함수를 직접 참조:
-    %   parfeval(pool, @asyncDecodeFramePersistent, ...)
-    %   parfevalOnAll(pool, @cleanupAsyncDecodeCache, 0)
+    %   parfeval(pool, @flightdash.services.asyncDecodeFramePersistent, ...)
+    %   parfevalOnAll(pool, @flightdash.services.cleanupAsyncDecodeCache, 0)
 end
 
 % =========================================================================
-% [REFACTOR Step 5-B] file-level worker 함수는 별도 .m 파일로 분리됨:
-%   - asyncDecodeFrame.m
-%   - asyncDecodeFramePersistent.m  (parfeval worker 핫패스)
-%   - cleanupAsyncDecodeCache.m
+% [REFACTOR Step 5-B] file-level worker 함수는 +flightdash/+services/ 패키지로 이동:
+%   - +flightdash/+services/asyncDecodeFrame.m
+%   - +flightdash/+services/asyncDecodeFramePersistent.m  (parfeval worker 핫패스)
+%   - +flightdash/+services/cleanupAsyncDecodeCache.m
+% (Phase 11 repo-hygiene: 패키지 네임스페이스로 통일)
 % =========================================================================

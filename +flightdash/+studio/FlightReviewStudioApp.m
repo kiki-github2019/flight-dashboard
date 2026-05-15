@@ -1026,7 +1026,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             try
                 gp = gcp('nocreate');
                 if ~isempty(gp) && isvalid(gp)
-                    fCleanup = parfevalOnAll(gp, @cleanupAsyncDecodeCache, 0);
+                    fCleanup = parfevalOnAll(gp, @flightdash.services.cleanupAsyncDecodeCache, 0);
                     try
                         wait(fCleanup, 'finished', 3);
                     catch

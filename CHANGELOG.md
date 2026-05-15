@@ -5,7 +5,31 @@
 형식은 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 을 따르며,
 버전은 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) 을 준수합니다.
 
-## [Unreleased] — FlightDataReviewStudio 전환 (Phase 0~4)
+## [Unreleased]
+
+다음 사이클 작업 영역 후보:
+
+- Phase 8d / Auto Update 마무리 (Frozen 결과 stale-warning UI)
+- DashboardPanel / VideoPlayerPanel / InstrumentsPanel / DataViewPanel
+  `ComponentContainer` 분리 (기존 `FlightDataDashboard` 와 functional parity
+  확인 후 진행)
+- 사용자 직접 입력 ROI 영역 분석 다중 표시
+- Phase 9 Pack Project + 상대경로 복구 옵션
+- 단독 `FlightDataDashboard` 표준화 정리
+
+---
+
+## [0.13.0-rc1] — 2026-05-15 Modern Responsive GUI
+
+Phase 11 묶음 (커밋 b3b87d9..c95491b) — 리뷰 보고서 7건을 단계적으로 흡수한
+프론트엔드 현대화 + 분석 다이얼로그 신설 + 메모리/타이머 회귀 보호.
+
+(상세 변경사항은 아래 "Phase 11 — Modern Responsive GUI and Real-Time
+Review UX" 절 참조; 이 절은 0.13.0-rc1 으로 동결.)
+
+---
+
+## [Legacy Unreleased] — FlightDataReviewStudio 전환 (Phase 0~4)
 
 OriginPro 식 통합 GUI(`FlightDataReviewStudio`)로의 전환 작업 중. 기존
 `FlightDataDashboard`는 **standalone + embedded(Studio 내부 탭)** 양쪽으로
