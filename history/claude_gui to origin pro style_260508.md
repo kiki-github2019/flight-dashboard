@@ -3245,9 +3245,6 @@ Review requirements:
 - Do not provide unnecessary explanations (maximum 1 line)
 - Do not repeat existing code
 - Do not print unnecessary steps
-- Do not Automatically execute git push upon completion of the current code phase
-
-e.g., print git push commands, etc.
 
 [Code Work Rules]
 - Prioritize performance improvement
@@ -3259,6 +3256,31 @@ e.g., print git push commands, etc.
 [Absolute Rules]
 - Minimize token usage for result output
 - Maximize token usage for code work
+
+[When creating any Git commit message, always append the current local timestamp at the end of the commit subject line.]
+
+Required timestamp format:
+@yyyy-mm-dd HH:MM:SS
+
+Examples:
+fix(ui): improve video slider scrubbing @2026-05-15 23:42:10
+feat(studio): add default session initialization @2026-05-15 23:42:10
+chore(test): update MATLAB verification scripts @2026-05-15 23:42:10
+
+Rules:
+1. Every git commit subject must end with the timestamp.
+2. Use the current local system time at the moment the commit is created.
+3. Keep the timestamp at the very end of the first commit message line.
+4. Do not place extra text after the timestamp.
+5. Use 24-hour time.
+6. Use zero padding for month, day, hour, minute, and second.
+7. If creating a multi-line commit message, only the first subject line needs the timestamp.
+
+Before running git commit, generate the timestamp automatically.
+
+For Linux/macOS/Termux/Git Bash:
+TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+git commit -m "fix(ui): improve video slider scrubbing @$TIMESTAMP"
 
 
 =================================================================================================================
@@ -3338,3 +3360,5 @@ dex-codex-260511
 
 
 스마트폰이나 PC 브라우저에서 👉 https://github.com/settings/tokens 에 접속합니다.
+
+다음의 검토결과를 claude code에서 검토하기 적합한 영문 보고서로 변경해서 md 파일로 출력요청합니다.
