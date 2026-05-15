@@ -63,10 +63,14 @@ classdef AppConstants
         LAYOUT_CHANNEL_MIN_H_NARROW  = 300
 
         % Initial and fit-to-screen figure sizing.
-        FIGURE_INITIAL_W = 1320
-        FIGURE_INITIAL_H = 820
-        FIGURE_MIN_W     = 980
-        FIGURE_MIN_H     = 620
+        % Commit 4: bump initial width to WIDE_MIN so standalone starts
+        % with full content panels instead of collapsing to rail labels.
+        % Bump MIN_W to COMPACT_MIN so resizing can't accidentally drop
+        % into the NARROW profile where every panel becomes single-line.
+        FIGURE_INITIAL_W = 1700
+        FIGURE_INITIAL_H = 900
+        FIGURE_MIN_W     = 1120
+        FIGURE_MIN_H     = 640
         FIGURE_MARGIN_X  = 48
         FIGURE_MARGIN_Y  = 88
 
