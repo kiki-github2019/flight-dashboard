@@ -80,6 +80,19 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.buildShell();
                 app.applyGuiMode(app.Project.GuiMode, false);
                 app.refreshTitle();
+
+                % Commit 2: For a freshly created (Untitled) project, auto
+                % create Session 1 so first-launch users immediately see a
+                % populated Project Explorer + active Dashboard tab instead
+                % of the empty Welcome-only state. Skips when loading an
+                % existing project (sessionCount > 0).
+                try
+                    if app.Project.sessionCount() == 0
+                        app.addSession('Session 1');
+                    end
+                catch autoME
+                    warning('FlightReviewStudio:AutoSessionFailed', '%s', autoME.message);
+                end
             catch ME
                 % If shell construction fails, ensure no orphan figure
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
@@ -427,6 +440,11 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.applyGuiMode(app.Project.GuiMode, false);
             app.refreshExplorer();
             app.refreshTitle();
+            % Commit 2: parity with constructor — a brand new project
+            % should land on an active Dashboard, not on Welcome only.
+            try, app.addSession('Session 1'); catch autoME
+                warning('FlightReviewStudio:AutoSessionFailed', '%s', autoME.message);
+            end
             if ~isempty(app.StatusBar)
                 app.StatusBar.setMessage('New project (Untitled)');
             end

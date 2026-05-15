@@ -131,7 +131,28 @@ classdef ProjectExplorerPanel < handle
                 try, expand(obj.Roots.Project); catch, end
                 try, expand(obj.Roots.Sessions); catch, end
                 try, expand(obj.Roots.Roi); catch, end
-            catch
+
+                % Commit 2: prefer App.ActiveSessionId to preserve the
+                % user's current selection across refreshes; fall back to
+                % the first session only when no active selection exists
+                % (i.e. immediately after auto-create).
+                try
+                    targetId = '';
+                    if ~isempty(obj.App) && isvalid(obj.App) ...
+                            && isprop(obj.App, 'ActiveSessionId')
+                        targetId = char(obj.App.ActiveSessionId);
+                    end
+                    if (isempty(targetId) || strcmp(targetId, 'standalone')) ...
+                            && ~isempty(project) && ~isempty(project.Sessions)
+                        targetId = char(project.Sessions(1).SessionId);
+                    end
+                    if ~isempty(targetId) && ~strcmp(targetId, 'standalone')
+                        obj.selectSession(targetId);
+                    end
+                catch
+                end
+            catch ME
+                warning('ProjectExplorerPanel:RefreshFailed', '%s', ME.message);
             end
         end
     end
