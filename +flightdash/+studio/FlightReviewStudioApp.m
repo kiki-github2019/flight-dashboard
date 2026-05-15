@@ -50,6 +50,14 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         ProjectFolder         char    = ''
         ActiveSessionId       char    = ''
         IsDeleting            logical = false
+
+        % Resize throttle (review §13-14)
+        LastResizeTic
+        ResizeThrottleMs      double  = 80
+
+        % Theme (review §15-18). Default Light preserves existing chrome.
+        CurrentTheme          char    = 'Light'
+        CurrentThemeStruct    struct  = struct()
     end
 
     properties (Dependent)
@@ -348,10 +356,23 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function onUIFigureResized(app)
-            % [PHASE 4 review] When the Studio uifigure changes size
-            % (window resize, browser viewport change), ask the active
-            % embedded dashboard to recompute its responsive layout.
+            % [PHASE 4 review + GUI modernization §13-14]
+            % Throttle SizeChangedFcn bursts so the active dashboard's
+            % LayoutMgr.applyLayout is called at most once per
+            % ResizeThrottleMs window. Burst events still see the
+            % bookkeeping update of LastResizeTic but skip the heavy
+            % layout pass — the next event past the window catches up.
             if app.IsDeleting, return; end
+            try
+                elapsedMs = toc(app.LastResizeTic) * 1000;
+            catch
+                app.LastResizeTic = tic;
+                elapsedMs = inf;
+            end
+            if elapsedMs < app.ResizeThrottleMs
+                return;
+            end
+            app.LastResizeTic = tic;
             try
                 if ~isempty(app.Workspace) && isvalid(app.Workspace)
                     app.Workspace.refreshActiveLayout('studioResize');
@@ -1158,6 +1179,34 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             catch
             end
             app.refreshUndoStateForActiveSession();
+
+            % Apply the default Light theme to the freshly built shell.
+            try
+                app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
+                flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
+            catch
+            end
+        end
+
+        function toggleTheme(app)
+            % Review §15-18 theme toggle. Light ↔ Dark only chrome (panels,
+            % labels, axes); plot data colors and gauge needles are
+            % intentionally left untouched.
+            try
+                if strcmp(app.CurrentTheme, 'Dark')
+                    app.CurrentTheme = 'Light';
+                    app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
+                else
+                    app.CurrentTheme = 'Dark';
+                    app.CurrentThemeStruct = flightdash.ui.StudioTheme.dark();
+                end
+                flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(sprintf('Theme: %s', app.CurrentTheme));
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:toggleTheme'); catch, end
+            end
         end
 
         function onCloseRequest(app)

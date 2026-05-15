@@ -52,7 +52,7 @@ classdef CommandRouter < handle
                 'Pref:Mode:Classic', 'Pref:Mode:Studio', ...
                 'Pref:Mode:Review', 'Pref:Mode:Analysis', 'Pref:Mode:Plot', ...
                 'Pref:Mode:Report', 'Pref:Mode:Compact', 'Pref:Mode:DockedFigure', ...
-                'Pref:AutoUpdate', ...
+                'Pref:Theme:Toggle', 'Pref:AutoUpdate', ...
                 'Pref:ToolbarCustomize', 'Pref:Shortcuts', ...
                 'Help:Shortcuts', 'Help:Samples', 'Help:ErrorLog', 'Help:About'};
 
@@ -159,6 +159,10 @@ classdef CommandRouter < handle
                     app.applyGuiMode('Compact');
                 case 'Pref:Mode:DockedFigure'
                     app.applyGuiMode('DockedFigure');
+                case 'Pref:Theme:Toggle'
+                    if ismethod(app, 'toggleTheme')
+                        app.toggleTheme();
+                    end
                 case 'File:Exit'
                     delete(app);
                 otherwise

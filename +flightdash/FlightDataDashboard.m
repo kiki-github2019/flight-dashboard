@@ -56,6 +56,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         SliderPendingFrame     = [NaN NaN]   % per-channel pending target frame
         SliderLastRendered     = [NaN NaN]   % per-channel last rendered frame
         SliderTimerActive      = false
+
+        % Resize throttle (review §13-14) — coalesce SizeChangedFcn bursts.
+        LastResizeTic
+        ResizeThrottleMs       double = 80
     end
 
     % [PHASE 0 / Studio prep] Manager classes (LayoutMgr, AuxWindowMgr, controllers)
@@ -4712,7 +4716,18 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         % [FIX] UIFigure 리사이즈 시 두 채널 plot row 동시 갱신
+        % Review §13-14: tic/toc throttle to coalesce SizeChangedFcn bursts.
         function onUIFigureResized(app)
+            try
+                elapsedMs = toc(app.LastResizeTic) * 1000;
+            catch
+                app.LastResizeTic = tic;
+                elapsedMs = inf;
+            end
+            if elapsedMs < app.ResizeThrottleMs
+                return;
+            end
+            app.LastResizeTic = tic;
             app.refreshLayout('resize');
         end
 
