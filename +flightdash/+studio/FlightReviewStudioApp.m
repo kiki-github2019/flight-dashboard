@@ -34,17 +34,6 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         % per-session drag controllers do not race for the single slot.
         MouseRouter           % flightdash.studio.StudioMouseRouter
 
-        % Path-2a shell chrome (OriginPro-style emulated multi-pane).
-        ShellSplitterCtrl     % flightdash.studio.ShellSplitterController
-        LeftSplitter          % uipanel (Explorer ↔ Workspace handle)
-        RightSplitter         % uipanel (Workspace ↔ RightDock handle)
-        LeftDockCollapseBtn   % uibutton (Explorer collapse toggle)
-        RightDockCollapseBtn  % uibutton (RightDock collapse toggle)
-        SavedExplorerWidthPx  double = 200
-        SavedRightDockWidthPx double = 260
-        IsExplorerCollapsed   logical = false
-        IsRightDockCollapsed  logical = false
-
         % [PHASE 10 prototype] Studio-owned shared services. These are
         % injected into embedded dashboards but do not replace the current
         % per-dashboard decode path yet.
@@ -329,53 +318,6 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 end
             catch
                 text = 'Ready';
-            end
-        end
-
-        function toggleExplorer(app)
-            % Path-2a: collapse/restore left dock. Width 0 hides Explorer
-            % and the left splitter; restore returns to the saved width.
-            try
-                if isempty(app.BodyGrid) || ~isvalid(app.BodyGrid), return; end
-                cw = app.BodyGrid.ColumnWidth;
-                if app.IsExplorerCollapsed
-                    cw{1} = app.SavedExplorerWidthPx;
-                    cw{2} = flightdash.util.UIScale.px(6);
-                    app.IsExplorerCollapsed = false;
-                else
-                    if isnumeric(cw{1}), app.SavedExplorerWidthPx = max(120, cw{1}); end
-                    cw{1} = 0;
-                    cw{2} = 0;
-                    app.IsExplorerCollapsed = true;
-                end
-                app.BodyGrid.ColumnWidth = cw;
-                if ~isempty(app.Workspace) && isvalid(app.Workspace)
-                    app.Workspace.refreshActiveLayout('toggleExplorer');
-                end
-            catch
-            end
-        end
-
-        function toggleRightDock(app)
-            % Path-2a: collapse/restore right dock.
-            try
-                if isempty(app.BodyGrid) || ~isvalid(app.BodyGrid), return; end
-                cw = app.BodyGrid.ColumnWidth;
-                if app.IsRightDockCollapsed
-                    cw{5} = app.SavedRightDockWidthPx;
-                    cw{4} = flightdash.util.UIScale.px(6);
-                    app.IsRightDockCollapsed = false;
-                else
-                    if isnumeric(cw{5}), app.SavedRightDockWidthPx = max(120, cw{5}); end
-                    cw{5} = 0;
-                    cw{4} = 0;
-                    app.IsRightDockCollapsed = true;
-                end
-                app.BodyGrid.ColumnWidth = cw;
-                if ~isempty(app.Workspace) && isvalid(app.Workspace)
-                    app.Workspace.refreshActiveLayout('toggleRightDock');
-                end
-            catch
             end
         end
 
@@ -1156,43 +1098,20 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.MenuMgr    = flightdash.studio.MenuManager(app);
             app.ToolbarMgr = flightdash.studio.ToolbarManager(app, headerGrid);
 
-            % --- Body: 5-column emulated multi-pane (Path 2a) ---
-            %   [ explorer | splitter | workspace | splitter | rightdock ]
-            % Splitters are 6 px draggable uipanels handled by
-            % flightdash.studio.ShellSplitterController via the
-            % StudioMouseRouter shell-lock path.
-            app.SavedExplorerWidthPx  = UIScale.px(200);
-            app.SavedRightDockWidthPx = UIScale.px(260);
-            splitW = UIScale.px(6);
-            app.BodyGrid = uigridlayout(shellGrid, [1 5], ...
-                'ColumnWidth', {app.SavedExplorerWidthPx, splitW, '1x', splitW, app.SavedRightDockWidthPx}, ...
+            % --- Body (3-column: explorer | workspace | dock) ---
+            % [PHASE 3c] Slim down the side panels so the workspace
+            % column has enough width to keep the embedded
+            % FlightDataDashboard out of NARROW profile (rail mode).
+            app.BodyGrid = uigridlayout(shellGrid, [1 3], ...
+                'ColumnWidth', {UIScale.px(200), '1x', UIScale.px(260)}, ...
                 'RowHeight', {'1x'}, ...
-                'ColumnSpacing', 0, 'Padding', [2 2 2 2], ...
+                'ColumnSpacing', 4, 'Padding', [4 4 4 4], ...
                 'BackgroundColor', [0.94 0.94 0.96]);
             app.BodyGrid.Layout.Row = 2;
 
             app.ProjectExplorer = flightdash.studio.ProjectExplorerPanel(app, app.BodyGrid);
-
-            % Left splitter (between cols 1 and 3)
-            app.LeftSplitter = uipanel(app.BodyGrid, ...
-                'BackgroundColor', [0.78 0.78 0.82], ...
-                'BorderType', 'none');
-            app.LeftSplitter.Layout.Column = 2;
-
             app.Workspace       = flightdash.studio.WorkspaceManager(app, app.BodyGrid);
-
-            % Right splitter (between cols 3 and 5)
-            app.RightSplitter = uipanel(app.BodyGrid, ...
-                'BackgroundColor', [0.78 0.78 0.82], ...
-                'BorderType', 'none');
-            app.RightSplitter.Layout.Column = 4;
-
             app.RightDock       = flightdash.studio.RightDockManager(app, app.BodyGrid);
-
-            % Force Workspace into the center column now that splitter
-            % panels occupy cols 2 and 4.
-            try, app.Workspace.Panel.Layout.Column = 3; catch, end
-            try, app.RightDock.Panel.Layout.Column = 5; catch, end
 
             % --- Status bar ---
             app.StatusBarPanel = uipanel(shellGrid, 'BorderType', 'none', ...
@@ -1207,15 +1126,6 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.MouseRouter = flightdash.studio.StudioMouseRouter(app.UIFigure, app.Workspace);
             try
                 setappdata(app.UIFigure, 'StudioMouseRouter', app.MouseRouter);
-            catch
-            end
-
-            % Path-2a shell splitter wiring (after router exists).
-            try
-                app.ShellSplitterCtrl = flightdash.studio.ShellSplitterController( ...
-                    app, app.BodyGrid, app.MouseRouter);
-                app.ShellSplitterCtrl.attach(app.LeftSplitter,  1);
-                app.ShellSplitterCtrl.attach(app.RightSplitter, 2);
             catch
             end
             app.refreshUndoStateForActiveSession();
