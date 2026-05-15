@@ -809,6 +809,62 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 flightdash.util.Throttle.instance().reset(scopedSlot, fIdx);
             end
         end
+        function tf = mappedColAvailable(app, fIdx, key)
+            % Stabilization helper (review section 5.4): returns true iff
+            % the loader successfully mapped `key` (e.g. 'Roll') AND the
+            % mapped column actually exists in the rawData table. Optional
+            % keys (Roll / Pitch / Heading) may be empty after the loader's
+            % optional-severity warning path.
+            tf = false;
+            try
+                if fIdx < 1 || fIdx > numel(app.Models), return; end
+                m = app.Models(fIdx);
+                if isempty(m.rawData) || ~isstruct(m.mappedCols), return; end
+                if ~isfield(m.mappedCols, key), return; end
+                mapped = m.mappedCols.(key);
+                if isempty(mapped), return; end
+                tf = ismember(mapped, m.rawData.Properties.VariableNames);
+            catch
+                tf = false;
+            end
+        end
+
+        function setAttitudeGaugeVisible(app, fIdx, tf)
+            % Stabilization helper: collapse the attitude gauge UI when
+            % Roll / Pitch / Heading are unmapped. One-shot status-bar
+            % notice the first time per channel to inform the user why
+            % the gauge is empty.
+            try
+                if fIdx < 1 || fIdx > numel(app.UI), return; end
+                u = app.UI(fIdx);
+                handles = {'pitchLabel','rollLabel','hdgLabel','hgPitch','hgRoll','hgHdg'};
+                vis = 'on'; if ~tf, vis = 'off'; end
+                for k = 1:numel(handles)
+                    if isfield(u, handles{k}) && ~isempty(u.(handles{k})) && isvalid(u.(handles{k}))
+                        try, u.(handles{k}).Visible = vis; catch, end
+                    end
+                end
+                if ~tf
+                    try
+                        notified = false;
+                        if isfield(u, 'AttitudeDisabledNotified')
+                            notified = u.AttitudeDisabledNotified;
+                        end
+                        if ~notified
+                            app.UI(fIdx).AttitudeDisabledNotified = true;
+                            try
+                                if isprop(app, 'StatusBar') && ~isempty(app.StatusBar)
+                                    app.StatusBar.setMessage(sprintf( ...
+                                        'Flight %d: Attitude gauge disabled — Roll/Pitch/Heading not mapped', fIdx));
+                                end
+                            catch, end
+                        end
+                    catch, end
+                end
+            catch
+            end
+        end
+
         function tf = hasPlaybackState(app, fIdx)
             tf = false;
             try
@@ -3573,7 +3629,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     set(app.UI(fIdx).hMapPath, 'XData', pathLon(1:idx), 'YData', pathLat(1:idx));
                 end
 
-                hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(idx);
+                % Stabilization (review section 5.4): default heading to 0
+                % when the CSV/option file did not map a Heading column.
+                if app.mappedColAvailable(fIdx, 'Heading')
+                    hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(idx);
+                else
+                    hdg = 0;
+                end
                 lastValid = idx;
                 if idx < 1 || idx > numel(pathLon) || idx > numel(pathLat)
                     lastValid = [];
@@ -5025,39 +5087,55 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 if fIdx < 1 || fIdx > numel(app.Models), return; end
                 if isempty(app.Models(fIdx).rawData), return; end
-                required = {'Pitch', 'Roll', 'Heading'};
-                for k = 1:numel(required)
-                    if ~isfield(app.Models(fIdx).mappedCols, required{k})
-                        return;
-                    end
+
+                % Stabilization (review section 5.4): old guard only checked
+                % isfield(mappedCols,'Roll'); after the optional-severity
+                % policy the loader leaves the field present but empty when
+                % the CSV lacks Roll/Pitch/Heading. Validate the mapping
+                % against the actual rawData variable names and disable
+                % the corresponding gauge instead of throwing on '' access.
+                hasPitch = app.mappedColAvailable(fIdx, 'Pitch');
+                hasRoll  = app.mappedColAvailable(fIdx, 'Roll');
+                hasHdg   = app.mappedColAvailable(fIdx, 'Heading');
+                if ~hasPitch && ~hasRoll && ~hasHdg
+                    app.setAttitudeGaugeVisible(fIdx, false);
+                    return;
                 end
+                app.setAttitudeGaugeVisible(fIdx, true);
 
                 nRows = height(app.Models(fIdx).rawData);
                 if nRows < 1, return; end
                 index = max(1, min(nRows, round(index)));
 
-                pitch = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Pitch)(index);
-                roll = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Roll)(index);
-                hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(index);
+                pitch = NaN; roll = NaN; hdg = NaN;
+                if hasPitch
+                    pitch = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Pitch)(index);
+                end
+                if hasRoll
+                    roll = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Roll)(index);
+                end
+                if hasHdg
+                    hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(index);
+                end
                 deg = char(176);
 
-                if isfield(app.UI(fIdx), 'pitchLabel') && ~isempty(app.UI(fIdx).pitchLabel) && isvalid(app.UI(fIdx).pitchLabel)
+                if hasPitch && isfield(app.UI(fIdx), 'pitchLabel') && ~isempty(app.UI(fIdx).pitchLabel) && isvalid(app.UI(fIdx).pitchLabel)
                     app.UI(fIdx).pitchLabel.Text = sprintf(['Pitch %+.3f' deg], pitch);
                 end
-                if isfield(app.UI(fIdx), 'rollLabel') && ~isempty(app.UI(fIdx).rollLabel) && isvalid(app.UI(fIdx).rollLabel)
+                if hasRoll && isfield(app.UI(fIdx), 'rollLabel') && ~isempty(app.UI(fIdx).rollLabel) && isvalid(app.UI(fIdx).rollLabel)
                     app.UI(fIdx).rollLabel.Text = sprintf(['Roll %+.3f' deg], roll);
                 end
-                if isfield(app.UI(fIdx), 'hdgLabel') && ~isempty(app.UI(fIdx).hdgLabel) && isvalid(app.UI(fIdx).hdgLabel)
+                if hasHdg && isfield(app.UI(fIdx), 'hdgLabel') && ~isempty(app.UI(fIdx).hdgLabel) && isvalid(app.UI(fIdx).hdgLabel)
                     app.UI(fIdx).hdgLabel.Text = sprintf(['Heading %+.3f' deg], hdg);
                 end
 
-                if isfield(app.UI(fIdx), 'hgPitch') && ~isempty(app.UI(fIdx).hgPitch) && isvalid(app.UI(fIdx).hgPitch)
+                if hasPitch && isfield(app.UI(fIdx), 'hgPitch') && ~isempty(app.UI(fIdx).hgPitch) && isvalid(app.UI(fIdx).hgPitch)
                     set(app.UI(fIdx).hgPitch, 'Matrix', makehgtform('zrotate', -pitch * pi / 180));
                 end
-                if isfield(app.UI(fIdx), 'hgRoll') && ~isempty(app.UI(fIdx).hgRoll) && isvalid(app.UI(fIdx).hgRoll)
+                if hasRoll && isfield(app.UI(fIdx), 'hgRoll') && ~isempty(app.UI(fIdx).hgRoll) && isvalid(app.UI(fIdx).hgRoll)
                     set(app.UI(fIdx).hgRoll, 'Matrix', makehgtform('zrotate', -roll * pi / 180));
                 end
-                if isfield(app.UI(fIdx), 'hgHdg') && ~isempty(app.UI(fIdx).hgHdg) && isvalid(app.UI(fIdx).hgHdg)
+                if hasHdg && isfield(app.UI(fIdx), 'hgHdg') && ~isempty(app.UI(fIdx).hgHdg) && isvalid(app.UI(fIdx).hgHdg)
                     set(app.UI(fIdx).hgHdg, 'Matrix', makehgtform('zrotate', -hdg * pi / 180));
                 end
             catch ME
@@ -5083,9 +5161,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % [PERF] NaN 전처리 → 직접 set
             set(app.UI(fIdx).hMapPath, 'XData', currLon, 'YData', currLat);
 
-            hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(index);
-            roll = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Roll)(index);
-            pitch = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Pitch)(index);
+            % Stabilization (review section 5.4): Heading/Roll/Pitch may be
+            % unmapped on attitude-less CSVs. Default to 0 rotation so the
+            % map plane glyph still positions correctly without crashing.
+            hdg = 0; roll = 0; pitch = 0; %#ok<NASGU>
+            if app.mappedColAvailable(fIdx, 'Heading')
+                hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(index);
+            end
+            if app.mappedColAvailable(fIdx, 'Roll')
+                roll = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Roll)(index); %#ok<NASGU>
+            end
+            if app.mappedColAvailable(fIdx, 'Pitch')
+                pitch = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Pitch)(index); %#ok<NASGU>
+            end
 
             lastValid = find(~isnan(currLon) & ~isnan(currLat), 1, 'last');
             if ~isempty(lastValid)
