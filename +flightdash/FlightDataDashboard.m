@@ -3121,13 +3121,22 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 return;
             end
 
-            % 전략 선택: async vs sync
-            if app.UseAsyncDecode && strcmp(source, 'drag')
-                app.startAsyncDecode(fIdx, clampedFrame);
+            % Stabilization: pick async / sync / non-blocking-skip per source.
+            if strcmp(source, 'drag') || strcmp(source, 'slider-preview')
+                % Slider live-scrub: never block the UI thread on a sync
+                % decode. If async decoding is available, dispatch it; if
+                % not, queue the frame as pending so it renders the next
+                % time the decoder is free (typically right after the
+                % user releases the slider in 'final' mode).
+                if app.UseAsyncDecode
+                    app.startAsyncDecode(fIdx, clampedFrame);
+                else
+                    app.queuePendingFrame(fIdx, clampedFrame, source);
+                end
                 return;
             end
 
-            % Layer 2: 동기 디코딩
+            % Layer 2: 동기 디코딩 ('final' / 'sync' / 'force' / 'autoplay' …)
             app.setStateDecoding(fIdx, true);
             cleanup2 = onCleanup(@() app.clearDecodingFlag(fIdx)); %#ok<NASGU>
 
@@ -4927,16 +4936,29 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                          'FontUnits', 'normalized', 'FontSize', 0.06);
                 end
 
+                % Stabilization (review section 4): enlarge the needle
+                % triangles (~50% bigger) and use high-contrast distinct
+                % fills per gauge (Pitch=blue, Roll=red, Heading=green)
+                % with a white edge so they stand out against the dark
+                % gauge face. uiaxes lives inside uigridlayout so the
+                % patches scale automatically with the panel size — no
+                % separate refreshNeedleSizes hook is needed.
                 if gaugeType == 1
-                    patch(hg, [-1.15 -1.15 -1.0], [-0.08 0.08 0], bgColor, 'EdgeColor', 'k', 'LineWidth', 1);
+                    needleFill = [0.15 0.38 0.82];   % Pitch — blue
+                    patch(hg, [-1.20 -1.20 -0.92], [-0.12 0.12 0], needleFill, ...
+                        'EdgeColor', 'w', 'LineWidth', 1.5);
                     plot(hg, [-0.4 0.4], [0 0], 'y', 'LineWidth', 4);
                     plot(hg, [0.2 0.3], [0 0.2], 'y', 'LineWidth', 3);
                 elseif gaugeType == 2
-                    patch(hg, [-0.08 0.08 0], [1.15 1.15 1.0], bgColor, 'EdgeColor', 'k', 'LineWidth', 1);
+                    needleFill = [0.90 0.20 0.10];   % Roll — red/orange
+                    patch(hg, [-0.12 0.12 0], [1.20 1.20 0.92], needleFill, ...
+                        'EdgeColor', 'w', 'LineWidth', 1.5);
                     plot(hg, [-0.4 0.4], [0 0], 'y', 'LineWidth', 3);
                     plot(hg, [0 0], [0 0.3], 'y', 'LineWidth', 3);
                 else
-                    patch(hg, [-0.08 0.08 0], [1.15 1.15 1.0], bgColor, 'EdgeColor', 'k', 'LineWidth', 1);
+                    needleFill = [0.10 0.65 0.20];   % Heading — green
+                    patch(hg, [-0.12 0.12 0], [1.20 1.20 0.92], needleFill, ...
+                        'EdgeColor', 'w', 'LineWidth', 1.5);
                     plot(hg, [0 0], [-0.4 0.4], 'y', 'LineWidth', 3);
                     plot(hg, [-0.3 0.3], [0.1 0.1], 'y', 'LineWidth', 3);
                     plot(hg, [-0.15 0.15], [-0.3 -0.3], 'y', 'LineWidth', 2);
