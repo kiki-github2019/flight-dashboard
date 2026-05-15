@@ -23,6 +23,23 @@ function app = FlightReviewStudio()
     end
 
     studioApp = flightdash.studio.FlightReviewStudioApp();
+
+    % First-launch UX: auto-create "Session 1" so a fresh Untitled
+    % project lands on a populated Project Explorer + active Dashboard
+    % tab instead of Welcome-only. Lives in the entry-point wrapper
+    % (NOT in the class constructor) so tests / diagnostics that
+    % instantiate FlightReviewStudioApp directly stay deterministic.
+    try
+        if ~isempty(studioApp) && isvalid(studioApp) ...
+                && isprop(studioApp, 'Project') && ~isempty(studioApp.Project) ...
+                && studioApp.Project.sessionCount() == 0 ...
+                && ismethod(studioApp, 'addSession')
+            studioApp.addSession('Session 1');
+        end
+    catch autoME
+        warning('FlightReviewStudio:AutoSessionFailed', '%s', autoME.message);
+    end
+
     if nargout > 0
         app = studioApp;
     end

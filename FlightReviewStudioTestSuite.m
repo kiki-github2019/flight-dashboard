@@ -943,6 +943,19 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             catch
             end
 
+            % The production constructor auto-creates "Session 1" for a
+            % fresh launch UX (review: auto Session 1). Tests expect a
+            % deterministic clean baseline, so drop any auto-created
+            % sessions before returning the app to the test case.
+            try
+                if isprop(app, 'Project') && ~isempty(app.Project) ...
+                        && app.Project.sessionCount() > 0 ...
+                        && ismethod(app, 'removeAllSessions')
+                    app.removeAllSessions();
+                end
+            catch
+            end
+
             drawnow limitrate;
 
             testCase.Apps{end + 1} = app;

@@ -624,6 +624,18 @@ function app = createStudioApp()
         app.UIFigure.Visible = 'off';
     end
 
+    % Production constructor auto-creates "Session 1" for first-launch UX.
+    % Diagnostic harness expects a clean (0-session) baseline so the
+    % addSessionToStudio steps below produce deterministic ids/counts.
+    try
+        if isprop(app, 'Project') && ~isempty(app.Project) ...
+                && app.Project.sessionCount() > 0 ...
+                && ismethod(app, 'removeAllSessions')
+            app.removeAllSessions();
+        end
+    catch
+    end
+
     drawnow limitrate;
 end
 

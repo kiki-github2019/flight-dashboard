@@ -88,19 +88,10 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.buildShell();
                 app.applyGuiMode(app.Project.GuiMode, false);
                 app.refreshTitle();
-
-                % Commit 2: For a freshly created (Untitled) project, auto
-                % create Session 1 so first-launch users immediately see a
-                % populated Project Explorer + active Dashboard tab instead
-                % of the empty Welcome-only state. Skips when loading an
-                % existing project (sessionCount > 0).
-                try
-                    if app.Project.sessionCount() == 0
-                        app.addSession('Session 1');
-                    end
-                catch autoME
-                    warning('FlightReviewStudio:AutoSessionFailed', '%s', autoME.message);
-                end
+                % Auto Session 1 has been moved to the user-facing
+                % FlightReviewStudio() entry-point wrapper so tests and
+                % diagnostics that instantiate this class directly start
+                % with a deterministic 0-session baseline.
             catch ME
                 % If shell construction fails, ensure no orphan figure
                 if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
