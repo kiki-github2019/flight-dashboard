@@ -128,6 +128,8 @@ classdef ProjectExplorerPanel < handle
                     end
                 end
 
+                drawnow limitrate;   % ensure tree rebuild is flushed before expand/select
+
                 try, expand(obj.Roots.Project); catch, end
                 try, expand(obj.Roots.Sessions); catch, end
                 try, expand(obj.Roots.Roi); catch, end

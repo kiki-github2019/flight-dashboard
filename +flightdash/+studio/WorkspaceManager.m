@@ -79,6 +79,15 @@ classdef WorkspaceManager < handle
 
                 obj.TabGroup.SelectedTab = tab;
                 obj.onTabChanged();
+
+                % Safety net: if SelectedTab is still pointing at the
+                % WelcomeTab (rare timing race when the tab group hasn't
+                % flushed selection yet), force the switch again.
+                if ~isempty(obj.WelcomeTab) && isvalid(obj.WelcomeTab) ...
+                        && isequal(obj.TabGroup.SelectedTab, obj.WelcomeTab)
+                    obj.TabGroup.SelectedTab = tab;
+                    obj.onTabChanged();
+                end
             catch ME
                 % Roll back the empty tab if dashboard construction fails
                 try, delete(tab); catch, end
@@ -282,7 +291,8 @@ classdef WorkspaceManager < handle
                 obj.refreshActiveLayout('tabActivated');
                 obj.refreshActiveInspector();
                 obj.refreshActiveUndoUi();
-            catch
+            catch ME
+                warning('WorkspaceManager:onTabChanged', '%s', ME.message);
             end
         end
 
