@@ -887,6 +887,68 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 end
             end
         end
+
+        function test_T11_VideoPlayer_MemoryCleanup_NoTimerLeak(testCase)
+            % Phase 11 §12: non-flaky memory diagnostic — verify that
+            % spinning up and tearing down a Studio app does not leak
+            % any of the timers we explicitly own (SliderScrubTimer,
+            % MemoryMonitor, future PrefetchTimer). No exact-MB
+            % comparison — MATLAB allocation is non-deterministic.
+            try
+                flightdash.util.MemoryMonitor.stopMonitoring();
+            catch
+            end
+            beforeNames = FlightReviewStudioTestSuite.collectTimerNames(timerfindall);
+
+            app = [];
+            try
+                app = FlightReviewStudio();
+                drawnow limitrate;
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Could not launch Studio for memory test: %s', ME.message));
+            end
+            try
+                if ~isempty(app) && isvalid(app)
+                    if isprop(app, 'UIFigure') && ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                        app.UIFigure.Visible = 'off';
+                    end
+                    drawnow limitrate;
+                    delete(app);
+                end
+            catch
+            end
+            drawnow limitrate;
+            pause(0.05);
+
+            afterNames = FlightReviewStudioTestSuite.collectTimerNames(timerfindall);
+            % Any timer that did NOT exist before construction is a leak
+            % candidate; check the names we own.
+            newNames = setdiff(afterNames, beforeNames);
+            leakHits = @(needle) any(contains(newNames, needle, 'IgnoreCase', true));
+
+            testCase.verifyFalse(leakHits('Slider'), ...
+                sprintf('Slider-related timer leaked after app cleanup. Names: %s', ...
+                    strjoin(cellstr(newNames), ', ')));
+            testCase.verifyFalse(leakHits('Prefetch'), ...
+                sprintf('Prefetch-related timer leaked after app cleanup. Names: %s', ...
+                    strjoin(cellstr(newNames), ', ')));
+            testCase.verifyFalse(leakHits('MemoryMonitor'), ...
+                sprintf('MemoryMonitor timer leaked after app cleanup. Names: %s', ...
+                    strjoin(cellstr(newNames), ', ')));
+        end
+    end
+
+    methods (Static, Access = private)
+        function names = collectTimerNames(timers)
+            names = strings(0, 1);
+            for k = 1:numel(timers)
+                try
+                    names(end+1, 1) = string(timers(k).Name); %#ok<AGROW>
+                catch
+                end
+            end
+        end
     end
 
     methods (Access = private)
