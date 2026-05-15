@@ -41,7 +41,8 @@ classdef CommandRouter < handle
 
             globalCommands = { ...
                 'Toolbar:New', 'Toolbar:Open', 'Toolbar:Save', 'Toolbar:AddSession', ...
-                'Toolbar:ToggleExplorer', 'Edit:Undo', 'Edit:Redo', ...
+                'Toolbar:ToggleExplorer', 'Toolbar:ToggleRightDock', ...
+                'Window:ToggleRightDock', 'Edit:Undo', 'Edit:Redo', ...
                 'File:NewProject', 'File:OpenProject', 'File:SaveProject', ...
                 'File:SaveProjectAs', 'File:PackProject', 'File:Exit', ...
                 'Project:AddSession', 'Project:Find', 'Project:Properties', ...
@@ -137,7 +138,18 @@ classdef CommandRouter < handle
                         obj.setStatus('Closed all session tabs');
                     end
                 case {'Toolbar:ToggleExplorer', 'Window:ShowExplorer'}
-                    obj.togglePanelVisible(app.ProjectExplorer, 'Project Explorer');
+                    % Path-2a: collapse/restore the left dock column. Falls
+                    % through to legacy panel-visible toggle if app lacks
+                    % the new toggleExplorer method (older builds).
+                    if ismethod(app, 'toggleExplorer')
+                        app.toggleExplorer();
+                    else
+                        obj.togglePanelVisible(app.ProjectExplorer, 'Project Explorer');
+                    end
+                case {'Toolbar:ToggleRightDock', 'Window:ToggleRightDock'}
+                    if ismethod(app, 'toggleRightDock')
+                        app.toggleRightDock();
+                    end
                 case 'Window:ShowObjectMgr'
                     obj.showRightDockTab('ObjectManagerTab', 'Object Manager');
                 case 'Window:ShowLogs'

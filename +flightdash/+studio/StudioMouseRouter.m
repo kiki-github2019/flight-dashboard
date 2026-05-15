@@ -70,6 +70,30 @@ classdef StudioMouseRouter < handle
             obj.ActiveGesture = '';
         end
 
+        function tf = requestShellDragLock(obj, controller, pointerType, gesture)
+            % Path-2a shell splitter / dock collapse drag. Bypasses the
+            % active-session check so non-session chrome (e.g. column
+            % splitters) can acquire the same single-drag lock. Same
+            % stop / release semantics as requestDragLock.
+            if nargin < 3 || isempty(pointerType), pointerType = 'fleur'; end
+            if nargin < 4 || isempty(gesture), gesture = 'shell'; end
+            tf = false;
+            try
+                if isempty(controller) || ~isa(controller, 'handle') || ~isvalid(controller)
+                    return;
+                end
+                if obj.hasActiveLock()
+                    return;
+                end
+                obj.ActiveSessionId  = '__shell__';
+                obj.ActiveController = controller;
+                obj.ActiveGesture    = char(gesture);
+                obj.setPointerSafe(pointerType);
+                tf = true;
+            catch
+            end
+        end
+
         function tf = requestDragLock(obj, sessionId, controller, pointerType, gesture)
             % Returns true if the lock was granted (active session
             % matches workspace's currently selected tab AND no other
@@ -314,7 +338,10 @@ classdef StudioMouseRouter < handle
             % the active session changed; stop the old controller so its
             % internal IsDragging state cannot linger after the router lock
             % is released.
-            if ~obj.isSessionActive(obj.ActiveSessionId)
+            % Shell gestures (column splitter / dock collapse) own the
+            % chrome, not a session, so the session-active check is skipped.
+            if ~strcmp(obj.ActiveSessionId, '__shell__') ...
+                    && ~obj.isSessionActive(obj.ActiveSessionId)
                 obj.cancelActiveDrag();
                 return;
             end
