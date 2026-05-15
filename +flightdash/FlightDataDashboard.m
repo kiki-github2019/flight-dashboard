@@ -833,6 +833,24 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 flightdash.util.Throttle.instance().reset(scopedSlot, fIdx);
             end
         end
+        function studioApp = findStudioApp(app)
+            % Phase 11: locate the owning FlightReviewStudioApp when
+            % embedded so per-dashboard chrome can read shared state
+            % (CurrentThemeStruct, SharedDecodeService, ...). Returns []
+            % for standalone mode.
+            studioApp = [];
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    studioApp = getappdata(app.UIFigure, 'FlightReviewStudioApp');
+                    if ~isempty(studioApp) && isa(studioApp, 'handle') && isvalid(studioApp)
+                        return;
+                    end
+                end
+            catch
+            end
+            studioApp = [];
+        end
+
         function tf = mappedColAvailable(app, fIdx, key)
             % Stabilization helper (review section 5.4): returns true iff
             % the loader successfully mapped `key` (e.g. 'Roll') AND the
@@ -5104,28 +5122,46 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                          'FontUnits', 'normalized', 'FontSize', 0.06);
                 end
 
-                % Stabilization (review section 4): enlarge the needle
-                % triangles (~50% bigger) and use high-contrast distinct
-                % fills per gauge (Pitch=blue, Roll=red, Heading=green)
-                % with a white edge so they stand out against the dark
-                % gauge face. uiaxes lives inside uigridlayout so the
-                % patches scale automatically with the panel size — no
-                % separate refreshNeedleSizes hook is needed.
+                % Phase 11 (theme follow-up): per-gauge needle colours.
+                % Embedded dashboards inherit the active Studio theme via
+                % app.RootContainer's owning Studio app. If no theme is
+                % attached, fall back to the high-contrast defaults
+                % (Pitch=blue, Roll=red, Heading=green) used for the
+                % standalone dashboard. The patches scale automatically
+                % with the panel via the surrounding uigridlayout, so no
+                % refreshNeedleSizes hook is required.
+                pitchCol = [0.15 0.38 0.82];
+                rollCol  = [0.90 0.20 0.10];
+                hdgCol   = [0.10 0.65 0.20];
+                try
+                    studioApp = app.findStudioApp();
+                    if ~isempty(studioApp) && isvalid(studioApp) ...
+                            && isprop(studioApp, 'CurrentThemeStruct') ...
+                            && isstruct(studioApp.CurrentThemeStruct) ...
+                            && isfield(studioApp.CurrentThemeStruct, 'GaugeNeedle')
+                        needle = studioApp.CurrentThemeStruct.GaugeNeedle;
+                        % Theme exposes one canonical needle color; tint
+                        % each gauge by mixing toward the Phase 11 hue so
+                        % the user can still differentiate Pitch/Roll/Hdg.
+                        pitchCol = 0.5 * pitchCol + 0.5 * needle;
+                        rollCol  = 0.5 * rollCol  + 0.5 * needle;
+                        hdgCol   = 0.5 * hdgCol   + 0.5 * needle;
+                    end
+                catch
+                end
+
                 if gaugeType == 1
-                    needleFill = [0.15 0.38 0.82];   % Pitch — blue
-                    patch(hg, [-1.20 -1.20 -0.92], [-0.12 0.12 0], needleFill, ...
+                    patch(hg, [-1.20 -1.20 -0.92], [-0.12 0.12 0], pitchCol, ...
                         'EdgeColor', 'w', 'LineWidth', 1.5);
                     plot(hg, [-0.4 0.4], [0 0], 'y', 'LineWidth', 4);
                     plot(hg, [0.2 0.3], [0 0.2], 'y', 'LineWidth', 3);
                 elseif gaugeType == 2
-                    needleFill = [0.90 0.20 0.10];   % Roll — red/orange
-                    patch(hg, [-0.12 0.12 0], [1.20 1.20 0.92], needleFill, ...
+                    patch(hg, [-0.12 0.12 0], [1.20 1.20 0.92], rollCol, ...
                         'EdgeColor', 'w', 'LineWidth', 1.5);
                     plot(hg, [-0.4 0.4], [0 0], 'y', 'LineWidth', 3);
                     plot(hg, [0 0], [0 0.3], 'y', 'LineWidth', 3);
                 else
-                    needleFill = [0.10 0.65 0.20];   % Heading — green
-                    patch(hg, [-0.12 0.12 0], [1.20 1.20 0.92], needleFill, ...
+                    patch(hg, [-0.12 0.12 0], [1.20 1.20 0.92], hdgCol, ...
                         'EdgeColor', 'w', 'LineWidth', 1.5);
                     plot(hg, [0 0], [-0.4 0.4], 'y', 'LineWidth', 3);
                     plot(hg, [-0.3 0.3], [0.1 0.1], 'y', 'LineWidth', 3);

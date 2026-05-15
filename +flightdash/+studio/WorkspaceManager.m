@@ -88,6 +88,20 @@ classdef WorkspaceManager < handle
                     obj.TabGroup.SelectedTab = tab;
                     obj.onTabChanged();
                 end
+
+                % Phase 11: propagate the active Studio theme into the
+                % newly built dashboard chrome so it doesn't render with
+                % default colors until the next toggle. Cheap (one
+                % findall on the tab subtree).
+                try
+                    if ~isempty(obj.App) && isvalid(obj.App) ...
+                            && isprop(obj.App, 'CurrentThemeStruct') ...
+                            && isstruct(obj.App.CurrentThemeStruct) ...
+                            && isfield(obj.App.CurrentThemeStruct, 'Background')
+                        flightdash.ui.StudioTheme.apply(tab, obj.App.CurrentThemeStruct);
+                    end
+                catch
+                end
             catch ME
                 % Roll back the empty tab if dashboard construction fails
                 try, delete(tab); catch, end
