@@ -289,17 +289,18 @@ classdef MarkerDragController < handle
             end
 
             for fIdx = 1:2
+                if ~isvalid(app), break; end
                 if ~isempty(app.Models(fIdx).rawData)
                     idx = app.Models(fIdx).currentIndex;
                     app.setStateUpdating(fIdx, true);
-                    cleanup_ = onCleanup(@() app.setStateUpdating(fIdx, false)); %#ok<NASGU>
+                    cleanup_ = onCleanup(@() flightdash.controller.MarkerDragController.safeClearUpdating(app, fIdx)); %#ok<NASGU>
                     try
                         app.updateDashboard(fIdx, idx);
                     catch e
-                        app.logCaught(e, 'stopPlotMarkerDrag:sync');
+                        if isvalid(app), app.logCaught(e, 'stopPlotMarkerDrag:sync'); end
                     end
                     clear cleanup_;
-                    app.prefetchAdjacentFrames(fIdx);
+                    if isvalid(app), app.prefetchAdjacentFrames(fIdx); end
                 end
             end
         end
@@ -368,6 +369,17 @@ classdef MarkerDragController < handle
     end
 
     methods (Static)
+        function safeClearUpdating(app, fIdx)
+            % Defensive onCleanup target: app may be deleted by the time
+            % this fires (e.g. modal dialog tore down the dashboard mid-drag).
+            try
+                if isa(app, 'handle') && isvalid(app)
+                    app.setStateUpdating(fIdx, false);
+                end
+            catch
+            end
+        end
+
         function safeHandleDragMotion(controller)
             try
                 if ~flightdash.controller.MarkerDragController.isUsable(controller), return; end

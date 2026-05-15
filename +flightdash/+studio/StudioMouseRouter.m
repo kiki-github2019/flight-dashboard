@@ -104,13 +104,17 @@ classdef StudioMouseRouter < handle
         end
 
         function releaseDragLock(obj)
-            if obj.DebugMode && obj.hasActiveLock()
-                fprintf('StudioMouseRouter: lock released from %s\n', obj.ActiveSessionId);
+            if ~isvalid(obj), return; end
+            try
+                if obj.DebugMode && obj.hasActiveLock()
+                    fprintf('StudioMouseRouter: lock released from %s\n', obj.ActiveSessionId);
+                end
+                obj.ActiveController = [];
+                obj.ActiveSessionId  = '';
+                obj.ActiveGesture = '';
+                obj.setPointerSafe('arrow');
+            catch
             end
-            obj.ActiveController = [];
-            obj.ActiveSessionId  = '';
-            obj.ActiveGesture = '';
-            obj.setPointerSafe('arrow');
         end
 
         function cancelSession(obj, sessionId)
@@ -326,20 +330,26 @@ classdef StudioMouseRouter < handle
         end
 
         function onMouseUp(obj)
-            ctrl = obj.ActiveController;
-            if isempty(ctrl) || ~isa(ctrl, 'handle') || ~isvalid(ctrl)
-                obj.releaseDragLock();
-                return;
-            end
+            if ~isvalid(obj), return; end
             try
-                ctrl.stopDrag();
-            catch ME
+                ctrl = obj.ActiveController;
+                if isempty(ctrl) || ~isa(ctrl, 'handle') || ~isvalid(ctrl)
+                    obj.releaseDragLock();
+                    return;
+                end
                 try
-                    flightdash.util.ErrorLog.log(ME, 'StudioMouseRouter:Up', false);
-                catch, end
+                    ctrl.stopDrag();
+                catch ME
+                    try
+                        flightdash.util.ErrorLog.log(ME, 'StudioMouseRouter:Up', false);
+                    catch, end
+                end
+                if isvalid(obj)
+                    obj.releaseDragLock();
+                    obj.dispatchHover();
+                end
+            catch
             end
-            obj.releaseDragLock();
-            obj.dispatchHover();
         end
 
         function setPointerSafe(obj, pointerType)

@@ -3245,6 +3245,7 @@ Review requirements:
 - Do not provide unnecessary explanations (maximum 1 line)
 - Do not repeat existing code
 - Do not print unnecessary steps
+- Do not Automatically execute git push upon completion of the current code phase
 
 e.g., print git push commands, etc.
 
@@ -3253,11 +3254,12 @@ e.g., print git push commands, etc.
 - Consider memory efficiency
 - Consider exception handling
 - If multiple improvement suggestions exist, present only two
+- after complete modifying codes, show me message that do git push
 
 [Absolute Rules]
 - Minimize token usage for result output
 - Maximize token usage for code work
-- Automatically execute git push upon completion of the current code phase
+
 
 =================================================================================================================
 =================================================================================================================

@@ -772,10 +772,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function setStateUpdating(app, fIdx, value)
-            if app.hasPlaybackState(fIdx)
-                app.PlaybackState(fIdx).setUpdating(value);
+            if ~isvalid(app), return; end
+            try
+                if app.hasPlaybackState(fIdx)
+                    app.PlaybackState(fIdx).setUpdating(value);
+                end
+                app.IsUpdating(fIdx) = logical(value);
+            catch
             end
-            app.IsUpdating(fIdx) = logical(value);
         end
 
         function tf = stateIsGoToFrame(app, fIdx)
