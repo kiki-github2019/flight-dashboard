@@ -2791,11 +2791,34 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     'BusyMode',      'drop', ...
                     'StartDelay',    0, ...
                     'TimerFcn',      @(~,~) app.scrubTick(), ...
-                    'ErrorFcn',      @(~,evt) app.logCaught(evt, 'SliderScrubTimer'));
+                    'ErrorFcn',      @(~,evt) app.logTimerError(evt, 'SliderScrubTimer'));
                 start(app.SliderScrubTimer);
                 app.SliderTimerActive = true;
             catch ME
                 app.logCaught(ME, 'SliderScrubTimer:start');
+            end
+        end
+
+        function logTimerError(app, evt, tag)
+            % Review §3.6.1: timer ErrorFcn passes a timer-event object,
+            % NOT an MException. Forwarding it to logCaught caused
+            % cascading errors. This helper unpacks the underlying
+            % MException if present, otherwise synthesizes one, and
+            % never throws from inside a timer error handler.
+            try
+                if nargin < 3 || isempty(tag), tag = 'Timer'; end
+                if isa(evt, 'MException')
+                    app.logCaught(evt, tag);
+                    return;
+                end
+                if isobject(evt) && isprop(evt, 'Data') && isa(evt.Data, 'MException')
+                    app.logCaught(evt.Data, tag);
+                    return;
+                end
+                ME = MException('flightdash:TimerError', ...
+                    'Timer error occurred in %s.', char(tag));
+                app.logCaught(ME, tag);
+            catch
             end
         end
 

@@ -40,7 +40,7 @@ classdef ToolbarManager < handle
             obj.Panel.Layout.Row = 2;
 
             % Variable-width row: groups separated by spacers.
-            grid = uigridlayout(obj.Panel, [1 26], 'RowHeight', {'1x'}, ...
+            grid = uigridlayout(obj.Panel, [1 28], 'RowHeight', {'1x'}, ...
                 'ColumnSpacing', 3, 'Padding', [6 4 6 4]);
 
             buttonW = UIScale.px(64);
@@ -54,7 +54,7 @@ classdef ToolbarManager < handle
                 iconW, iconW, iconW, iconW, sepW, ...   % Play Stop Prev Next | sep
                 iconW, iconW, sepW, ...                 % ROI / Marker | sep
                 iconW, iconW, sepW, ...                 % Analyze / Recalc | sep
-                buttonW};                               % Right dock toggles area
+                buttonW, buttonW, buttonW};             % Expl / Dock / Theme
 
             obj.Buttons.New        = obj.addButton(grid, 'New',     'Toolbar:New');
             obj.Buttons.Open       = obj.addButton(grid, 'Open',    'Toolbar:Open');
@@ -83,6 +83,8 @@ classdef ToolbarManager < handle
             obj.Buttons.Recalc     = obj.addButton(grid, 'Recalc',  'Toolbar:Recalc');
             obj.addSpacer(grid);
             obj.Buttons.Explorer   = obj.addButton(grid, 'Expl',    'Toolbar:ToggleExplorer');
+            obj.Buttons.RightDock  = obj.addButton(grid, 'Dock',    'Toolbar:ToggleRightDock');
+            obj.Buttons.Theme      = obj.addButton(grid, 'Theme',   'Pref:Theme:Toggle');
         end
 
         function btn = addButton(obj, grid, label, cmdId)
