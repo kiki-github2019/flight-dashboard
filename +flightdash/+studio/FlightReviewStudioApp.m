@@ -118,14 +118,25 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             % - Phase 2: appends a SessionModel to app.Project.
             % - Phase 3b: embeds a FlightDataDashboard inside a new
             %   workspace tab bound to that session.
+            sessionId = '';
             if nargin < 2 || isempty(displayName)
-                displayName = sprintf('Session %d', app.Project.sessionCount() + 1);
+                try
+                    displayName = sprintf('Session %d', app.Project.sessionCount() + 1);
+                catch ME
+                    app.showAddSessionAlert(ME, 'sessionCount');
+                    return;
+                end
             end
-            sess = flightdash.project.SessionModel(displayName);
-            app.Project = app.Project.addSession(sess);
-            sessionId = sess.SessionId;
-            app.refreshExplorer();
-            app.refreshTitle();
+            try
+                sess = flightdash.project.SessionModel(displayName);
+                app.Project = app.Project.addSession(sess);
+                sessionId = sess.SessionId;
+            catch ME
+                app.showAddSessionAlert(ME, 'modelAppend');
+                return;
+            end
+            try, app.refreshExplorer(); catch ME, app.showAddSessionAlert(ME, 'refreshExplorer'); end
+            try, app.refreshTitle();    catch ME, app.showAddSessionAlert(ME, 'refreshTitle');    end
 
             % [PHASE 3b] Embed dashboard in a workspace tab
             embedOk = false; embedME = [];
@@ -329,6 +340,27 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 end
             catch
                 text = 'Ready';
+            end
+        end
+
+        function showAddSessionAlert(app, ME, stage)
+            % Path-2a diagnostic: surface addSession failures as uialert
+            % instead of letting CommandRouter / MenuManager swallow them
+            % into a status-bar one-liner the user usually misses.
+            try
+                shortMsg = sprintf('Add Session failed [%s]: %s', stage, ME.message);
+                if ~isempty(app.StatusBar), app.StatusBar.setMessage(shortMsg); end
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    detail = sprintf(['Add Review Session failed at stage: %s\n\n' ...
+                        'Identifier: %s\n' ...
+                        'Message:    %s\n\n' ...
+                        'Top stack frame:\n  %s'], ...
+                        stage, ME.identifier, ME.message, ...
+                        flightdash.studio.FlightReviewStudioApp.formatTopStackFrame(ME));
+                    uialert(app.UIFigure, detail, 'Add Review Session failed');
+                end
+            catch
+                disp(getReport(ME));
             end
         end
 

@@ -192,7 +192,9 @@ classdef MenuManager < handle
 
         function dispatch(obj, cmdId)
             % Delegate to the shared command router so menu and toolbar
-            % commands use the same active-session target.
+            % commands use the same active-session target. Surface any
+            % failure via uialert in addition to the status-bar one-liner;
+            % a silent catch makes Online debugging nearly impossible.
             try
                 if ~isempty(obj.App) && isvalid(obj.App) && ismethod(obj.App, 'dispatchCommand')
                     obj.App.dispatchCommand(cmdId, 'Menu');
@@ -201,6 +203,14 @@ classdef MenuManager < handle
                 if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.StatusBar)
                     obj.App.StatusBar.setMessage(sprintf('Menu %s failed: %s', cmdId, ME.message));
                 end
+                try
+                    if ~isempty(obj.App) && isvalid(obj.App) ...
+                            && ~isempty(obj.App.UIFigure) && isvalid(obj.App.UIFigure)
+                        uialert(obj.App.UIFigure, ...
+                            sprintf('Menu %s failed.\n\n%s: %s', cmdId, ME.identifier, ME.message), ...
+                            'Menu command failed');
+                    end
+                catch, end
             end
         end
 
