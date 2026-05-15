@@ -58,6 +58,14 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         % Theme (review §15-18). Default Light preserves existing chrome.
         CurrentTheme          char    = 'Light'
         CurrentThemeStruct    struct  = struct()
+
+        % P0-2: collapsible side-dock state. Width-reclaim toggles set
+        % BodyGrid.ColumnWidth to 0 alongside Panel.Visible='off' so the
+        % center Workspace actually grows when a side dock is hidden.
+        SavedExplorerWidthPx  double  = NaN
+        SavedRightDockWidthPx double  = NaN
+        IsExplorerCollapsed   logical = false
+        IsRightDockCollapsed  logical = false
     end
 
     properties (Dependent)
@@ -813,6 +821,94 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 end
             catch ME
                 try, app.logCaught(ME, 'Studio:applyGuiModeProfile'); catch, end
+            end
+        end
+
+        function toggleExplorer(app)
+            % P0-2: collapse / restore the left Project Explorer dock and
+            % its BodyGrid column so the center Workspace actually
+            % reclaims the freed horizontal space. Width on first hide is
+            % captured into SavedExplorerWidthPx (falls back to the
+            % current GUI mode profile's ExplorerWidth on cold start).
+            try
+                if isempty(app.BodyGrid) || ~isvalid(app.BodyGrid), return; end
+                cw = app.BodyGrid.ColumnWidth;
+                if app.IsExplorerCollapsed
+                    w = app.SavedExplorerWidthPx;
+                    if ~(isnumeric(w) && isfinite(w) && w > 0)
+                        try
+                            prof = app.guiModeProfile(app.currentGuiMode());
+                            w = prof.ExplorerWidth;
+                        catch
+                            w = 220;
+                        end
+                    end
+                    cw{1} = w;
+                    app.IsExplorerCollapsed = false;
+                    if ~isempty(app.ProjectExplorer) && isvalid(app.ProjectExplorer) ...
+                            && isprop(app.ProjectExplorer, 'Panel') && isgraphics(app.ProjectExplorer.Panel)
+                        app.ProjectExplorer.Panel.Visible = 'on';
+                    end
+                else
+                    if isnumeric(cw{1}) && cw{1} > 0
+                        app.SavedExplorerWidthPx = double(cw{1});
+                    end
+                    cw{1} = 0;
+                    app.IsExplorerCollapsed = true;
+                    if ~isempty(app.ProjectExplorer) && isvalid(app.ProjectExplorer) ...
+                            && isprop(app.ProjectExplorer, 'Panel') && isgraphics(app.ProjectExplorer.Panel)
+                        app.ProjectExplorer.Panel.Visible = 'off';
+                    end
+                end
+                app.BodyGrid.ColumnWidth = cw;
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    app.Workspace.refreshActiveLayout('dockToggle');
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:toggleExplorer'); catch, end
+            end
+        end
+
+        function toggleRightDock(app)
+            % P0-2: symmetric collapse / restore for the right Tools &
+            % Inspector dock. Width restore uses the current GUI mode's
+            % RightDockWidth as the fallback when no saved width exists.
+            try
+                if isempty(app.BodyGrid) || ~isvalid(app.BodyGrid), return; end
+                cw = app.BodyGrid.ColumnWidth;
+                if app.IsRightDockCollapsed
+                    w = app.SavedRightDockWidthPx;
+                    if ~(isnumeric(w) && isfinite(w) && w > 0)
+                        try
+                            prof = app.guiModeProfile(app.currentGuiMode());
+                            w = prof.RightDockWidth;
+                        catch
+                            w = 300;
+                        end
+                    end
+                    cw{end} = w;
+                    app.IsRightDockCollapsed = false;
+                    if ~isempty(app.RightDock) && isvalid(app.RightDock) ...
+                            && isprop(app.RightDock, 'Panel') && isgraphics(app.RightDock.Panel)
+                        app.RightDock.Panel.Visible = 'on';
+                    end
+                else
+                    if isnumeric(cw{end}) && cw{end} > 0
+                        app.SavedRightDockWidthPx = double(cw{end});
+                    end
+                    cw{end} = 0;
+                    app.IsRightDockCollapsed = true;
+                    if ~isempty(app.RightDock) && isvalid(app.RightDock) ...
+                            && isprop(app.RightDock, 'Panel') && isgraphics(app.RightDock.Panel)
+                        app.RightDock.Panel.Visible = 'off';
+                    end
+                end
+                app.BodyGrid.ColumnWidth = cw;
+                if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                    app.Workspace.refreshActiveLayout('dockToggle');
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:toggleRightDock'); catch, end
             end
         end
 

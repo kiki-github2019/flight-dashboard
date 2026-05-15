@@ -140,9 +140,23 @@ classdef CommandRouter < handle
                         obj.setStatus('Closed all session tabs');
                     end
                 case {'Toolbar:ToggleExplorer', 'Window:ShowExplorer'}
-                    obj.togglePanelVisible(app.ProjectExplorer, 'Project Explorer');
+                    % P0-2: prefer app-level width-reclaim toggle; fall
+                    % back to legacy visibility-only flip if absent.
+                    if ismethod(app, 'toggleExplorer')
+                        app.toggleExplorer();
+                        obj.setStatus(sprintf('Project Explorer: %s', ...
+                            obj.collapsedToOnOff(app.IsExplorerCollapsed)));
+                    else
+                        obj.togglePanelVisible(app.ProjectExplorer, 'Project Explorer');
+                    end
                 case {'Toolbar:ToggleRightDock', 'Window:ToggleRightDock'}
-                    obj.togglePanelVisible(app.RightDock, 'Tools & Inspector');
+                    if ismethod(app, 'toggleRightDock')
+                        app.toggleRightDock();
+                        obj.setStatus(sprintf('Tools & Inspector: %s', ...
+                            obj.collapsedToOnOff(app.IsRightDockCollapsed)));
+                    else
+                        obj.togglePanelVisible(app.RightDock, 'Tools & Inspector');
+                    end
                 case 'Window:ShowObjectMgr'
                     obj.showRightDockTab('ObjectManagerTab', 'Object Manager');
                 case 'Window:ShowLogs'
@@ -175,6 +189,11 @@ classdef CommandRouter < handle
         end
 
         function dispatchSession(obj, cmdId, source)
+            % P0-1: define `app` so the openAnalysisDialog cases below
+            % (Toolbar:Analyze, Analysis:RoiStats, Analysis:SyncCheck,
+            % Analysis:SyncQuality) resolve at runtime. dispatchGlobal
+            % already does the same.
+            app = obj.App;
             [dashboard, sessionId] = obj.activeDashboard();
             if isempty(sessionId) || isempty(dashboard) || ~isvalid(dashboard)
                 obj.setStatus('No active session - open or add a session first');
@@ -304,6 +323,10 @@ classdef CommandRouter < handle
                 if ~strcmp(sel, 'Delete'), return; end
             end
             obj.App.removeSession(sessionId);
+        end
+
+        function s = collapsedToOnOff(~, isCollapsed)
+            if isCollapsed, s = 'off'; else, s = 'on'; end
         end
 
         function togglePanelVisible(obj, mgr, label)

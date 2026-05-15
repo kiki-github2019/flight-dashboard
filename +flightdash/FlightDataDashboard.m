@@ -2712,10 +2712,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if app.VideoSyncState(fIdx).CurrentFrame == frameNo, return; end
             app.VideoSyncState(fIdx).CurrentFrame = frameNo;
 
+            % P1-1: one sync write per tick — the 1/30 s scrub-timer
+            % already coalesces successive ticks, so the duplicate write
+            % below was wasted UI thread time during slider drag.
             app.syncFrameMarkersAndLabel(fIdx, frameNo);
 
             % 4. 영상 갱신 (mode에 따라 source 선택)
-            app.syncFrameMarkersAndLabel(fIdx, frameNo);
             if strcmp(mode, 'drag')
                 app.updateVideoFrameByFrameNo(fIdx, frameNo, 'drag');
             else
@@ -3844,11 +3846,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 try
                     targetFrame = app.timeToFrame(fIdx, currTime);
                     app.VideoSyncState(fIdx).CurrentFrame = targetFrame;
-                    app.syncFrameMarkersAndLabel(fIdx, targetFrame);
-
-                    app.syncFrameMarkersAndLabel(fIdx, targetFrame);
-
-                    % [V3.13 절충] 비행데이터 드래그 시 영상 갱신은 throttle 유지
+                    % P1-1: collapse the 3 repeated syncFrameMarkersAndLabel
+                    % calls into one write — the next drag tick (PLOT_DRAG
+                    % _THROTTLE_S) will refresh again if needed.
                     app.syncFrameMarkersAndLabel(fIdx, targetFrame);
                     app.updateVideoFrameByFrameNo(fIdx, targetFrame, 'autoplay');
                 catch ME, app.logCaught(ME, 'silent'); end
