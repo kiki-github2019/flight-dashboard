@@ -25,6 +25,7 @@ function results = verifyRiskRegressionTests()
         'RISK-4', @checkSilentCatchStaticScan
         'RISK-5', @checkMultiSessionDeleteResourceCleanup
         'RISK-6', @checkEmbeddedDeleteKeepsParpool
+        'RISK-7', @checkOptionFileParserSections
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -568,6 +569,81 @@ function [status, msg] = checkEmbeddedDeleteKeepsParpool()
 end
 
 % =========================================================================
+% RISK-7
+% =========================================================================
+function [status, msg] = checkOptionFileParserSections()
+% Verify option*.dat section comments are explicit and robust.
+
+    requireClass('flightdash.project.OptionFileParser');
+
+    outDir = tempname();
+    mkdir(outDir);
+    cleanup = onCleanup(@() safeRmdir(outDir)); %#ok<NASGU>
+
+    optionPath = fullfile(outDir, 'option2.dat');
+    writeTextFile(optionPath, strjoin({ ...
+        '# [mapping] maps flight data columns to FlightDashboard keys'
+        '# mapping comments are preserved but do not create extra sections'
+        'Time : time'
+        'Roll : Flight2_ROLL'
+        'Pitch : Flight2_PITCH'
+        'Heading : Flight2_HEADING'
+        'Alt : Flight2_ALT'
+        'Lat : Flight2_LAT'
+        'Lon : Flight2_LON'
+        ''
+        '# [display] field name, unit, numeric format, display order, scale factor'
+        '# display comments are comments, not data'
+        'time,s,%.3f,1,1'
+        'Flight2_ROLL,deg/sec,%.3f,7,10'
+        }, newline));
+
+    model = flightdash.project.OptionFileParser.read(optionPath);
+    timeMap = mappingValue(model, 'Time');
+    rollMap = mappingValue(model, 'Roll');
+    rollIdx = find(string(model.Display.FieldName) == "Flight2_ROLL", 1);
+
+    if ~strcmp(timeMap, 'time') || ~strcmp(rollMap, 'Flight2_ROLL') || isempty(rollIdx)
+        status = 'FAIL';
+        msg = 'OptionFileParser did not preserve mapping/display rows with explicit section comments.';
+        return;
+    end
+    if double(model.Display.ScaleFactor(rollIdx)) ~= 10
+        status = 'FAIL';
+        msg = 'OptionFileParser did not preserve display scale factor.';
+        return;
+    end
+
+    legacyPath = fullfile(outDir, 'legacy_option2.dat');
+    writeTextFile(legacyPath, strjoin({ ...
+        '# mapping flight datas to key variables in codes for GUI of FlightDashBoard'
+        'Time : time'
+        'Roll : Flight2_ROLL'
+        ''
+        '# Flight data field name, unit, Floating-point display format, order in GUI, scale factor'
+        'time,s,%.3f,1,1'
+        }, newline));
+    legacy = flightdash.project.OptionFileParser.read(legacyPath);
+    if ~strcmp(mappingValue(legacy, 'Roll'), 'Flight2_ROLL') || height(legacy.Display) ~= 1
+        status = 'FAIL';
+        msg = 'OptionFileParser did not support legacy descriptive section comments.';
+        return;
+    end
+
+    outPath = fullfile(outDir, 'written_option2.dat');
+    flightdash.project.OptionFileParser.write(model, outPath);
+    written = fileread(outPath);
+    if ~contains(written, '# [mapping]') || ~contains(written, '# [display]')
+        status = 'FAIL';
+        msg = 'OptionFileParser.write did not emit explicit section markers.';
+        return;
+    end
+
+    status = 'PASS';
+    msg = 'OptionFileParser handles explicit and legacy section comments.';
+end
+
+% =========================================================================
 % Helper functions
 % =========================================================================
 function requireClass(className)
@@ -608,6 +684,14 @@ function values = collectStructFieldAsCell(s, fieldName)
                 values{end+1} = char(string(item.(fieldName))); %#ok<AGROW>
             end
         end
+    end
+end
+
+function value = mappingValue(model, key)
+    value = '';
+    idx = find(string(model.Mapping.Key) == string(key), 1);
+    if ~isempty(idx)
+        value = char(model.Mapping.MappedField(idx));
     end
 end
 
