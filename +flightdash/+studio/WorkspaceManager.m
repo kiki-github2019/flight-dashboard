@@ -15,6 +15,9 @@ classdef WorkspaceManager < handle
         % [PHASE 3b] Map of SessionId -> embedded FlightDataDashboard
         % handle, plus the uitab that hosts it.
         DashboardEntries  % containers.Map (created in ctor)
+        % Phase C Start Page widgets.
+        RecentList        % uilistbox on the WelcomeTab
+        StartPageFooter   % uilabel showing runtime status line
     end
 
     methods
@@ -264,22 +267,141 @@ classdef WorkspaceManager < handle
             obj.TabGroup = uitabgroup(grid);
             obj.TabGroup.SelectionChangedFcn = @(~,~) obj.onTabChanged();
 
-            % Phase 1 welcome / placeholder tab
+            % Phase C: Start Page replaces the bare welcome placeholder.
+            % Action buttons + Recent Projects list. Tab still uses the
+            % 'standalone' session-id so existing auto-Session-1 and
+            % WelcomeTab safety net code paths keep working.
             obj.WelcomeTab = uitab(obj.TabGroup, 'Title', 'Welcome');
             obj.WelcomeTab.UserData = struct('SessionId', 'standalone');
-            welcomeGrid = uigridlayout(obj.WelcomeTab, [3 1], ...
-                'RowHeight', {'1x', 'fit', '1x'}, ...
+            obj.buildStartPage(obj.WelcomeTab);
+        end
+
+        function buildStartPage(obj, tab)
+            UIScale = flightdash.util.UIScale;
+            root = uigridlayout(tab, [4 1], ...
+                'RowHeight', {UIScale.px(64), UIScale.px(120), '1x', UIScale.px(36)}, ...
                 'ColumnWidth', {'1x'}, ...
-                'Padding', [40 40 40 40]);
-            uilabel(welcomeGrid, 'Text', 'FlightDataReviewStudio', ...
-                'FontSize', 22, 'FontWeight', 'bold', ...
-                'HorizontalAlignment', 'center');
-            uilabel(welcomeGrid, 'Text', ...
-                ['Phase 1 shell. Use Project > Add Review Session to ' ...
-                 'open a FlightDataDashboard tab here (Phase 3+).'], ...
-                'FontSize', 12, 'WordWrap', 'on', ...
-                'HorizontalAlignment', 'center', ...
-                'FontColor', [0.4 0.4 0.4]);
+                'RowSpacing', 12, 'Padding', [32 28 32 24]);
+
+            % Title row.
+            titleGrid = uigridlayout(root, [2 1], ...
+                'RowHeight', {'fit','fit'}, 'RowSpacing', 2, 'Padding', [0 0 0 0]);
+            uilabel(titleGrid, 'Text', 'Flight Review Studio', ...
+                'FontSize', 22, 'FontWeight', 'bold');
+            uilabel(titleGrid, 'Text', 'Multi-session flight-data review with synchronized video.', ...
+                'FontSize', 12, 'FontColor', [0.4 0.4 0.4]);
+
+            % Action button grid (5 buttons).
+            actionGrid = uigridlayout(root, [1 5], ...
+                'ColumnWidth', repmat({'1x'}, 1, 5), ...
+                'ColumnSpacing', 10, 'Padding', [0 0 0 0]);
+            uibutton(actionGrid, 'Text', 'New Review Session', 'FontSize', 12, ...
+                'ButtonPushedFcn', @(~,~) obj.startPageAction('NewSession'));
+            uibutton(actionGrid, 'Text', 'Open Project…',      'FontSize', 12, ...
+                'ButtonPushedFcn', @(~,~) obj.startPageAction('OpenProject'));
+            uibutton(actionGrid, 'Text', 'Open Sample Project','FontSize', 12, ...
+                'ButtonPushedFcn', @(~,~) obj.startPageAction('OpenSample'));
+            uibutton(actionGrid, 'Text', 'Load Flight Data…',  'FontSize', 12, ...
+                'ButtonPushedFcn', @(~,~) obj.startPageAction('LoadData'));
+            uibutton(actionGrid, 'Text', 'Quick Start Guide',  'FontSize', 12, ...
+                'ButtonPushedFcn', @(~,~) obj.startPageAction('QuickStart'));
+
+            % Recent Projects list.
+            recentPanel = uipanel(root, 'Title', 'Recent Projects', ...
+                'FontWeight', 'bold', 'BorderType', 'line');
+            recentGrid = uigridlayout(recentPanel, [1 1], 'Padding', [4 4 4 4]);
+            obj.RecentList = uilistbox(recentGrid, ...
+                'Items', flightdash.util.UserPreferences.getRecentProjects(), ...
+                'DoubleClickedFcn', @(src,~) obj.openRecentProject(src.Value));
+            if isempty(obj.RecentList.Items)
+                obj.RecentList.Items = {'(no recent projects yet)'};
+                obj.RecentList.Enable = 'off';
+            end
+
+            % Footer (runtime status).
+            footer = uilabel(root, 'Text', obj.runtimeStatusLine(), ...
+                'FontSize', 10, 'FontColor', [0.45 0.45 0.45]);
+            obj.StartPageFooter = footer;
+        end
+
+        function refreshStartPage(obj)
+            try
+                if ~isempty(obj.RecentList) && isvalid(obj.RecentList)
+                    items = flightdash.util.UserPreferences.getRecentProjects();
+                    if isempty(items)
+                        obj.RecentList.Items = {'(no recent projects yet)'};
+                        obj.RecentList.Enable = 'off';
+                    else
+                        obj.RecentList.Items = items;
+                        obj.RecentList.Enable = 'on';
+                    end
+                end
+                if ~isempty(obj.StartPageFooter) && isvalid(obj.StartPageFooter)
+                    obj.StartPageFooter.Text = obj.runtimeStatusLine();
+                end
+            catch
+            end
+        end
+
+        function startPageAction(obj, action)
+            try
+                if isempty(obj.App) || ~isvalid(obj.App), return; end
+                switch char(action)
+                    case 'NewSession'
+                        obj.App.addSession();
+                    case 'OpenProject'
+                        obj.App.dispatchCommand('File:OpenProject', 'StartPage');
+                    case 'OpenSample'
+                        obj.openSampleProject();
+                    case 'LoadData'
+                        obj.App.dispatchCommand('Toolbar:LoadData', 'StartPage');
+                    case 'QuickStart'
+                        obj.App.dispatchCommand('Help:QuickStart', 'StartPage');
+                end
+            catch ME
+                warning('WorkspaceManager:StartPageAction', '%s', ME.message);
+            end
+        end
+
+        function openRecentProject(obj, path)
+            try
+                path = char(path);
+                if isempty(path) || ~isfile(path), return; end
+                if ismethod(obj.App, 'openProject')
+                    obj.App.openProject(path);
+                end
+            catch ME
+                warning('WorkspaceManager:OpenRecent', '%s', ME.message);
+            end
+        end
+
+        function openSampleProject(obj)
+            try
+                here = fileparts(mfilename('fullpath'));
+                root = fullfile(here, '..', '..', '..');
+                samplePath = fullfile(root, 'sample_data', 'sample_project.frsproj');
+                if isfile(samplePath) && ismethod(obj.App, 'openProject')
+                    obj.App.openProject(samplePath);
+                else
+                    if ~isempty(obj.App) && isvalid(obj.App) ...
+                            && ~isempty(obj.App.StatusBar)
+                        obj.App.StatusBar.setMessage( ...
+                            'Sample project not found at sample_data/sample_project.frsproj');
+                    end
+                end
+            catch ME
+                warning('WorkspaceManager:OpenSample', '%s', ME.message);
+            end
+        end
+
+        function line = runtimeStatusLine(~)
+            try
+                vi = flightdash.util.VersionInfo.current();
+                line = sprintf('v%s   |   MATLAB R%s   |   %s', ...
+                    vi.Version, vi.MatlabRelease, vi.SupportEmail);
+            catch
+                line = '';
+            end
         end
 
         function onTabChanged(obj)

@@ -491,6 +491,14 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.ProjectFolder = fileparts(filePath);
                 app.applyGuiMode(app.Project.GuiMode, false);
                 app.refreshTitle();
+                % Phase C: record in Recent Projects + refresh Start Page.
+                try, flightdash.util.UserPreferences.addRecentProject(filePath); catch, end
+                try
+                    if ~isempty(app.Workspace) && isvalid(app.Workspace) ...
+                            && ismethod(app.Workspace, 'refreshStartPage')
+                        app.Workspace.refreshStartPage();
+                    end
+                catch, end
                 if ~isempty(app.StatusBar)
                     app.StatusBar.setMessage(sprintf('Saved: %s', filePath));
                 end
@@ -543,6 +551,14 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.Project.DirtyFlag = false;
                 app.refreshExplorer();
                 app.refreshTitle();
+                % Phase C: record in Recent Projects + refresh Start Page.
+                try, flightdash.util.UserPreferences.addRecentProject(filePath); catch, end
+                try
+                    if ~isempty(app.Workspace) && isvalid(app.Workspace) ...
+                            && ismethod(app.Workspace, 'refreshStartPage')
+                        app.Workspace.refreshStartPage();
+                    end
+                catch, end
                 if ~isempty(app.StatusBar)
                     app.StatusBar.setMessage(sprintf('Opened: %s (%d sessions)', ...
                         filePath, numel(app.Project.Sessions)));

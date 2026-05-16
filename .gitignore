@@ -63,6 +63,7 @@ root.zip                    # 개발자 로컬 백업 (Phase 11 repo-hygiene)
 *.mkv
 *.wmv
 *.dat                       # option_flight_area.dat 등 (테스트 fixture는 별도 화이트리스트)
+!sample_data/*.dat          # Sample option*.dat must ship for Open Sample Project
 
 # --- 개발 환경별 ---
 .env

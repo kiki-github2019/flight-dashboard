@@ -1,0 +1,17 @@
+# mapping flight datas to key variablses in codes for GUI of FligthDashBoard
+Time : time
+Roll : Flight2_ROLL
+Pitch : Flight2_PITCH
+Heading : Flight2_HEADING
+Alt : Flight2_ALT
+Lat : Flight2_LAT
+Lon : Flight2_LON
+
+# Flight data's field name, unit, Floating-point display format, order in GUI for Flight data,scale factor
+time,s,%.3f,1,1
+Flight2_LAT,deg,%.6f,2,1
+Flight2_LON,deg,%.6f,3,1
+Flight2_ALT,m,%.3f,4,1
+Flight2_HEADING,deg,%.3f,5,1
+Flight2_PITCH,deg,%.3f,6,1
+Flight2_ROLL,deg/sec,%.3f,7,10	

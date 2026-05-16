@@ -1,0 +1,17 @@
+#
+Time : time
+Roll : Flight_ROLL
+Pitch : Flight_PITCH
+Heading : Flight_HEADING
+Alt : Flight_ALT
+Lat : Flight_LAT
+Lon : Flight_LON
+
+#
+time,s,%.3f,1,1
+Flight_LAT,deg,%.6f,2,1
+Flight_LON,deg,%.6f,3,1
+Flight_ALT,m,%.3f,4,1
+Flight_HEADING,deg,%.3f,5,1
+Flight_PITCH,deg,%.3f,6,1
+Flight_ROLL,deg/sec,%.3f,7,10	
