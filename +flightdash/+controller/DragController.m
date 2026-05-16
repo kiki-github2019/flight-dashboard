@@ -1,45 +1,64 @@
 classdef DragController < handle
     % flightdash.controller.DragController
     % - SplitterDragStarted 이벤트 구독
-    
+    %
+    % [REFACTOR R5+4] Migrated to DashboardAppAdapter. Splitter
+    % start/stop verbs (app.startPanelSplitterDrag,
+    % app.startHISplitterDrag) still escape-hatch through
+    % obj.Adapter.app() — they are dense UI-state mutators that have
+    % no adapter API yet.
+
     properties (Access = private)
-        App
+        Adapter  % flightdash.runtime.DashboardAppAdapter
         Listeners cell = {}
     end
 
     properties
         HitThreshold double = 8
     end
-    
+
     methods
-        function obj = DragController(app)
-            obj.App = app;
+        function obj = DragController(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
+                obj.Adapter = adapterOrApp;
+            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                obj.Adapter = adapterOrApp.getAdapter();
+            else
+                error('DragController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
+            end
             obj.subscribeEvents();
         end
-        
+
         function subscribeEvents(obj)
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
+            app = obj.Adapter.app();
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
             obj.Listeners{end+1} = EB('PanelSplitterDragStarted', @(~,d) obj.onPanelSplitterStart(d));
             obj.Listeners{end+1} = EB('SplitterDragStarted', @(~,d) obj.onSplitterStart(d));
         end
-        
+
         function onPanelSplitterStart(obj, d)
-            if ~obj.App.isActiveSession(d), return; end
-            obj.App.startPanelSplitterDrag(d.ChannelIdx, d.Payload);
+            app = obj.Adapter.app();
+            if ~app.isActiveSession(d), return; end
+            app.startPanelSplitterDrag(d.ChannelIdx, d.Payload);
         end
         function onSplitterStart(obj, d)
-            if ~obj.App.isActiveSession(d), return; end
-            obj.App.startHISplitterDrag(d.ChannelIdx);
+            app = obj.Adapter.app();
+            if ~app.isActiveSession(d), return; end
+            app.startHISplitterDrag(d.ChannelIdx);
         end
-        
+
         % 호환 wrapper
-        function startSplitter(obj, fIdx), obj.App.startHISplitterDrag(fIdx); end
+        function startSplitter(obj, fIdx)
+            obj.Adapter.app().startHISplitterDrag(fIdx);
+        end
 
         function [tf, target] = hitTest(obj, point)
             tf = false;
             target = [];
             try
-                app = obj.App;
+                app = obj.Adapter.app();
                 if isempty(app) || ~isvalid(app) || ~app.isActiveSession()
                     return;
                 end
@@ -73,7 +92,7 @@ classdef DragController < handle
                     end
                 end
             catch ME
-                try, obj.App.logCaught(ME, 'SplitterHitTest'); catch, end
+                obj.Adapter.logCaught(ME, 'SplitterHitTest');
                 tf = false;
                 target = [];
             end
@@ -84,16 +103,17 @@ classdef DragController < handle
                 if isempty(target) || ~isstruct(target) || ~isfield(target, 'ChannelIdx')
                     return;
                 end
+                app = obj.Adapter.app();
                 if isfield(target, 'IsPanel') && target.IsPanel
-                    obj.App.startPanelSplitterDrag(target.ChannelIdx, target.Kind);
+                    app.startPanelSplitterDrag(target.ChannelIdx, target.Kind);
                 else
-                    obj.App.startHISplitterDrag(target.ChannelIdx);
+                    app.startHISplitterDrag(target.ChannelIdx);
                 end
             catch ME
-                try, obj.App.logCaught(ME, 'SplitterHitTest:buttonDown'); catch, end
+                obj.Adapter.logCaught(ME, 'SplitterHitTest:buttonDown');
             end
         end
-        
+
         function delete(obj)
             for k = 1:numel(obj.Listeners)
                 try, if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end, catch, end
@@ -106,7 +126,8 @@ classdef DragController < handle
         function candidates = splitterCandidates(obj, fIdx)
             candidates = {};
             try
-                ui = obj.App.UI(fIdx);
+                app = obj.Adapter.app();
+                ui = app.UI(fIdx);
                 candidates = obj.addCandidate(candidates, ui, 'attMapSplitter', fIdx, 'att-map', true);
                 candidates = obj.addCandidate(candidates, ui, 'mapInfoSplitter', fIdx, 'map-info', true);
                 candidates = obj.addCandidate(candidates, ui, 'infoPlotSplitter', fIdx, 'info-plot', true);

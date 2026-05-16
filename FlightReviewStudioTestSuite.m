@@ -1987,6 +1987,40 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             try, delete(ctrlB); catch, end
         end
 
+        function test_T15_Refactor_DragControllerAcceptsAdapter(testCase)
+            % Migration #4: DragController accepts adapter + rejects
+            % bad input. hitTest with no UI must safe-return false.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrlA = flightdash.controller.DragController(app.Adapter);
+            testCase.verifyClass(ctrlA, 'flightdash.controller.DragController');
+            ctrlB = flightdash.controller.DragController(app);
+            testCase.verifyClass(ctrlB, 'flightdash.controller.DragController');
+            threw = false;
+            try
+                flightdash.controller.DragController(true);
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'DragController:BadInput');
+            end
+            testCase.verifyTrue(threw);
+            % hitTest with garbage point must not throw.
+            try
+                [tf, ~] = app.DragCtrl.hitTest([NaN NaN]);
+                testCase.verifyFalse(tf, 'hitTest with NaN point must return false.');
+            catch ME
+                testCase.verifyFail(sprintf('hitTest threw on NaN point: %s', ME.message));
+            end
+            try, delete(ctrlA); catch, end
+            try, delete(ctrlB); catch, end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
