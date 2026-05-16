@@ -1247,9 +1247,194 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyTrue(isnumeric(cwShown{1}) && cwShown{1} > 0, ...
                 'Explorer column did not restore to a positive width on second toggle.');
         end
+
+        % =================================================================
+        % Pre-PFE-1: OptionFileParser / OptionFileModel foundation tests
+        % All headless — pure model/IO, no figure.
+        % =================================================================
+
+        function test_T15_OptionFileParser_ReadTwoSections(testCase)
+            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            testCase.assumeTrue(isfile(sampleOpt), ...
+                'sample_data/option1.dat missing — skipping.');
+            model = flightdash.project.OptionFileParser.read(sampleOpt);
+            testCase.verifyClass(model, 'flightdash.project.OptionFileModel');
+            testCase.verifyGreaterThanOrEqual(height(model.Mapping), 7, ...
+                'Mapping table should have at least 7 canonical keys.');
+            testCase.verifyGreaterThanOrEqual(height(model.Display), 1, ...
+                'Display table should be non-empty after reading two-section file.');
+            testCase.verifyFalse(model.Dirty, ...
+                'Freshly read model must not be dirty.');
+        end
+
+        function test_T15_OptionFileParser_WriteReadRoundTrip(testCase)
+            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
+            modelA = flightdash.project.OptionFileParser.read(sampleOpt);
+            tmpPath = fullfile(tempdir, sprintf( ...
+                'option1_rt_%s.dat', datestr(now, 'yyyymmddHHMMSSFFF')));
+            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpPath)); %#ok<NASGU>
+            flightdash.project.OptionFileParser.write(modelA, tmpPath);
+            modelB = flightdash.project.OptionFileParser.read(tmpPath);
+            testCase.verifyEqual(height(modelB.Display), height(modelA.Display), ...
+                'Display row count changed after round-trip.');
+            testCase.verifyEqual(height(modelB.Mapping), height(modelA.Mapping), ...
+                'Mapping row count changed after round-trip.');
+            % Compare key->mapped pairs.
+            for k = 1:height(modelA.Mapping)
+                testCase.verifyEqual( ...
+                    char(modelB.Mapping.MappedField(k)), ...
+                    char(modelA.Mapping.MappedField(k)), ...
+                    sprintf('Mapping for %s did not survive round-trip', ...
+                        char(modelA.Mapping.Key(k))));
+            end
+        end
+
+        function test_T15_OptionFileParser_BackupRotation(testCase)
+            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
+            tmpDir = fullfile(tempdir, sprintf('opt_bak_%s', ...
+                datestr(now, 'yyyymmddHHMMSSFFF')));
+            mkdir(tmpDir);
+            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeRmdir(tmpDir)); %#ok<NASGU>
+            tgt = fullfile(tmpDir, 'option1.dat');
+            copyfile(sampleOpt, tgt);
+            model = flightdash.project.OptionFileParser.read(tgt);
+            % Write 7 times — backup should rotate to MaxBackups (5).
+            for k = 1:7
+                flightdash.project.OptionFileParser.write(model, tgt);
+                pause(1.05);   % ensure distinct yyyymmdd_HHMMSS stamps
+            end
+            listing = dir(fullfile(tmpDir, 'option1.dat.bak_*'));
+            maxN = flightdash.project.OptionFileParser.MaxBackups;
+            testCase.verifyLessThanOrEqual(numel(listing), maxN, ...
+                sprintf('Expected at most %d backups, found %d', maxN, numel(listing)));
+        end
+
+        function test_T15_OptionFileModel_ValidateCriticalMissing(testCase)
+            model = flightdash.project.OptionFileModel(1);
+            % Only fill optional Roll; leave critical Time/Lat/Lon/Alt empty.
+            model.setMapping('Roll', 'Flight_ROLL');
+            report = model.validate({'Flight_ROLL'});
+            testCase.verifyFalse(report.OK, ...
+                'Validation should fail when critical keys are unmapped.');
+            anyCrit = any(contains(report.Errors, 'Time')) ...
+                   || any(contains(report.Errors, 'Lat')) ...
+                   || any(contains(report.Errors, 'Lon')) ...
+                   || any(contains(report.Errors, 'Alt'));
+            testCase.verifyTrue(anyCrit, ...
+                'Validation errors should mention critical keys.');
+        end
+
+        function test_T15_OptionFileModel_OptionalRollPitchHeadingWarnings(testCase)
+            model = flightdash.project.OptionFileModel(1);
+            % Map all criticals; leave optionals empty.
+            model.setMapping('Time', 'time');
+            model.setMapping('Lat',  'lat');
+            model.setMapping('Lon',  'lon');
+            model.setMapping('Alt',  'alt');
+            report = model.validate({'time','lat','lon','alt'});
+            testCase.verifyTrue(report.OK, ...
+                'Critical-complete validation must pass.');
+            anyOpt = any(contains(report.Warnings, 'Roll')) ...
+                  || any(contains(report.Warnings, 'Pitch')) ...
+                  || any(contains(report.Warnings, 'Heading'));
+            testCase.verifyTrue(anyOpt, ...
+                'Missing optional Roll/Pitch/Heading should produce warnings.');
+        end
+
+        function test_T15_OptionFileModel_AddDisplayRow(testCase)
+            model = flightdash.project.OptionFileModel(1);
+            model.addDisplayRow('Flight_AOA', 'deg', '%.3f', 1, 1);
+            testCase.verifyEqual(height(model.Display), 1);
+            testCase.verifyTrue(model.hasDisplayField('Flight_AOA'));
+            testCase.verifyTrue(model.Dirty);
+            % Empty FieldName must throw.
+            testCase.verifyError( ...
+                @() model.addDisplayRow('', 'deg', '%.3f', 2, 1), ...
+                'OptionFileModel:EmptyFieldName');
+            % Duplicate FieldName must throw.
+            testCase.verifyError( ...
+                @() model.addDisplayRow('Flight_AOA', 'deg', '%.3f', 2, 1), ...
+                'OptionFileModel:DuplicateFieldName');
+        end
+
+        function test_T15_OptionFileModel_RemoveDisplayRow(testCase)
+            model = flightdash.project.OptionFileModel(1);
+            model.addDisplayRow('Flight_AOA', 'deg', '%.3f', 1, 1);
+            model.addDisplayRow('Flight_BETA', 'deg', '%.3f', 2, 1);
+            model.removeDisplayRow(1);
+            testCase.verifyEqual(height(model.Display), 1);
+            testCase.verifyFalse(model.hasDisplayField('Flight_AOA'));
+            % Critical-reference protection: Time → time row, can't drop.
+            model.setMapping('Time', 'time');
+            model.addDisplayRow('time', 's', '%.3f', 1, 1);
+            critRow = find(model.Display.FieldName == "time", 1);
+            testCase.verifyError( ...
+                @() model.removeDisplayRow(critRow), ...
+                'OptionFileModel:CriticalReference');
+            % Invalid index must throw.
+            testCase.verifyError( ...
+                @() model.removeDisplayRow(999), ...
+                'OptionFileModel:InvalidRowIndex');
+        end
+
+        function test_T15_OptionFileParser_WriteAfterAddDeleteDisplayRows(testCase)
+            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(2);
+            testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option2.dat missing.');
+            tmpDir = fullfile(tempdir, sprintf('opt_addrm_%s', ...
+                datestr(now, 'yyyymmddHHMMSSFFF')));
+            mkdir(tmpDir);
+            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeRmdir(tmpDir)); %#ok<NASGU>
+            tgt = fullfile(tmpDir, 'option2.dat');
+            copyfile(sampleOpt, tgt);
+            model = flightdash.project.OptionFileParser.read(tgt);
+            % Add Flight2_AOA, remove Flight2_ROLL.
+            rowIdx = find(model.Display.FieldName == "Flight2_ROLL", 1);
+            if ~isempty(rowIdx)
+                % Drop the optional Roll mapping first so the critical-
+                % reference guard does not block the display removal.
+                model.setMapping('Roll', '');
+                model.removeDisplayRow(rowIdx);
+            end
+            model.addDisplayRow('Flight2_AOA', 'deg', '%.3f', 8, 1);
+            flightdash.project.OptionFileParser.write(model, tgt);
+            roundTrip = flightdash.project.OptionFileParser.read(tgt);
+            testCase.verifyTrue(roundTrip.hasDisplayField('Flight2_AOA'), ...
+                'Newly added display row missing after round-trip.');
+            testCase.verifyFalse(roundTrip.hasDisplayField('Flight2_ROLL'), ...
+                'Removed display row still present after round-trip.');
+        end
+
+        function test_T15_OptionFileModel_DuplicateDisplayFieldRejected(testCase)
+            model = flightdash.project.OptionFileModel(1);
+            model.addDisplayRow('Flight_LAT', 'deg', '%.6f', 1, 1);
+            testCase.verifyError( ...
+                @() model.addDisplayRow('Flight_LAT', 'deg', '%.6f', 2, 1), ...
+                'OptionFileModel:DuplicateFieldName');
+            % Validation also flags duplicate field names if model
+            % is constructed directly with a duplicate (defensive).
+            model.Display(end+1, :) = model.Display(end, :);
+            report = model.validate({});
+            testCase.verifyFalse(report.OK, ...
+                'Validation should fail when Display has duplicate FieldName.');
+        end
     end
 
     methods (Static, Access = private)
+        function p = sampleOptionPath(channel)
+            here = fileparts(mfilename('fullpath'));
+            p = fullfile(here, 'sample_data', sprintf('option%d.dat', channel));
+        end
+
+        function safeDelete(path)
+            try, if isfile(path), delete(path); end, catch, end
+        end
+
+        function safeRmdir(path)
+            try, if isfolder(path), rmdir(path, 's'); end, catch, end
+        end
+
         function names = collectTimerNames(timers)
             names = strings(0, 1);
             for k = 1:numel(timers)
