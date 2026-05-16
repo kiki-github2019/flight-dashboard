@@ -31,7 +31,8 @@ classdef SupportBundle
                             fclose(fid);
                         end
                     end
-                catch
+                catch ME
+                    flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:projectManifest');
                 end
 
                 % 2. External link health.
@@ -44,7 +45,8 @@ classdef SupportBundle
                             fclose(fid);
                         end
                     end
-                catch
+                catch ME
+                    flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:externalLinks');
                 end
 
                 % 3. Runtime diagnostics.
@@ -55,7 +57,8 @@ classdef SupportBundle
                         fprintf(fid, '%s', jsonencode(rep));
                         fclose(fid);
                     end
-                catch
+                catch ME
+                    flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:runtimeDiagnostics');
                 end
 
                 % 4. System info.
@@ -69,7 +72,8 @@ classdef SupportBundle
                         fprintf(fid, 'PWD:            %s\n', pwd);
                         fclose(fid);
                     end
-                catch
+                catch ME
+                    flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:systemInfo');
                 end
 
                 % 5. Memory log + scrub stats (if available).
@@ -78,7 +82,8 @@ classdef SupportBundle
                     if isfile(src)
                         copyfile(src, fullfile(stage, 'memory_log.txt'));
                     end
-                catch
+                catch ME
+                    flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:memoryLog');
                 end
 
                 % 6. Option files (always include if discoverable).
@@ -98,7 +103,8 @@ classdef SupportBundle
                             fclose(fid);
                         end
                     end
-                catch
+                catch ME
+                    flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:optionFiles');
                 end
 
                 % 7. Zip everything.
@@ -106,7 +112,8 @@ classdef SupportBundle
                 zip(zipPath, '*', stage);
 
             catch ME
-                try, warning('SupportBundle:export', '%s', ME.message); catch, end
+                flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:export');
+                warning('SupportBundle:export', '%s', ME.message);
             end
         end
     end
@@ -132,7 +139,8 @@ classdef SupportBundle
                         end
                     end
                 end
-            catch
+            catch ME
+                flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:projectOptionPaths');
                 paths = {};
             end
         end
@@ -146,7 +154,8 @@ classdef SupportBundle
                     paths{end+1} = fullfile(root, 'sample_data', ...
                         sprintf('option%d.dat', n)); %#ok<AGROW>
                 end
-            catch
+            catch ME
+                flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:sampleOptionPaths');
                 paths = {};
             end
         end
@@ -170,7 +179,8 @@ classdef SupportBundle
                 try
                     copyfile(src, dst);
                     added = true;
-                catch
+                catch ME
+                    flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:copyOptionFile');
                 end
             end
         end
@@ -196,7 +206,8 @@ classdef SupportBundle
                         return;
                     end
                 end
-            catch
+            catch ME
+                flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:pathKeySeen');
                 tf = false;
             end
         end
@@ -208,7 +219,8 @@ classdef SupportBundle
                 if isempty(root) && ~isempty(project.ProjectFilePath)
                     root = fileparts(char(project.ProjectFilePath));
                 end
-            catch
+            catch ME
+                flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:projectRoot');
                 root = '';
             end
         end
@@ -221,7 +233,8 @@ classdef SupportBundle
                     return;
                 end
                 p = fullfile(char(projectRoot), p);
-            catch
+            catch ME
+                flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:resolveProjectPath');
                 p = char(pathValue);
             end
         end
@@ -237,7 +250,8 @@ classdef SupportBundle
                     p = char(pathValue);
                     tf = startsWith(p, filesep) || startsWith(p, '\\') || ...
                         ~isempty(regexp(p, '^[A-Za-z]:[\\/]', 'once'));
-                catch
+                catch ME
+                    flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:isAbsolutePath');
                     tf = false;
                 end
             end
@@ -247,7 +261,8 @@ classdef SupportBundle
             p = char(pathValue);
             try
                 p = char(java.io.File(p).getCanonicalPath());
-            catch
+            catch ME
+                flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:canonicalPath');
             end
         end
 
@@ -256,7 +271,16 @@ classdef SupportBundle
                 if isfolder(folder)
                     rmdir(folder, 's');
                 end
-            catch
+            catch ME
+                flightdash.util.SupportBundle.logSoftFailure(ME, 'SupportBundle:tryRmdir');
+            end
+        end
+
+        function logSoftFailure(ME, tag)
+            try
+                flightdash.util.ErrorLog.log(ME, tag, false);
+            catch logME
+                warning('SupportBundle:SoftLogFailed', '%s', logME.message);
             end
         end
     end

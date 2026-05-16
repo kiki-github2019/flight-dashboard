@@ -97,7 +97,9 @@ classdef ProjectPacker
                         fprintf(fid, '  config/  option*.dat mapping files\n  docs/    this README\n');
                         fclose(fid);
                     end
-                catch
+                catch ME
+                    result.Warnings{end+1} = sprintf('README write failed: %s', ME.message);
+                    flightdash.project.ProjectPacker.logSoftFailure(ME, 'ProjectPacker:readme');
                 end
 
                 result.PackedRoot = packedRoot;
@@ -107,6 +109,7 @@ classdef ProjectPacker
             catch ME
                 result = flightdash.project.ProjectPacker.clearPackingState(result);
                 result.Warnings{end+1} = sprintf('Pack failed: %s', ME.message);
+                flightdash.project.ProjectPacker.logSoftFailure(ME, 'ProjectPacker:pack');
             end
         end
     end
@@ -220,7 +223,8 @@ classdef ProjectPacker
                     parent = [parent filesep];
                 end
                 tf = startsWith(child, parent);
-            catch
+            catch ME
+                flightdash.project.ProjectPacker.logSoftFailure(ME, 'ProjectPacker:isSafeChildPath');
                 tf = false;
             end
         end
@@ -259,7 +263,8 @@ classdef ProjectPacker
                     seen = true;
                     rel = result.PackedRelativePaths{match};
                 end
-            catch
+            catch ME
+                flightdash.project.ProjectPacker.logSoftFailure(ME, 'ProjectPacker:lookupPackedAsset');
             end
         end
 
@@ -299,7 +304,8 @@ classdef ProjectPacker
                 else
                     tf = any(strcmp(result.PackedDestKeys, dstKey));
                 end
-            catch
+            catch ME
+                flightdash.project.ProjectPacker.logSoftFailure(ME, 'ProjectPacker:destinationUsed');
                 tf = false;
             end
         end
@@ -325,7 +331,8 @@ classdef ProjectPacker
             catch
                 try
                     p = char(java.io.File(p).getAbsolutePath());
-                catch
+                catch ME
+                    flightdash.project.ProjectPacker.logSoftFailure(ME, 'ProjectPacker:canonicalPath');
                 end
             end
         end
@@ -346,7 +353,17 @@ classdef ProjectPacker
                             'No option%d.dat found in project or sample_data — ', n);
                     end
                 end
-            catch
+            catch ME
+                result.Warnings{end+1} = sprintf('Sample option fallback failed: %s', ME.message);
+                flightdash.project.ProjectPacker.logSoftFailure(ME, 'ProjectPacker:sampleOptionFallback');
+            end
+        end
+
+        function logSoftFailure(ME, tag)
+            try
+                flightdash.util.ErrorLog.log(ME, tag, false);
+            catch logME
+                warning('ProjectPacker:SoftLogFailed', '%s', logME.message);
             end
         end
     end

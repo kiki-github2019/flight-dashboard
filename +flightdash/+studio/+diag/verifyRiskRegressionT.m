@@ -315,6 +315,8 @@ function [status, msg] = checkSilentCatchStaticScan()
 
     loggingTokens = {
         'logCaught'
+        'logSoftFailure'
+        'logCleanupFailure'
         'warning'
         'error'
         'rethrow'
