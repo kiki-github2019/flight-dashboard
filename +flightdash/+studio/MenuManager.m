@@ -79,6 +79,8 @@ classdef MenuManager < handle
             obj.addSeparator(obj.Roots.Project, 'Find in Project', 'Project:Find');
             obj.addLeaf(obj.Roots.Project, 'Project Properties', 'Project:Properties');
             obj.addLeaf(obj.Roots.Project, 'Cleanup Project Cache', 'Project:CleanupCache');
+            obj.addSeparator(obj.Roots.Project, 'Project Health Check…', 'Project:HealthCheck');
+            obj.addLeaf(obj.Roots.Project, 'Repair Missing Files…',     'Project:RepairLinks');
 
             obj.Roots.Data = obj.makeRoot(fig, 'Data');
             obj.addLeaf(obj.Roots.Data, 'Load Flight 1 Data', 'Data:LoadFlight1');
@@ -168,6 +170,7 @@ classdef MenuManager < handle
             obj.addLeaf(obj.Roots.Help, 'Learning Samples','Help:Samples');
             obj.addLeaf(obj.Roots.Help, 'Troubleshooting', 'Help:Troubleshooting');
             obj.addLeaf(obj.Roots.Help, 'Error Log',       'Help:ErrorLog');
+            obj.addLeaf(obj.Roots.Help, 'Export Support Bundle…', 'Help:SupportBundle');
             obj.addSeparator(obj.Roots.Help, 'License',    'Help:License');
             obj.addLeaf(obj.Roots.Help, 'About Flight Review Studio', 'Help:About');
         end

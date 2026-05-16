@@ -56,7 +56,8 @@ classdef CommandRouter < handle
                 'Pref:Theme:Toggle', 'Pref:AutoUpdate', ...
                 'Pref:ToolbarCustomize', 'Pref:Shortcuts', ...
                 'Help:Shortcuts', 'Help:Samples', 'Help:ErrorLog', 'Help:About', ...
-                'Help:QuickStart', 'Help:Troubleshooting', 'Help:License'};
+                'Help:QuickStart', 'Help:Troubleshooting', 'Help:License', ...
+                'Help:SupportBundle', 'Project:HealthCheck', 'Project:RepairLinks'};
 
             if any(strcmp(cmdId, globalCommands))
                 scope = 'global';
@@ -190,6 +191,12 @@ classdef CommandRouter < handle
                     obj.openHelpDoc('QuickStart.md');
                 case 'Help:Troubleshooting'
                     obj.openHelpDoc('Troubleshooting.md');
+                case 'Help:SupportBundle'
+                    obj.exportSupportBundle(app);
+                case 'Project:HealthCheck'
+                    obj.runProjectHealthCheck(app);
+                case 'Project:RepairLinks'
+                    flightdash.ui.MissingFileRepairDialog.show(app);
                 case 'File:Exit'
                     delete(app);
                 otherwise
@@ -336,6 +343,32 @@ classdef CommandRouter < handle
 
         function s = collapsedToOnOff(~, isCollapsed)
             if isCollapsed, s = 'off'; else, s = 'on'; end
+        end
+
+        function runProjectHealthCheck(obj, app)
+            try
+                report = flightdash.project.ProjectHealthChecker.check(app.Project);
+                summary = flightdash.project.ProjectHealthChecker.summarize(report);
+                obj.setStatus(summary);
+                if ~flightdash.project.ProjectHealthChecker.isHealthy(report)
+                    flightdash.ui.MissingFileRepairDialog.show(app);
+                end
+            catch ME
+                obj.reportException('Command', 'Project:HealthCheck', ME);
+            end
+        end
+
+        function exportSupportBundle(obj, app)
+            try
+                zipPath = flightdash.util.SupportBundle.exportFor(app);
+                if isempty(zipPath)
+                    obj.setStatus('Support bundle export cancelled');
+                else
+                    obj.setStatus(sprintf('Support bundle: %s', zipPath));
+                end
+            catch ME
+                obj.reportException('Command', 'Help:SupportBundle', ME);
+            end
         end
 
         function openHelpDoc(obj, basename)
