@@ -30,17 +30,17 @@ classdef SessionContext < handle
     % as a Dependent forward so legacy reads stay unchanged.
     properties (Access = public)
         UseSharedDecodeService  logical = false
+        IsEmbedded              logical = false
         RootContainer                   = []
         SharedCacheService              = []
         SharedDecodeService             = []
+        UndoService                     = []
     end
 
     properties (Dependent, SetAccess = private)
         ActiveSessionId         char
-        IsEmbedded              logical
         UIFigure
         MouseRouter
-        UndoService
     end
 
     methods
@@ -73,13 +73,6 @@ classdef SessionContext < handle
             end
         end
 
-        function v = get.IsEmbedded(obj)
-            v = false;
-            if obj.isValidApp() && isprop(obj.AppRef, 'IsEmbedded')
-                v = logical(obj.AppRef.IsEmbedded);
-            end
-        end
-
         function v = get.UIFigure(obj)
             v = [];
             if obj.isValidApp() && isprop(obj.AppRef, 'UIFigure')
@@ -94,11 +87,5 @@ classdef SessionContext < handle
             end
         end
 
-        function v = get.UndoService(obj)
-            v = [];
-            if obj.isValidApp() && isprop(obj.AppRef, 'UndoService')
-                v = obj.AppRef.UndoService;
-            end
-        end
     end
 end

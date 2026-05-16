@@ -135,7 +135,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % - embedded:   Studio가 부모 컨테이너에 embed 시 'S001', 'S002' 등 SessionId 부여
         % 모든 SessionId-aware 코드(throttle, drag controller, EventBus)는 이 값을 참조
         ActiveSessionId     = 'standalone'    % [PHASE 0.8] active session id (Studio 통합 prep)
-        IsEmbedded          = false           % [PHASE 0.8] standalone vs embedded mode
+        % IsEmbedded ownership inverted (R7).
 
         % [PHASE 3a] 임베드 인터페이스 자리 표시
         % - standalone: RootContainer = UIFigure (생성자가 자동 설정)
@@ -144,7 +144,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % RootContainer ownership inverted (R7) — see Dependent block.
         MouseRouter         = []              % [PHASE 3.5] Studio-owned mouse router hook
         % SharedCacheService / SharedDecodeService ownership inverted (R7).
-        UndoService         = []              % Per-session undo/redo service injected by Studio
+        % UndoService ownership inverted (R7).
         % UseSharedDecodeService ownership inverted (R7) — see Dependent block.
         % [REFACTOR R1] Read-only facade over the 9 session-identity
         % properties above. Lazy-created on first getSessionContext()
@@ -226,6 +226,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         RootContainer           % proxies app.SessionContext.RootContainer
         SharedCacheService      % proxies app.SessionContext.SharedCacheService
         SharedDecodeService     % proxies app.SessionContext.SharedDecodeService
+        IsEmbedded              % proxies app.SessionContext.IsEmbedded
+        UndoService             % proxies app.SessionContext.UndoService
     end
 
     methods
@@ -637,6 +639,38 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.SessionContext = flightdash.runtime.SessionContext(app);
             end
             app.SessionContext.SharedDecodeService = value;
+        end
+
+        function v = get.IsEmbedded(app)
+            v = false;
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = app.SessionContext.IsEmbedded;
+                end
+            catch
+            end
+        end
+        function set.IsEmbedded(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.IsEmbedded = logical(value);
+        end
+
+        function v = get.UndoService(app)
+            v = [];
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = app.SessionContext.UndoService;
+                end
+            catch
+            end
+        end
+        function set.UndoService(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.UndoService = value;
         end
     end
 

@@ -2575,6 +2575,42 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyTrue(isempty(app.SharedCacheService));
         end
 
+        function test_T15_Refactor_R7_IsEmbeddedAndUndoServiceInverted(testCase)
+            % R7 fourth commit: IsEmbedded + UndoService flip to
+            % SessionContext storage. IsEmbedded is the constructor's
+            % very first write — it MUST survive the explicit
+            % SessionContext init thanks to the idempotent guard.
+            host = uifigure('Visible', 'off');
+            cleanupHost = onCleanup(@() delete(host)); %#ok<NASGU>
+            tabs = uitabgroup(host);
+            tab  = uitab(tabs, 'Title', 'IE');
+
+            % Embedded path: IsEmbedded must end up true post-construction.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard(tab, 'S-IE');
+            catch ME
+                testCase.assumeFail(sprintf('Embedded build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            testCase.verifyTrue(app.IsEmbedded);
+            testCase.verifyTrue(app.SessionContext.IsEmbedded);
+
+            % UndoService was assigned via app.UndoService = flightdash
+            % .studio.UndoService(...) inside the constructor.
+            testCase.verifyTrue(~isempty(app.UndoService));
+            testCase.verifyTrue(~isempty(app.SessionContext.UndoService));
+            testCase.verifyTrue(isequal(app.UndoService, app.SessionContext.UndoService));
+
+            % Reverse direction.
+            app.SessionContext.IsEmbedded = false;
+            testCase.verifyFalse(app.IsEmbedded);
+            stubSvc = struct('placeholder', 'undo');
+            app.UndoService = stubSvc;
+            testCase.verifyEqual(app.SessionContext.UndoService, stubSvc);
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
