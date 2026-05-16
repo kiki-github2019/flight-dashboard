@@ -327,7 +327,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
 
             % [REFACTOR Step 4] 컨트롤러 인스턴스 (createLayout 전 필수)
-            app.FileCtrl      = flightdash.controller.FileController(app);
+            app.FileCtrl      = flightdash.controller.FileController(app.Adapter);
             app.VideoSyncCtrl = flightdash.controller.VideoSyncController(app);
             app.PlaybackCtrl  = flightdash.controller.PlaybackController(app);
             app.PlotCtrl      = flightdash.controller.PlotController(app);
