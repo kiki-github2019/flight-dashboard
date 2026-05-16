@@ -1,9 +1,18 @@
 classdef RoiController < handle
     % flightdash.controller.RoiController
     % Owns ROI events, ROI table state updates, and ROI statistics commands.
+    %
+    % [REFACTOR R5+9] Migrated to DashboardAppAdapter. Adapter routes
+    % EventBus / session / uiFigure / undoService / logCaught; the
+    % per-ROI write surface (app.UI(fIdx).roiRows / roiGraphics /
+    % selectedRoiIdx / roiTable; app.Models / app.currentPlotXLim /
+    % app.currentPlotTabIndex / app.selectedPlotIndex / app.AuxWindowMgr
+    % / app.throttleHit / app.excludeFromLegend / app.deleteGraphicsHan-
+    % dles / app.registerReviewResult / app.lookupStudioMouseRouter)
+    % stays on obj.Adapter.app().
 
     properties (Access = private)
-        App
+        Adapter  % flightdash.runtime.DashboardAppAdapter
         Listeners cell = {}
         IsDraggingRoi logical = false
         CurrentHitInfo = struct()
@@ -23,13 +32,22 @@ classdef RoiController < handle
     end
 
     methods
-        function obj = RoiController(app)
-            obj.App = app;
+        function obj = RoiController(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
+                obj.Adapter = adapterOrApp;
+            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                obj.Adapter = adapterOrApp.getAdapter();
+            else
+                error('RoiController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
+            end
             obj.subscribeEvents();
         end
 
         function subscribeEvents(obj)
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
+            app = obj.Adapter.app();
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
             % [PHASE 4] Each handler bails when this controller's app
             % is not the active Studio session.
             obj.Listeners{end+1} = EB('RoiAddRequested',            @(~,d) obj.gated(@(d_) obj.addCurrentRoi(d_.ChannelIdx), d));
@@ -40,12 +58,12 @@ classdef RoiController < handle
         end
 
         function gated(obj, fn, d)
-            if ~obj.App.isActiveSession(d), return; end
+            if ~obj.Adapter.app().isActiveSession(d), return; end
             fn(d);
         end
 
         function addCurrentRoi(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 if isempty(app.Models(fIdx).rawData), return; end
                 timeCol = app.Models(fIdx).mappedCols.Time;
@@ -61,12 +79,12 @@ classdef RoiController < handle
                 rowIdx = obj.insertRoiRow(fIdx, row, Inf);
                 obj.pushRoiRowsCommand(fIdx, rowIdx, row, 'create', 'Create ROI');
             catch ME
-                app.logCaught(ME, 'ROI:add');
+                obj.Adapter.logCaught(ME, 'ROI:add');
             end
         end
 
         function onSelectionChanged(obj, fIdx, event)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 app.UI(fIdx).selectedRoiIdx = 0;
                 if isempty(event) || isempty(event.Indices), return; end
@@ -75,12 +93,12 @@ classdef RoiController < handle
                     app.UI(fIdx).selectedRoiIdx = row;
                 end
             catch ME
-                app.logCaught(ME, 'ROI:select');
+                obj.Adapter.logCaught(ME, 'ROI:select');
             end
         end
 
         function deleteSelectedRoi(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows), return; end
                 row = 0;
@@ -90,12 +108,12 @@ classdef RoiController < handle
                 obj.removeRoiRowAt(fIdx, row);
                 obj.pushRoiRowsCommand(fIdx, row, rowData, 'delete', 'Delete ROI');
             catch ME
-                app.logCaught(ME, 'ROI:deleteSelected');
+                obj.Adapter.logCaught(ME, 'ROI:deleteSelected');
             end
         end
 
         function clearRois(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 obj.deleteGraphics(fIdx);
                 app.UI(fIdx).roiRows = cell(0, 5);
@@ -103,24 +121,24 @@ classdef RoiController < handle
                 obj.refreshTable(fIdx);
                 app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
             catch ME
-                app.logCaught(ME, 'ROI:clear');
+                obj.Adapter.logCaught(ME, 'ROI:clear');
             end
         end
 
         function refreshTable(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 if isfield(app.UI(fIdx), 'roiTable') && ~isempty(app.UI(fIdx).roiTable) && isvalid(app.UI(fIdx).roiTable)
                     app.UI(fIdx).roiTable.Data = app.UI(fIdx).roiRows;
                 end
                 app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
             catch ME
-                app.logCaught(ME, 'ROI:refreshTable');
+                obj.Adapter.logCaught(ME, 'ROI:refreshTable');
             end
         end
 
         function computeAnalysis(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows)
                     app.AuxWindowMgr.openStatsFigure(app, fIdx);
@@ -136,12 +154,12 @@ classdef RoiController < handle
                 obj.drawBands(fIdx);
                 app.AuxWindowMgr.openStatsFigure(app, fIdx);
             catch ME
-                app.logCaught(ME, 'ROI:analysis');
+                obj.Adapter.logCaught(ME, 'ROI:analysis');
             end
         end
 
         function registerSelectedResult(obj, fIdx, rows, times)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 roiIdx = 0;
                 if isfield(app.UI(fIdx), 'selectedRoiIdx')
@@ -154,26 +172,29 @@ classdef RoiController < handle
                         return;
                     end
                 end
+                session = obj.Adapter.session();
+                sessionId = 'standalone';
+                if ~isempty(session), sessionId = session.ActiveSessionId; end
                 request = flightdash.analysis.AnalysisService.makeRoiStatisticsRequest( ...
-                    app.ActiveSessionId, fIdx, roiIdx, rows(roiIdx, :), ...
+                    sessionId, fIdx, roiIdx, rows(roiIdx, :), ...
                     times, app.Models(fIdx).rawData, app.VideoSyncState(fIdx), ...
                     flightdash.analysis.AnalysisService.DefaultRoiStatsThemeId);
                 analysisResult = flightdash.analysis.AnalysisService.run(request);
                 resultModel = flightdash.analysis.AnalysisService.toReviewResultModel(analysisResult);
                 app.registerReviewResult(resultModel);
             catch ME
-                app.logCaught(ME, 'ROI:registerResult');
+                obj.Adapter.logCaught(ME, 'ROI:registerResult');
             end
         end
 
         function targetCol = matchTargetColumn(obj, fIdx, signalName)
-            app = obj.App;
+            app = obj.Adapter.app();
             vars = app.Models(fIdx).rawData.Properties.VariableNames;
             targetCol = flightdash.model.RoiAnalyzer.matchTargetColumn(vars, signalName);
         end
 
         function drawBands(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 obj.clearHover();
                 obj.deleteGraphics(fIdx);
@@ -199,12 +220,12 @@ classdef RoiController < handle
                 end
                 app.UI(fIdx).roiGraphics = roiHandles;
             catch ME
-                app.logCaught(ME, 'ROI:draw');
+                obj.Adapter.logCaught(ME, 'ROI:draw');
             end
         end
 
         function deleteGraphics(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 obj.clearHover();
                 if isfield(app.UI(fIdx), 'roiGraphics')
@@ -212,7 +233,7 @@ classdef RoiController < handle
                 end
                 app.UI(fIdx).roiGraphics = {};
             catch ME
-                app.logCaught(ME, 'ROI:deleteGraphics');
+                obj.Adapter.logCaught(ME, 'ROI:deleteGraphics');
             end
         end
 
@@ -220,7 +241,7 @@ classdef RoiController < handle
             tf = false;
             target = [];
             try
-                app = obj.App;
+                app = obj.Adapter.app();
                 if isempty(app) || ~isvalid(app) || ~app.isActiveSession()
                     return;
                 end
@@ -262,7 +283,7 @@ classdef RoiController < handle
                     end
                 end
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:hitTest'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:hitTest');
                 tf = false;
                 target = [];
             end
@@ -282,19 +303,23 @@ classdef RoiController < handle
                 obj.DragStartXData = target.XData;
                 obj.IsDraggingRoi = false;
 
+                app = obj.Adapter.app();
                 router = [];
                 try
-                    if ismethod(obj.App, 'lookupStudioMouseRouter')
-                        router = obj.App.lookupStudioMouseRouter();
+                    if ismethod(app, 'lookupStudioMouseRouter')
+                        router = app.lookupStudioMouseRouter();
                     end
                 catch
                 end
+                session = obj.Adapter.session();
+                sessionId = 'standalone';
+                if ~isempty(session), sessionId = session.ActiveSessionId; end
                 if ~isempty(router) && isvalid(router) && ...
-                        router.requestDragLock(obj.App.ActiveSessionId, obj, 'fleur', 'roi')
+                        router.requestDragLock(sessionId, obj, 'fleur', 'roi')
                     obj.IsDraggingRoi = true;
                 end
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:hitButtonDown'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:hitButtonDown');
             end
         end
 
@@ -310,7 +335,7 @@ classdef RoiController < handle
                     obj.clearHover();
                 end
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:hover'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:hover');
             end
         end
 
@@ -329,7 +354,7 @@ classdef RoiController < handle
                 obj.HoveredHandles = obj.roiGraphicHandles(target.ChannelIdx, target.RoiIndex);
                 obj.applyHoverAppearance(target);
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:setHover'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:setHover');
             end
         end
 
@@ -354,7 +379,7 @@ classdef RoiController < handle
                 return;
             end
             try
-                app = obj.App;
+                app = obj.Adapter.app();
                 info = obj.CurrentHitInfo;
                 if isempty(app) || ~isvalid(app) || isempty(info) || ~isstruct(info) || ...
                         ~isfield(info, 'ChannelIdx') || ~isfield(info, 'RoiIndex') || ...
@@ -367,7 +392,9 @@ classdef RoiController < handle
                     return;
                 end
 
-                currX = obj.figurePointToAxesX(info.Axes, app.UIFigure.CurrentPoint(1:2));
+                fig = obj.Adapter.uiFigure();
+                if isempty(fig) || ~isvalid(fig), return; end
+                currX = obj.figurePointToAxesX(info.Axes, fig.CurrentPoint(1:2));
                 if ~isfinite(currX) || ~isfinite(obj.DragStartXData)
                     return;
                 end
@@ -380,7 +407,7 @@ classdef RoiController < handle
                     drawnow limitrate nocallbacks;
                 end
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:dragMotion'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:dragMotion');
             end
         end
 
@@ -395,15 +422,16 @@ classdef RoiController < handle
                     obj.drawBands(fIdx);
                 end
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:dragStop'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:dragStop');
             end
             obj.IsDraggingRoi = false;
             obj.CurrentHitInfo = struct();
             obj.OriginalRoiRow = {};
             obj.DragStartXData = NaN;
             try
-                if ~isempty(obj.App) && isvalid(obj.App) && ~isempty(obj.App.UIFigure) && isvalid(obj.App.UIFigure)
-                    obj.handleHover(obj.App.UIFigure.CurrentPoint(1:2));
+                fig = obj.Adapter.uiFigure();
+                if ~isempty(fig) && isvalid(fig)
+                    obj.handleHover(fig.CurrentPoint(1:2));
                 end
             catch
             end
@@ -411,9 +439,10 @@ classdef RoiController < handle
 
         function pushMoveUndoCommand(obj, fIdx, roiIdx)
             try
-                app = obj.App;
-                if isempty(app) || ~isvalid(app) || isempty(app.UndoService) || ...
-                        ~isvalid(app.UndoService) || isempty(obj.OriginalRoiRow)
+                app = obj.Adapter.app();
+                undoSvc = obj.Adapter.undoService();
+                if isempty(app) || ~isvalid(app) || isempty(undoSvc) || ...
+                        ~isvalid(undoSvc) || isempty(obj.OriginalRoiRow)
                     return;
                 end
                 if ~isfield(app.UI(fIdx), 'roiRows') || roiIdx < 1 || roiIdx > size(app.UI(fIdx).roiRows, 1)
@@ -424,11 +453,14 @@ classdef RoiController < handle
                 if isequaln(oldRow, newRow)
                     return;
                 end
-                cmd = flightdash.command.MoveROICommand(app.ActiveSessionId, app, ...
+                session = obj.Adapter.session();
+                sessionId = 'standalone';
+                if ~isempty(session), sessionId = session.ActiveSessionId; end
+                cmd = flightdash.command.MoveROICommand(sessionId, app, ...
                     fIdx, roiIdx, oldRow, newRow, sprintf('Move ROI %d', roiIdx));
-                app.UndoService.push(cmd);
+                undoSvc.push(cmd);
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:undoPush'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:undoPush');
             end
         end
 
@@ -484,7 +516,7 @@ classdef RoiController < handle
         end
 
         function rowIdx = insertRoiRow(obj, fIdx, rowData, rowIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             if nargin < 4 || isempty(rowIdx) || isnan(rowIdx) || isinf(rowIdx)
                 rowIdx = Inf;
             end
@@ -511,12 +543,12 @@ classdef RoiController < handle
                 obj.drawBands(fIdx);
                 app.AuxWindowMgr.openRoiFigure(app, fIdx);
             catch ME
-                app.logCaught(ME, 'ROI:insertRow');
+                obj.Adapter.logCaught(ME, 'ROI:insertRow');
             end
         end
 
         function rowData = removeRoiRowAt(obj, fIdx, rowIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             rowData = {};
             try
                 if ~isfield(app.UI(fIdx), 'roiRows') || isempty(app.UI(fIdx).roiRows), return; end
@@ -533,7 +565,7 @@ classdef RoiController < handle
                 obj.drawBands(fIdx);
                 app.AuxWindowMgr.refreshRoiFigure(app, fIdx);
             catch ME
-                app.logCaught(ME, 'ROI:removeRow');
+                obj.Adapter.logCaught(ME, 'ROI:removeRow');
             end
         end
 
@@ -550,15 +582,19 @@ classdef RoiController < handle
 
         function pushRoiRowsCommand(obj, fIdx, rowIdx, rowData, operation, description)
             try
-                app = obj.App;
-                if isempty(app) || ~isvalid(app) || ~isprop(app, 'UndoService') || isempty(app.UndoService)
+                app = obj.Adapter.app();
+                undoSvc = obj.Adapter.undoService();
+                if isempty(app) || ~isvalid(app) || isempty(undoSvc)
                     return;
                 end
-                cmd = flightdash.command.RoiRowsCommand(app.ActiveSessionId, obj, ...
+                session = obj.Adapter.session();
+                sessionId = 'standalone';
+                if ~isempty(session), sessionId = session.ActiveSessionId; end
+                cmd = flightdash.command.RoiRowsCommand(sessionId, obj, ...
                     fIdx, rowIdx, rowData, operation, description);
-                app.UndoService.push(cmd);
+                undoSvc.push(cmd);
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:undoPush'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:undoPush');
             end
         end
     end
@@ -618,12 +654,13 @@ classdef RoiController < handle
         end
 
         function selectRoiTarget(obj, fIdx, roiIdx)
-            obj.App.UI(fIdx).selectedRoiIdx = roiIdx;
+            app = obj.Adapter.app();
+            app.UI(fIdx).selectedRoiIdx = roiIdx;
             obj.refreshTable(fIdx);
             try
-                if isfield(obj.App.UI(fIdx), 'roiTable') && ...
-                        ~isempty(obj.App.UI(fIdx).roiTable) && isvalid(obj.App.UI(fIdx).roiTable)
-                    obj.App.UI(fIdx).roiTable.Selection = [roiIdx 1];
+                if isfield(app.UI(fIdx), 'roiTable') && ...
+                        ~isempty(app.UI(fIdx).roiTable) && isvalid(app.UI(fIdx).roiTable)
+                    app.UI(fIdx).roiTable.Selection = [roiIdx 1];
                 end
             catch
             end
@@ -697,10 +734,11 @@ classdef RoiController < handle
         function handles = roiGraphicHandles(obj, fIdx, roiIdx)
             handles = {};
             try
-                if ~isfield(obj.App.UI(fIdx), 'roiGraphics')
+                app = obj.Adapter.app();
+                if ~isfield(app.UI(fIdx), 'roiGraphics')
                     return;
                 end
-                graphics = obj.App.UI(fIdx).roiGraphics;
+                graphics = app.UI(fIdx).roiGraphics;
                 for k = 1:numel(graphics)
                     h = graphics{k};
                     if isempty(h) || ~isvalid(h) || ~isprop(h, 'UserData')
@@ -738,7 +776,7 @@ classdef RoiController < handle
                     h.LineWidth = lineWidth;
                 end
             catch ME
-                try, obj.App.logCaught(ME, 'ROI:hoverAppearance'); catch, end
+                obj.Adapter.logCaught(ME, 'ROI:hoverAppearance');
             end
         end
 

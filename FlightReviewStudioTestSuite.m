@@ -2133,6 +2133,41 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             try, delete(ctrlB); catch, end
         end
 
+        function test_T15_Refactor_RoiControllerAcceptsAdapter(testCase)
+            % Migration #9: RoiController accepts adapter + rejects
+            % bad input. 5 EventBus subscriptions + idle drag state at
+            % construction.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrlA = flightdash.controller.RoiController(app.Adapter);
+            testCase.verifyClass(ctrlA, 'flightdash.controller.RoiController');
+            ctrlB = flightdash.controller.RoiController(app);
+            testCase.verifyClass(ctrlB, 'flightdash.controller.RoiController');
+            threw = false;
+            try
+                flightdash.controller.RoiController(true);
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'RoiController:BadInput');
+            end
+            testCase.verifyTrue(threw);
+            % hitTest with NaN point must safely return false.
+            try
+                [tf, ~] = app.RoiCtrl.hitTest([NaN NaN]);
+                testCase.verifyFalse(tf);
+            catch ME
+                testCase.verifyFail(sprintf('hitTest threw on NaN: %s', ME.message));
+            end
+            try, delete(ctrlA); catch, end
+            try, delete(ctrlB); catch, end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
