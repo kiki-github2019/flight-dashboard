@@ -1244,6 +1244,12 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     app.SharedCacheService.clear();
                 end
             catch, end
+            try
+                if ~isempty(app.SharedDecodeService) && isvalid(app.SharedDecodeService) ...
+                        && ismethod(app.SharedDecodeService, 'stopAsync')
+                    app.SharedDecodeService.stopAsync();
+                end
+            catch, end
             app.SharedDecodeService = [];
             app.SharedCacheService = [];
             app.UndoService = [];

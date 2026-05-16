@@ -4,15 +4,20 @@ classdef SharedDecodeService < handle
     properties
         Cache = []
         ActiveSessionId char = ''
+        AsyncInterval double = 0.01
+        AsyncBatchSize double = 1
     end
 
     properties (Access = private)
         Queue
+        AsyncTimer = []
+        AsyncBusy logical = false
         RequestCounter uint64 = uint64(0)
         SessionGeneration
         CompletedCount double = 0
         DiscardedCount double = 0
         CancelledCount double = 0
+        AsyncErrorCount double = 0
         LastError char = ''
     end
 
@@ -26,26 +31,49 @@ classdef SharedDecodeService < handle
             obj.Queue = obj.emptyQueue();
         end
 
+        function delete(obj)
+            obj.stopAsync();
+        end
+
         function setActiveSession(obj, sessionId)
             obj.ActiveSessionId = char(sessionId);
         end
 
-        function reply = requestFrame(obj, sessionId, channelIdx, videoPath, frameNo, decoderFcn)
+        function reply = requestFrame(obj, sessionId, channelIdx, videoPath, frameNo, decoderFcn, completionFcn)
             if nargin < 6 || isempty(decoderFcn)
                 decoderFcn = @flightdash.services.SharedDecodeService.defaultDecoder;
+            end
+            if nargin < 7
+                completionFcn = [];
             end
 
             [hit, frame] = obj.Cache.get(sessionId, channelIdx, videoPath, frameNo);
             if hit
                 reply = obj.reply('cache-hit', '', frame);
+                obj.invokeCompletion(completionFcn, reply, frame);
                 return;
             end
 
-            req = obj.makeRequest(sessionId, channelIdx, videoPath, frameNo, decoderFcn);
+            req = obj.makeRequest(sessionId, channelIdx, videoPath, frameNo, ...
+                decoderFcn, completionFcn);
 
             obj.coalesceStream(req);
             obj.Queue(end+1) = req;
             reply = obj.reply('queued', req.RequestId, []);
+        end
+
+        function reply = requestFrameAsync(obj, sessionId, channelIdx, videoPath, frameNo, decoderFcn, completionFcn)
+            if nargin < 6 || isempty(decoderFcn)
+                decoderFcn = @flightdash.services.SharedDecodeService.defaultDecoder;
+            end
+            if nargin < 7
+                completionFcn = [];
+            end
+            reply = obj.requestFrame(sessionId, channelIdx, videoPath, frameNo, ...
+                decoderFcn, completionFcn);
+            if strcmp(reply.Status, 'queued')
+                obj.startAsync();
+            end
         end
 
         function [result, frame] = decodeNow(obj, sessionId, channelIdx, videoPath, frameNo, decoderFcn)
@@ -117,6 +145,56 @@ classdef SharedDecodeService < handle
             end
         end
 
+        function startAsync(obj, interval)
+            if nargin >= 2 && ~isempty(interval) && isfinite(interval)
+                obj.AsyncInterval = max(0.001, double(interval));
+            end
+            if obj.queueLength() == 0 || obj.isAsyncRunning()
+                return;
+            end
+
+            obj.stopAsync();
+            try
+                obj.AsyncTimer = timer( ...
+                    'ExecutionMode', 'fixedSpacing', ...
+                    'Period', max(0.001, obj.AsyncInterval), ...
+                    'BusyMode', 'drop', ...
+                    'Name', 'FlightDashSharedDecode', ...
+                    'TimerFcn', @(~,~) obj.onAsyncTimer(), ...
+                    'ErrorFcn', @(~,evt) obj.onAsyncTimerError(evt));
+                start(obj.AsyncTimer);
+            catch ME
+                obj.AsyncErrorCount = obj.AsyncErrorCount + 1;
+                obj.LastError = ME.message;
+                obj.stopAsync();
+            end
+        end
+
+        function stopAsync(obj)
+            timerHandle = obj.AsyncTimer;
+            obj.AsyncTimer = [];
+            obj.AsyncBusy = false;
+            try
+                if ~isempty(timerHandle) && isvalid(timerHandle)
+                    stop(timerHandle);
+                    delete(timerHandle);
+                end
+            catch ME
+                obj.AsyncErrorCount = obj.AsyncErrorCount + 1;
+                obj.LastError = ME.message;
+            end
+        end
+
+        function tf = isAsyncRunning(obj)
+            tf = false;
+            try
+                tf = ~isempty(obj.AsyncTimer) && isvalid(obj.AsyncTimer) && ...
+                    strcmp(obj.AsyncTimer.Running, 'on');
+            catch
+                tf = false;
+            end
+        end
+
         function s = stats(obj)
             cacheStats = obj.Cache.stats();
             s = struct( ...
@@ -124,6 +202,8 @@ classdef SharedDecodeService < handle
                 'Completed', obj.CompletedCount, ...
                 'Discarded', obj.DiscardedCount, ...
                 'Cancelled', obj.CancelledCount, ...
+                'AsyncRunning', obj.isAsyncRunning(), ...
+                'AsyncErrors', obj.AsyncErrorCount, ...
                 'ActiveSessionId', obj.ActiveSessionId, ...
                 'LastError', obj.LastError, ...
                 'Cache', cacheStats);
@@ -136,6 +216,7 @@ classdef SharedDecodeService < handle
             req = obj.Queue(idx);
             obj.Queue(idx) = [];
             [result, frame] = obj.decodeRequest(req);
+            obj.invokeCompletion(req.CompletionFcn, result, frame);
         end
 
         function [result, frame] = decodeRequest(obj, req)
@@ -158,7 +239,7 @@ classdef SharedDecodeService < handle
             end
         end
 
-        function req = makeRequest(obj, sessionId, channelIdx, videoPath, frameNo, decoderFcn)
+        function req = makeRequest(obj, sessionId, channelIdx, videoPath, frameNo, decoderFcn, completionFcn)
             obj.RequestCounter = obj.RequestCounter + 1;
             req = struct( ...
                 'RequestId', char(sprintf('D%06d', double(obj.RequestCounter))), ...
@@ -169,7 +250,8 @@ classdef SharedDecodeService < handle
                 'Generation', obj.generation(sessionId), ...
                 'Priority', obj.priorityFor(sessionId), ...
                 'Sequence', double(obj.RequestCounter), ...
-                'DecoderFcn', decoderFcn);
+                'DecoderFcn', decoderFcn, ...
+                'CompletionFcn', completionFcn);
         end
 
         function q = emptyQueue(~)
@@ -182,7 +264,8 @@ classdef SharedDecodeService < handle
                 'Generation', {}, ...
                 'Priority', {}, ...
                 'Sequence', {}, ...
-                'DecoderFcn', {});
+                'DecoderFcn', {}, ...
+                'CompletionFcn', {});
         end
 
         function gen = generation(obj, sessionId)
@@ -224,6 +307,57 @@ classdef SharedDecodeService < handle
 
         function r = reply(~, status, requestId, frame)
             r = struct('Status', char(status), 'RequestId', char(requestId), 'Frame', frame);
+        end
+
+        function onAsyncTimer(obj)
+            if obj.AsyncBusy
+                return;
+            end
+            obj.AsyncBusy = true;
+            cleanup = onCleanup(@() obj.clearAsyncBusy()); %#ok<NASGU>
+
+            if obj.queueLength() == 0
+                obj.stopAsync();
+                return;
+            end
+
+            batchSize = max(1, round(obj.AsyncBatchSize));
+            for k = 1:batchSize
+                if obj.queueLength() == 0
+                    break;
+                end
+                obj.runNext();
+            end
+
+            if obj.queueLength() == 0
+                obj.stopAsync();
+            end
+        end
+
+        function onAsyncTimerError(obj, evt)
+            obj.AsyncErrorCount = obj.AsyncErrorCount + 1;
+            try
+                obj.LastError = evt.Data.message;
+            catch
+                obj.LastError = 'Shared decode async timer failed.';
+            end
+            obj.stopAsync();
+        end
+
+        function clearAsyncBusy(obj)
+            obj.AsyncBusy = false;
+        end
+
+        function invokeCompletion(obj, completionFcn, result, frame)
+            if isempty(completionFcn)
+                return;
+            end
+            try
+                completionFcn(result, frame);
+            catch ME
+                obj.AsyncErrorCount = obj.AsyncErrorCount + 1;
+                obj.LastError = ME.message;
+            end
         end
     end
 

@@ -14,11 +14,12 @@ function results = verifyPhase10()
         'P10-7', @checkRunAllAndCacheStats
         'P10-8', @checkRunRequestSpecific
         'P10-9', @checkDecodeNowCachesWithoutQueue
-        'P10-10', @checkStudioInjectionHooks
-        'P10-11', @checkDashboardDecodeOptInHooks
-        'P10-12', @checkSessionCleanupHooks
-        'P10-13', @checkSessionScopeFailClosed
-        'P10-14', @checkPrototypeScopeGuard
+        'P10-10', @checkAsyncQueueDrains
+        'P10-11', @checkStudioInjectionHooks
+        'P10-12', @checkDashboardDecodeOptInHooks
+        'P10-13', @checkSessionCleanupHooks
+        'P10-14', @checkSessionScopeFailClosed
+        'P10-15', @checkPrototypeScopeGuard
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -176,6 +177,41 @@ function [ok, msg, status] = checkDecodeNowCachesWithoutQueue()
         'decodeNow queued work or missed cache store');
 end
 
+function [ok, msg, status] = checkAsyncQueueDrains()
+    status = '';
+    svc = flightdash.services.SharedDecodeService();
+    cleanup = onCleanup(@() svc.stopAsync()); %#ok<NASGU>
+    callbackStatus = '';
+    callbackFrame = [];
+
+    reply = svc.requestFrameAsync('S_ASYNC', 1, 'async.avi', 4, ...
+        @decodeFromRequest, @captureResult);
+
+    deadline = tic;
+    hit = false;
+    img = [];
+    while toc(deadline) < 2.0
+        pause(0.02);
+        [hit, img] = svc.Cache.get('S_ASYNC', 1, 'async.avi', 4);
+        if hit
+            break;
+        end
+    end
+
+    stats = svc.stats();
+    ok = strcmp(reply.Status, 'queued') && hit && ~isempty(img) && img(1) == uint8(4) && ...
+        svc.queueLength() == 0 && stats.Completed == 1 && stats.AsyncErrors == 0 && ...
+        strcmp(callbackStatus, 'completed') && ~isempty(callbackFrame) && ...
+        callbackFrame(1) == uint8(4);
+    msg = passFail(ok, 'Async shared decode drains the queue and stores callback results', ...
+        'Async shared decode did not drain/cache/callback as expected');
+
+    function captureResult(result, frame)
+        callbackStatus = result.Status;
+        callbackFrame = frame;
+    end
+end
+
 function [ok, msg, status] = checkStudioInjectionHooks()
     status = '';
     appMeta = meta.class.fromName('flightdash.studio.FlightReviewStudioApp');
@@ -220,6 +256,7 @@ function [ok, msg, status] = checkSessionCleanupHooks()
         hasMetaMethod(dashMeta, 'cleanupAllControllers') && ...
         hasMetaMethod(cacheMeta, 'invalidateSession') && ...
         hasMetaMethod(decodeMeta, 'cancelSession') && ...
+        hasMetaMethod(decodeMeta, 'stopAsync') && ...
         hasMetaMethod(scopeMeta, 'isOwner');
     msg = passFail(ok, 'Session cleanup hooks cover router, dashboard, shared decode/cache, and scope guard', ...
         'Session cleanup hooks are missing');
