@@ -850,6 +850,88 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             studioApp = [];
         end
 
+        function fields = getAvailableDataFields(app, fIdx)
+            % Pre-PFE-3 read-only wrapper. Returns the CSV column
+            % names available for channel `fIdx`. Returns {} on any
+            % invalid input or empty data — never throws.
+            fields = {};
+            try
+                if nargin < 2 || isempty(fIdx) || ~isnumeric(fIdx), return; end
+                fIdx = double(fIdx);
+                if fIdx < 1 || fIdx > numel(app.Models), return; end
+                m = app.Models(fIdx);
+                if isempty(m.rawData), return; end
+                vn = m.rawData.Properties.VariableNames;
+                if iscell(vn) && ~isempty(vn)
+                    fields = vn;
+                end
+            catch
+                fields = {};
+            end
+        end
+
+        function tf = hasFlightDataLoaded(app, fIdx)
+            % Pre-PFE-3 read-only wrapper. True iff channel `fIdx` has
+            % a non-empty rawData table with height > 0.
+            tf = false;
+            try
+                if nargin < 2 || isempty(fIdx) || ~isnumeric(fIdx), return; end
+                fIdx = double(fIdx);
+                if fIdx < 1 || fIdx > numel(app.Models), return; end
+                m = app.Models(fIdx);
+                tf = ~isempty(m.rawData) && height(m.rawData) > 0;
+            catch
+                tf = false;
+            end
+        end
+
+        function context = getOptionEditorContext(app, fIdx)
+            % Pre-PFE-3 read-only wrapper. Returns a struct describing
+            % everything the Project File Editor's option-file editor
+            % needs to render itself. Never returns rawData — only its
+            % metadata (variable names). Safe defaults on any error.
+            context = struct( ...
+                'HasData',         false, ...
+                'AvailableFields', {{}}, ...
+                'MappedCols',      struct(), ...
+                'DisplayMeta',     struct('header', {}, 'unit', {}, ...
+                                          'format', {}, 'scale', {}, 'order', {}), ...
+                'CurrentIndex',    1, ...
+                'FlightFilePath',  '', ...
+                'OptionFilePath',  '');
+            try
+                if nargin < 2 || isempty(fIdx) || ~isnumeric(fIdx), return; end
+                fIdx = double(fIdx);
+                if fIdx < 1 || fIdx > numel(app.Models), return; end
+                context.HasData         = app.hasFlightDataLoaded(fIdx);
+                context.AvailableFields = app.getAvailableDataFields(fIdx);
+                m = app.Models(fIdx);
+                if isstruct(m.mappedCols)
+                    context.MappedCols = m.mappedCols;
+                end
+                if isstruct(m.displayMeta)
+                    context.DisplayMeta = m.displayMeta;
+                end
+                if isnumeric(m.currentIndex) && ~isempty(m.currentIndex)
+                    context.CurrentIndex = double(m.currentIndex);
+                end
+                % File paths (best-effort — exposed via existing app.UI
+                % header-bar state when present).
+                try
+                    if isfield(app, 'FlightFilePath') && fIdx <= numel(app.FlightFilePath)
+                        context.FlightFilePath = char(app.FlightFilePath{fIdx});
+                    end
+                catch, end
+                try
+                    if isfield(app, 'OptionFilePath') && fIdx <= numel(app.OptionFilePath)
+                        context.OptionFilePath = char(app.OptionFilePath{fIdx});
+                    end
+                catch, end
+            catch
+                % Safe defaults already populated above.
+            end
+        end
+
         function tf = mappedColAvailable(app, fIdx, key)
             % Stabilization helper (review section 5.4): returns true iff
             % the loader successfully mapped `key` (e.g. 'Roll') AND the

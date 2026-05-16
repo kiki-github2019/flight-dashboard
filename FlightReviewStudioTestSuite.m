@@ -1481,6 +1481,89 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Missing critical Lat/Lon must surface as critical missing.');
         end
 
+        function test_T15_DashboardReadOnlyWrappers_NoCrash(testCase)
+            % Pre-PFE-3: smoke test the three read-only wrappers via a
+            % launched Studio app + active dashboard. Verifies the
+            % wrappers exist and return safe default types for an
+            % unloaded session (no CSV yet).
+            app = testCase.launchStudio();
+            sid = app.addSession('T15 RO Wrappers'); %#ok<NASGU>
+            drawnow limitrate;
+            dash = [];
+            try, dash = app.getActiveDashboard(); catch, end
+            testCase.assumeTrue(~isempty(dash) && isvalid(dash), ...
+                'No active dashboard for read-only wrapper test.');
+            testCase.assumeTrue(ismethod(dash, 'getAvailableDataFields'), ...
+                'getAvailableDataFields not present — skipping.');
+            % Empty / unloaded path.
+            f1 = dash.getAvailableDataFields(1);
+            testCase.verifyClass(f1, 'cell');
+            tf = dash.hasFlightDataLoaded(1);
+            testCase.verifyClass(tf, 'logical');
+            ctx = dash.getOptionEditorContext(1);
+            testCase.verifyClass(ctx, 'struct');
+            for fn = {'HasData','AvailableFields','MappedCols','DisplayMeta', ...
+                      'CurrentIndex','FlightFilePath','OptionFilePath'}
+                testCase.verifyTrue(isfield(ctx, fn{1}), ...
+                    sprintf('context missing field "%s"', fn{1}));
+            end
+        end
+
+        function test_T15_DashboardReadOnlyWrappers_InvalidIndexSafe(testCase)
+            % Pre-PFE-3: out-of-range / invalid fIdx must NOT throw.
+            app = testCase.launchStudio();
+            sid = app.addSession('T15 RO InvalidIdx'); %#ok<NASGU>
+            drawnow limitrate;
+            dash = [];
+            try, dash = app.getActiveDashboard(); catch, end
+            testCase.assumeTrue(~isempty(dash) && isvalid(dash) ...
+                && ismethod(dash, 'getAvailableDataFields'), ...
+                'wrappers unavailable — skipping.');
+            for bogus = {99, -3, [], 'x', NaN}
+                try
+                    f = dash.getAvailableDataFields(bogus{1});
+                    tf = dash.hasFlightDataLoaded(bogus{1});
+                    ctx = dash.getOptionEditorContext(bogus{1});
+                catch ME
+                    testCase.verifyFail(sprintf( ...
+                        'Wrappers threw for bogus fIdx %s: %s', ...
+                        class(bogus{1}), ME.message));
+                    return;
+                end
+                testCase.verifyClass(f, 'cell');
+                testCase.verifyEqual(tf, false);
+                testCase.verifyEqual(ctx.HasData, false);
+            end
+        end
+
+        function test_T15_DashboardReadOnlyWrappers_EmptyDataSafe(testCase)
+            % Pre-PFE-3: with a valid channel but empty rawData, the
+            % wrappers must return safe defaults (no crash, no field
+            % list, HasData=false).
+            app = testCase.launchStudio();
+            sid = app.addSession('T15 RO EmptyData'); %#ok<NASGU>
+            drawnow limitrate;
+            dash = [];
+            try, dash = app.getActiveDashboard(); catch, end
+            testCase.assumeTrue(~isempty(dash) && isvalid(dash) ...
+                && ismethod(dash, 'hasFlightDataLoaded'), ...
+                'wrappers unavailable — skipping.');
+            % Forcefully blank the model rawData to simulate "channel
+            % exists but no CSV loaded" cleanly.
+            try
+                if ~isempty(dash.Models) && numel(dash.Models) >= 1
+                    dash.Models(1).rawData = table.empty;
+                end
+            catch
+                testCase.assumeFail('Could not blank Models(1).rawData');
+            end
+            testCase.verifyFalse(dash.hasFlightDataLoaded(1));
+            testCase.verifyEqual(dash.getAvailableDataFields(1), {});
+            ctx = dash.getOptionEditorContext(1);
+            testCase.verifyFalse(ctx.HasData);
+            testCase.verifyEqual(ctx.AvailableFields, {});
+        end
+
         function test_T15_OptionFileModel_DuplicateDisplayFieldRejected(testCase)
             model = flightdash.project.OptionFileModel(1);
             model.addDisplayRow('Flight_LAT', 'deg', '%.6f', 1, 1);
