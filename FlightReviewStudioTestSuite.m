@@ -1108,6 +1108,57 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Plot Patch face colors changed after theme toggle.');
         end
 
+        function test_T11_ProjectPacker_CopiesOptionFiles(testCase)
+            % Phase F: ProjectPacker.pack must copy option*.dat into the
+            % packed config/ folder and rewrite the OptionFilePath to a
+            % relative 'config/optionN.dat' path. Original project must
+            % NOT be mutated.
+            try
+                project = flightdash.project.ProjectModel('T11 Pack Test');
+                sess = flightdash.project.SessionModel('S1');
+            catch ME
+                testCase.assumeFail(sprintf('Model ctor failed: %s', ME.message));
+            end
+            here = fileparts(mfilename('fullpath'));
+            srcOpt1 = fullfile(here, 'sample_data', 'option1.dat');
+            srcOpt2 = fullfile(here, 'sample_data', 'option2.dat');
+            testCase.assumeTrue(isfile(srcOpt1) && isfile(srcOpt2), ...
+                'sample_data option files unavailable — skipping.');
+            sess.OptionFilePath = {srcOpt1, srcOpt2};
+            project = project.addSession(sess);
+
+            destFolder = fullfile(tempdir, 'flightdash_pack_test');
+            if isfolder(destFolder), rmdir(destFolder, 's'); end
+            mkdir(destFolder);
+
+            opts = struct('IncludeVideo', true, 'IncludeFlightData', true, ...
+                'IncludeOptionFiles', true, 'UseRelativePaths', true, ...
+                'Overwrite', true);
+            result = flightdash.project.ProjectPacker.pack(project, destFolder, opts);
+
+            testCase.verifyTrue(result.OK, ...
+                sprintf('Pack should succeed. Warnings: %s', ...
+                    strjoin(result.Warnings, ' | ')));
+            testCase.verifyTrue(isfolder(result.PackedRoot), ...
+                'Packed root folder not created.');
+            testCase.verifyTrue( ...
+                isfile(fullfile(result.PackedRoot, 'config', 'option1.dat')), ...
+                'config/option1.dat missing in packed project.');
+            testCase.verifyTrue( ...
+                isfile(fullfile(result.PackedRoot, 'config', 'option2.dat')), ...
+                'config/option2.dat missing in packed project.');
+            testCase.verifyTrue(isfile(result.PackedProjectPath), ...
+                'Packed .frsproj missing.');
+
+            % Original project's OptionFilePath unchanged.
+            testCase.verifyEqual(project.Sessions(1).OptionFilePath, ...
+                {srcOpt1, srcOpt2}, ...
+                'Original project OptionFilePath was mutated.');
+
+            % Cleanup.
+            try, rmdir(destFolder, 's'); catch, end
+        end
+
         function test_T11_SessionModel_OptionFilePath_RoundTrip(testCase)
             % Phase A: SessionModel.OptionFilePath must round-trip
             % through ProjectSerializer and fall back to {'',''} when a

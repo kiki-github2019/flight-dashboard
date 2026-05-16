@@ -125,6 +125,8 @@ classdef CommandRouter < handle
                     app.saveProject();
                 case 'File:SaveProjectAs'
                     app.saveProjectAs();
+                case 'File:PackProject'
+                    obj.packProject(app);
                 case {'Toolbar:AddSession', 'Project:AddSession'}
                     app.addSession();
                 case 'Edit:Undo'
@@ -346,6 +348,41 @@ classdef CommandRouter < handle
 
         function s = collapsedToOnOff(~, isCollapsed)
             if isCollapsed, s = 'off'; else, s = 'on'; end
+        end
+
+        function packProject(obj, app)
+            % Phase F entry point. Prompts the user for a destination
+            % folder, runs ProjectPacker (which operates on a deep
+            % copy — never mutates the live app.Project), and reports
+            % warnings + the packed .frsproj path to the status bar.
+            try
+                if isempty(app) || ~isvalid(app) || isempty(app.Project)
+                    obj.setStatus('Pack Project: no project loaded.');
+                    return;
+                end
+                destFolder = uigetdir(pwd, 'Pack Project — choose destination folder');
+                if isequal(destFolder, 0), return; end
+                opts = struct('IncludeVideo', true, 'IncludeFlightData', true, ...
+                    'IncludeOptionFiles', true, 'UseRelativePaths', true, ...
+                    'Overwrite', false);
+                result = flightdash.project.ProjectPacker.pack(app.Project, destFolder, opts);
+                if result.OK
+                    msg = sprintf('Packed: %s', result.PackedProjectPath);
+                    if ~isempty(result.Warnings)
+                        msg = sprintf('%s (%d warnings)', msg, numel(result.Warnings));
+                    end
+                    obj.setStatus(msg);
+                    if ~isempty(result.Warnings) && ~isempty(app.UIFigure) ...
+                            && isvalid(app.UIFigure)
+                        uialert(app.UIFigure, strjoin(result.Warnings, newline), ...
+                            'Pack Project — warnings', 'Icon', 'warning');
+                    end
+                else
+                    obj.setStatus(['Pack Project failed: ' strjoin(result.Warnings, ' | ')]);
+                end
+            catch ME
+                obj.reportException('Command', 'File:PackProject', ME);
+            end
         end
 
         function runProjectHealthCheck(obj, app)
