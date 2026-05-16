@@ -2105,6 +2105,34 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             try, delete(ctrlB); catch, end
         end
 
+        function test_T15_Refactor_PlotControllerAcceptsAdapter(testCase)
+            % Migration #8: PlotController accepts adapter + rejects
+            % bad input. 10 EventBus subscriptions must complete at
+            % construction without throwing.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrlA = flightdash.controller.PlotController(app.Adapter);
+            testCase.verifyClass(ctrlA, 'flightdash.controller.PlotController');
+            ctrlB = flightdash.controller.PlotController(app);
+            testCase.verifyClass(ctrlB, 'flightdash.controller.PlotController');
+            threw = false;
+            try
+                flightdash.controller.PlotController([1 2 3]);
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'PlotController:BadInput');
+            end
+            testCase.verifyTrue(threw);
+            try, delete(ctrlA); catch, end
+            try, delete(ctrlB); catch, end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

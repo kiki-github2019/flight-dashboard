@@ -330,7 +330,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.FileCtrl      = flightdash.controller.FileController(app.Adapter);
             app.VideoSyncCtrl = flightdash.controller.VideoSyncController(app.Adapter);
             app.PlaybackCtrl  = flightdash.controller.PlaybackController(app);
-            app.PlotCtrl      = flightdash.controller.PlotController(app);
+            app.PlotCtrl      = flightdash.controller.PlotController(app.Adapter);
             app.RoiCtrl       = flightdash.controller.RoiController(app);
             app.PannerCtrl    = flightdash.controller.PannerController(app.Adapter);
             app.PanelCtrl     = flightdash.controller.PanelToggleController(app.Adapter);
