@@ -1759,17 +1759,34 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 % File paths (best-effort — exposed via existing app.UI
                 % header-bar state when present).
                 try
-                    if isfield(app, 'FlightFilePath') && fIdx <= numel(app.FlightFilePath)
+                    if isprop(app, 'FlightFilePath') && fIdx <= numel(app.FlightFilePath)
                         context.FlightFilePath = char(app.FlightFilePath{fIdx});
                     end
                 catch, end
                 try
-                    if isfield(app, 'OptionFilePath') && fIdx <= numel(app.OptionFilePath)
-                        context.OptionFilePath = char(app.OptionFilePath{fIdx});
-                    end
+                    context.OptionFilePath = app.optionFilePathForSession(fIdx);
                 catch, end
             catch
                 % Safe defaults already populated above.
+            end
+        end
+
+        function optionPath = optionFilePathForSession(app, fIdx)
+            optionPath = '';
+            try
+                studio = app.lookupStudioApp();
+                if isempty(studio) || ~isvalid(studio) || isempty(studio.Project)
+                    return;
+                end
+                sess = studio.Project.findSession(app.ActiveSessionId);
+                if isempty(sess) || ~isprop(sess, 'OptionFilePath') ...
+                        || ~iscell(sess.OptionFilePath) ...
+                        || fIdx < 1 || fIdx > numel(sess.OptionFilePath)
+                    return;
+                end
+                optionPath = char(sess.OptionFilePath{fIdx});
+            catch
+                optionPath = '';
             end
         end
 

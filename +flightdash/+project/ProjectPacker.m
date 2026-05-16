@@ -37,9 +37,19 @@ classdef ProjectPacker
                     return;
                 end
 
-                projName = char(project.ProjectName);
-                if isempty(projName), projName = 'PackedProject'; end
+                rawProjName = char(project.ProjectName);
+                [projName, adjustedName] = ...
+                    flightdash.project.ProjectPacker.safeProjectName(rawProjName);
+                if adjustedName
+                    result.Warnings{end+1} = sprintf( ...
+                        'Project name adjusted for safe packing path: %s', projName);
+                end
                 packedRoot = fullfile(destFolder, projName);
+                if ~flightdash.project.ProjectPacker.isSafeChildPath(destFolder, packedRoot)
+                    result.Warnings{end+1} = sprintf( ...
+                        'Unsafe packed folder path rejected: %s', packedRoot);
+                    return;
+                end
 
                 if isfolder(packedRoot)
                     if ~options.Overwrite
@@ -92,8 +102,10 @@ classdef ProjectPacker
 
                 result.PackedRoot = packedRoot;
                 result.PackedProjectPath = packed.ProjectFilePath;
+                result = flightdash.project.ProjectPacker.clearPackingState(result);
                 result.OK = true;
             catch ME
+                result = flightdash.project.ProjectPacker.clearPackingState(result);
                 result.Warnings{end+1} = sprintf('Pack failed: %s', ME.message);
             end
         end
@@ -133,6 +145,7 @@ classdef ProjectPacker
         end
 
         function [outPaths, result] = copyAndRewrite(inPaths, packedRoot, subdir, result)
+            result = flightdash.project.ProjectPacker.ensurePackingState(result);
             outPaths = inPaths;
             for k = 1:numel(inPaths)
                 src = char(inPaths{k});
@@ -143,17 +156,176 @@ classdef ProjectPacker
                     outPaths{k} = src;
                     continue;
                 end
-                [~, b, e] = fileparts(src);
-                dst = fullfile(packedRoot, subdir, [b e]);
+                srcKey = [char(subdir) '|' ...
+                    flightdash.project.ProjectPacker.canonicalPath(src)];
+                [seen, rel] = flightdash.project.ProjectPacker.lookupPackedAsset( ...
+                    result, srcKey);
+                if seen
+                    outPaths{k} = rel;
+                    continue;
+                end
+                [dst, rel] = flightdash.project.ProjectPacker.uniquePackedPath( ...
+                    packedRoot, subdir, src, result);
                 try
                     copyfile(src, dst);
-                    % Store as relative path (forward slashes for cross-platform).
-                    rel = fullfile(subdir, [b e]);
-                    rel = strrep(rel, '\', '/');
+                    result = flightdash.project.ProjectPacker.rememberPackedAsset( ...
+                        result, srcKey, dst, rel);
                     outPaths{k} = rel;
                 catch ME
                     result.Warnings{end+1} = sprintf( ...
                         'Copy failed: %s (%s)', src, ME.message);
+                end
+            end
+        end
+
+        function [safe, changed] = safeProjectName(name)
+            original = strtrim(char(name));
+            safe = original;
+            if isempty(safe)
+                safe = 'PackedProject';
+            end
+            safe(double(safe) < 32) = '_';
+            safe = regexprep(safe, '[<>:"/\\|?*]', '_');
+            safe = regexprep(safe, '^[. ]+|[. ]+$', '');
+            safe = regexprep(safe, '_+', '_');
+            if isempty(safe) || strcmp(safe, '.') || strcmp(safe, '..')
+                safe = 'PackedProject';
+            end
+            if numel(safe) > 80
+                safe = regexprep(safe(1:80), '[. ]+$', '');
+            end
+            reserved = {'CON','PRN','AUX','NUL','COM1','COM2','COM3','COM4', ...
+                'COM5','COM6','COM7','COM8','COM9','LPT1','LPT2','LPT3', ...
+                'LPT4','LPT5','LPT6','LPT7','LPT8','LPT9'};
+            baseName = upper(regexprep(safe, '\..*$', ''));
+            if any(strcmp(baseName, reserved))
+                safe = ['PackedProject_' safe];
+            end
+            changed = ~strcmp(safe, original);
+        end
+
+        function tf = isSafeChildPath(parentFolder, childPath)
+            tf = false;
+            try
+                parent = flightdash.project.ProjectPacker.canonicalPath(parentFolder);
+                child = flightdash.project.ProjectPacker.canonicalPath(childPath);
+                if ispc
+                    parent = lower(parent);
+                    child = lower(child);
+                end
+                if isempty(parent) || isempty(child) || strcmp(parent, child)
+                    return;
+                end
+                if ~endsWith(parent, filesep)
+                    parent = [parent filesep];
+                end
+                tf = startsWith(child, parent);
+            catch
+                tf = false;
+            end
+        end
+
+        function result = ensurePackingState(result)
+            if ~isfield(result, 'PackedSourceKeys')
+                result.PackedSourceKeys = {};
+            end
+            if ~isfield(result, 'PackedRelativePaths')
+                result.PackedRelativePaths = {};
+            end
+            if ~isfield(result, 'PackedDestKeys')
+                result.PackedDestKeys = {};
+            end
+        end
+
+        function result = clearPackingState(result)
+            internal = {'PackedSourceKeys', 'PackedRelativePaths', 'PackedDestKeys'};
+            present = internal(isfield(result, internal));
+            if ~isempty(present)
+                result = rmfield(result, present);
+            end
+        end
+
+        function [seen, rel] = lookupPackedAsset(result, srcKey)
+            seen = false;
+            rel = '';
+            try
+                keys = result.PackedSourceKeys;
+                if ispc
+                    match = find(strcmpi(keys, srcKey), 1, 'first');
+                else
+                    match = find(strcmp(keys, srcKey), 1, 'first');
+                end
+                if ~isempty(match)
+                    seen = true;
+                    rel = result.PackedRelativePaths{match};
+                end
+            catch
+            end
+        end
+
+        function result = rememberPackedAsset(result, srcKey, dst, rel)
+            result.PackedSourceKeys{end+1} = srcKey;
+            result.PackedRelativePaths{end+1} = rel;
+            result.PackedDestKeys{end+1} = ...
+                flightdash.project.ProjectPacker.canonicalPath(dst);
+        end
+
+        function [dst, rel] = uniquePackedPath(packedRoot, subdir, src, result)
+            [~, base, ext] = fileparts(src);
+            base = flightdash.project.ProjectPacker.safeAssetStem(base);
+            serial = 1;
+            while true
+                if serial == 1
+                    fileName = [base ext];
+                else
+                    fileName = sprintf('%s_%d%s', base, serial, ext);
+                end
+                dst = fullfile(packedRoot, subdir, fileName);
+                rel = strrep(fullfile(subdir, fileName), '\', '/');
+                if ~isfile(dst) && ~isfolder(dst) ...
+                        && ~flightdash.project.ProjectPacker.destinationUsed(result, dst)
+                    return;
+                end
+                serial = serial + 1;
+            end
+        end
+
+        function tf = destinationUsed(result, dst)
+            tf = false;
+            try
+                dstKey = flightdash.project.ProjectPacker.canonicalPath(dst);
+                if ispc
+                    tf = any(strcmpi(result.PackedDestKeys, dstKey));
+                else
+                    tf = any(strcmp(result.PackedDestKeys, dstKey));
+                end
+            catch
+                tf = false;
+            end
+        end
+
+        function stem = safeAssetStem(stem)
+            stem = char(stem);
+            if isempty(stem)
+                stem = 'asset';
+                return;
+            end
+            stem(double(stem) < 32) = '_';
+            stem = regexprep(stem, '[<>:"/\\|?*]', '_');
+            stem = regexprep(stem, '^[. ]+|[. ]+$', '');
+            if isempty(stem)
+                stem = 'asset';
+            end
+        end
+
+        function p = canonicalPath(pathValue)
+            p = char(pathValue);
+            try
+                p = char(java.io.File(p).getCanonicalPath());
+            catch
+                try
+                    p = char(java.io.File(p).getAbsolutePath());
+                catch
                 end
             end
         end

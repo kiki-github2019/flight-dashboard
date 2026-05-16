@@ -139,15 +139,21 @@ classdef MissingFileRepairDialog
             % Format examples: flight_data_1, video_2, option1_dat.
             try
                 role = char(entry.Role);
+                oldPath = char(entry.Path);
+                sessionIndex = flightdash.ui.MissingFileRepairDialog.entryNumber( ...
+                    entry, 'SessionIndex', NaN);
                 if startsWith(role, 'flight_data_')
                     ch = str2double(extractAfter(role, 'flight_data_'));
-                    flightdash.ui.MissingFileRepairDialog.assignChannelPath(app, 'FlightFilePath', ch, newPath);
+                    flightdash.ui.MissingFileRepairDialog.assignChannelPath( ...
+                        app, 'FlightFilePath', ch, oldPath, newPath, sessionIndex);
                 elseif startsWith(role, 'video_')
                     ch = str2double(extractAfter(role, 'video_'));
-                    flightdash.ui.MissingFileRepairDialog.assignChannelPath(app, 'VideoFilePath', ch, newPath);
+                    flightdash.ui.MissingFileRepairDialog.assignChannelPath( ...
+                        app, 'VideoFilePath', ch, oldPath, newPath, sessionIndex);
                 elseif startsWith(role, 'option')
                     ch = str2double(regexp(role, '\d+', 'match', 'once'));
-                    flightdash.ui.MissingFileRepairDialog.assignChannelPath(app, 'OptionFilePath', ch, newPath);
+                    flightdash.ui.MissingFileRepairDialog.assignChannelPath( ...
+                        app, 'OptionFilePath', ch, oldPath, newPath, sessionIndex);
                 elseif strcmp(role, 'project_json')
                     app.Project.ProjectFilePath = char(newPath);
                 end
@@ -157,17 +163,62 @@ classdef MissingFileRepairDialog
             end
         end
 
-        function assignChannelPath(app, propName, ch, newPath)
-            % Replace propName{ch} on every session that referenced it.
-            for k = 1:numel(app.Project.Sessions)
+        function assignChannelPath(app, propName, ch, oldPath, newPath, sessionIndex)
+            if ~isnumeric(ch) || ~isscalar(ch) || ~isfinite(ch) || ch ~= fix(ch)
+                return;
+            end
+            ch = double(ch);
+            targetIndex = flightdash.ui.MissingFileRepairDialog.resolveSessionIndex( ...
+                app, propName, ch, oldPath, sessionIndex);
+            if isempty(targetIndex)
+                return;
+            end
+            for k = targetIndex(:)'
                 sess = app.Project.Sessions(k);
                 if ~isprop(sess, propName), continue; end
                 paths = sess.(propName);
                 if iscell(paths) && ch >= 1 && ch <= numel(paths)
                     paths{ch} = char(newPath);
                     sess.(propName) = paths;
+                    try, sess = sess.touch(); catch, end
                     app.Project.Sessions(k) = sess;
                 end
+            end
+        end
+
+        function idx = resolveSessionIndex(app, propName, ch, oldPath, sessionIndex)
+            idx = [];
+            try
+                nSessions = numel(app.Project.Sessions);
+                if isnumeric(sessionIndex) && isscalar(sessionIndex) ...
+                        && isfinite(sessionIndex) && sessionIndex >= 1 ...
+                        && sessionIndex <= nSessions && sessionIndex == fix(sessionIndex)
+                    idx = double(sessionIndex);
+                    return;
+                end
+                for k = 1:nSessions
+                    sess = app.Project.Sessions(k);
+                    if ~isprop(sess, propName), continue; end
+                    paths = sess.(propName);
+                    if iscell(paths) && ch >= 1 && ch <= numel(paths) ...
+                            && strcmp(char(paths{ch}), char(oldPath))
+                        idx = k;
+                        return;
+                    end
+                end
+            catch
+                idx = [];
+            end
+        end
+
+        function value = entryNumber(entry, fieldName, defaultValue)
+            value = defaultValue;
+            try
+                if isstruct(entry) && isfield(entry, fieldName)
+                    value = double(entry.(fieldName));
+                end
+            catch
+                value = defaultValue;
             end
         end
     end
