@@ -175,6 +175,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % view via app.getLayoutState().
         LayoutState      flightdash.state.DashboardLayoutState = ...
             flightdash.state.DashboardLayoutState.empty
+        % [REFACTOR R5] Service-boundary adapter. Controllers should
+        % gradually depend on this handle instead of the full app
+        % object. R5 wires the adapter only — controller migrations are
+        % follow-ups so this phase remains behavior-preserving.
+        Adapter          flightdash.runtime.DashboardAppAdapter = ...
+            flightdash.runtime.DashboardAppAdapter.empty
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
 
@@ -263,6 +269,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % source of truth; new code reads via getLayoutState().
             app.LayoutState = flightdash.state.DashboardLayoutState(app);
             app.Runtime.Layout = app.LayoutState;
+            % [REFACTOR R5] Service-boundary adapter. Provides the
+            % curated dependency target for future controller migrations.
+            app.Adapter = flightdash.runtime.DashboardAppAdapter(app);
 
             if isfile('option_flight_area.dat')
                 try
@@ -853,6 +862,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 try, app.logCaught(ME, 'Dashboard:getLayoutState'); catch, end
             end
             ls = app.LayoutState;
+        end
+
+        function ad = getAdapter(app)
+            % [REFACTOR R5] Service-boundary adapter accessor. The
+            % returned handle exposes session / channel / asyncDecode /
+            % layout aggregates plus the cross-cutting service hooks
+            % controllers need (undo, cache, decode, dispatchCommand,
+            % logCaught) and an escape-hatch app() for code that has
+            % not been migrated yet. Lazy-creates on first access.
+            if isempty(app.Adapter) || ~isvalid(app.Adapter)
+                app.Adapter = flightdash.runtime.DashboardAppAdapter(app);
+            end
+            ad = app.Adapter;
         end
     end
 

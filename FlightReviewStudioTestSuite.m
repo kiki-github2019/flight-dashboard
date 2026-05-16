@@ -1889,6 +1889,73 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             ls.syncFromApp();  % no-op when unbound — must not throw
         end
 
+        function test_T15_Refactor_AdapterRoutesAggregates(testCase)
+            % R5: adapter aggregate accessors must alias the direct app
+            % getters — adapter is a curated router, not a duplicator.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ad = app.getAdapter();
+            testCase.verifyClass(ad, 'flightdash.runtime.DashboardAppAdapter');
+            testCase.verifyTrue(isequal(ad.session(),    app.getSessionContext()));
+            testCase.verifyTrue(isequal(ad.store(),      app.getStateStore()));
+            testCase.verifyTrue(isequal(ad.asyncDecode(),app.getAsyncDecode()));
+            testCase.verifyTrue(isequal(ad.layout(),     app.getLayoutState()));
+            % Channel routing — adapter.channel(2) must lazy-mirror.
+            app.Models(2).currentIndex = 77;
+            ch = ad.channel(2);
+            testCase.verifyClass(ch, 'flightdash.state.ChannelState');
+            testCase.verifyEqual(ch.CurrentIndex, 77);
+        end
+
+        function test_T15_Refactor_AdapterServicePassthrough(testCase)
+            % R5: service accessors and the escape-hatch app() return
+            % the same handles the app itself exposes.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ad = app.getAdapter();
+            testCase.verifyTrue(isequal(ad.undoService(),  app.UndoService));
+            testCase.verifyTrue(isequal(ad.cacheService(), app.SharedCacheService));
+            testCase.verifyTrue(isequal(ad.decodeService(),app.SharedDecodeService));
+            testCase.verifyTrue(isequal(ad.uiFigure(),     app.UIFigure));
+            testCase.verifyTrue(isequal(ad.rootContainer(),app.RootContainer));
+            testCase.verifyEqual(ad.useSharedDecode(), ...
+                logical(app.UseSharedDecodeService));
+            testCase.verifyTrue(isequal(ad.app(), app), ...
+                'adapter.app() escape hatch must return the live handle.');
+        end
+
+        function test_T15_Refactor_AdapterLogCaughtSafe(testCase)
+            % R5: adapter.logCaught must never throw — adapters cannot
+            % become a new failure surface.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ad = app.getAdapter();
+            try
+                ad.logCaught(MException('T15:Probe', 'probe'), 'T15:adapterProbe');
+            catch ME
+                testCase.verifyFail(sprintf( ...
+                    'adapter.logCaught threw: %s', ME.message));
+            end
+        end
+
         function test_T15_Refactor_BaselineDiagnostic(testCase)
             % R1: run the refactor baseline harness end-to-end. Each
             % step is internally guarded so headless backends produce

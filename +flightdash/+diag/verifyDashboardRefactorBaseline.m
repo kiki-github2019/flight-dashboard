@@ -54,6 +54,9 @@ steps = appendStep(steps, 'r3_async_decode_helpers', ...
 steps = appendStep(steps, 'r4_layout_state_mirror', ...
     @() doR4LayoutStateMirror());
 
+steps = appendStep(steps, 'r5_adapter_surface_complete', ...
+    @() doR5AdapterSurface());
+
 if includeClearProbe
     steps = appendStep(steps, 'clear_classes_rehash_compat', ...
         @() doClearClassesProbe());
@@ -300,6 +303,66 @@ function doR4LayoutStateMirror()
     end
 end
 
+function doR5AdapterSurface()
+    % R5: app.getAdapter() must expose every R1-R4 aggregate and route
+    % cross-cutting plumbing through identical-result accessors.
+    app = flightdash.FlightDataDashboard();
+    cleanup = onCleanup(@() safeDelete(app)); %#ok<NASGU>
+    ad = app.getAdapter();
+    assertHandleValid(ad, 'getAdapter() returned empty');
+
+    % Aggregate accessors return the same handles as the direct app
+    % getters — adapter is a router, not a duplicator.
+    if ~isequal(ad.session(), app.getSessionContext())
+        error('Diag:AdapterSession', 'adapter.session() must alias app.getSessionContext().');
+    end
+    if ~isequal(ad.store(), app.getStateStore())
+        error('Diag:AdapterStore', 'adapter.store() must alias app.getStateStore().');
+    end
+    if ~isequal(ad.asyncDecode(), app.getAsyncDecode())
+        error('Diag:AdapterAsync', 'adapter.asyncDecode() must alias app.getAsyncDecode().');
+    end
+    if ~isequal(ad.layout(), app.getLayoutState())
+        error('Diag:AdapterLayout', 'adapter.layout() must alias app.getLayoutState().');
+    end
+
+    % Channel routing.
+    app.Models(1).selectedRow = 13;
+    ch = ad.channel(1);
+    assertHandleValid(ch, 'adapter.channel(1) returned empty');
+    if ch.SelectedRow ~= 13
+        error('Diag:AdapterChannel', ...
+            'adapter.channel(1).SelectedRow mirror broken (got %g).', ch.SelectedRow);
+    end
+
+    % Service accessors return the app's own handles unchanged.
+    if ~isequal(ad.undoService(), app.UndoService)
+        error('Diag:AdapterUndo', 'adapter.undoService() must alias app.UndoService.');
+    end
+    if ~isequal(ad.cacheService(), app.SharedCacheService)
+        error('Diag:AdapterCache', 'adapter.cacheService() must alias app.SharedCacheService.');
+    end
+    if ~isequal(ad.useSharedDecode(), logical(app.UseSharedDecodeService))
+        error('Diag:AdapterDecodeOptIn', 'adapter.useSharedDecode() must mirror app.UseSharedDecodeService.');
+    end
+    if ~isequal(ad.uiFigure(), app.UIFigure)
+        error('Diag:AdapterUIFigure', 'adapter.uiFigure() must alias app.UIFigure.');
+    end
+
+    % logCaught must not throw on a dummy MException.
+    try
+        ad.logCaught(MException('Diag:Test', 'adapter logCaught probe'), 'Diag:adapterProbe');
+    catch ME
+        error('Diag:AdapterLogCaught', ...
+            'adapter.logCaught threw: %s', ME.message);
+    end
+
+    % Escape-hatch app() returns the live handle.
+    if ~isequal(ad.app(), app)
+        error('Diag:AdapterEscape', 'adapter.app() must return the live app handle.');
+    end
+end
+
 function doClearClassesProbe()
     % Best-effort: rehash + which() round-trip on the new scaffolding
     % classes confirms the +flightdash/+runtime + +flightdash/+state
@@ -307,6 +370,7 @@ function doClearClassesProbe()
     rehash toolboxcache;
     for cls = ["flightdash.runtime.SessionContext", ...
                "flightdash.runtime.DashboardRuntime", ...
+               "flightdash.runtime.DashboardAppAdapter", ...
                "flightdash.state.ChannelState", ...
                "flightdash.state.VideoSessionState", ...
                "flightdash.state.AsyncDecodeState", ...
