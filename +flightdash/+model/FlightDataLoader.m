@@ -51,15 +51,26 @@ classdef FlightDataLoader < handle
 
             if isfile(optFileName)
                 lines = readlines(optFileName, 'EmptyLineRule', 'skip');
-                section = 0;
+                section = '';
                 for i = 1:length(lines)
                     lineStr = strtrim(lines(i));
-                    if startsWith(lineStr, '#'), section = section + 1; continue; end
-                    if section == 1
+                    if startsWith(lineStr, '#')
+                        nextSection = flightdash.project.OptionFileParser.sectionFromComment( ...
+                            strtrim(extractAfter(lineStr, 1)));
+                        if ~isempty(nextSection), section = nextSection; end
+                        continue;
+                    end
+                    if isempty(section)
+                        section = flightdash.project.OptionFileParser.sectionFromData(lineStr);
+                    end
+                    if strcmp(section, 'mapping') && ~contains(lineStr, ':') && contains(lineStr, ',')
+                        section = 'display';
+                    end
+                    if strcmp(section, 'mapping')
                         parts = split(lineStr, ':');
                         if length(parts) >= 2
                             k = char(strtrim(parts(1)));
-                            v = char(strtrim(parts(2)));
+                            v = char(strtrim(strjoin(parts(2:end), ':')));
                             if isfield(mappedCols, k)
                                 if ismember(v, csvHeaders)
                                     mappedCols.(k) = v;
@@ -74,7 +85,7 @@ classdef FlightDataLoader < handle
                                 end
                             end
                         end
-                    elseif section == 2
+                    elseif strcmp(section, 'display')
                         parts = split(lineStr, ',');
                         if length(parts) >= 4
                             hdr   = char(strtrim(parts(1)));
@@ -275,20 +286,16 @@ classdef FlightDataLoader < handle
             baseKeys = flightdash.util.AppConstants.REQ_KEYS;
             varNames = baseKeys;
             if isfile(optFileName)
-                lines = readlines(optFileName, 'EmptyLineRule', 'skip');
-                section = 0;
-                for idxLine = 1:length(lines)
-                    lineStr = strtrim(lines(idxLine));
-                    if startsWith(lineStr, '#'), section = section + 1; continue; end
-                    if section == 1
-                        parts = split(lineStr, ':');
-                        if length(parts) >= 2
-                            k = char(strtrim(parts(1)));
-                            v = char(strtrim(parts(2)));
-                            matchIdx = find(strcmp(baseKeys, k));
-                            if ~isempty(matchIdx), varNames{matchIdx} = v; end
-                        end
+                try
+                    optModel = flightdash.project.OptionFileParser.read(optFileName);
+                    for idxLine = 1:height(optModel.Mapping)
+                        k = char(optModel.Mapping.Key(idxLine));
+                        v = char(optModel.Mapping.MappedField(idxLine));
+                        matchIdx = find(strcmp(baseKeys, k), 1);
+                        if ~isempty(matchIdx) && ~isempty(v), varNames{matchIdx} = v; end
                     end
+                catch ME
+                    try, flightdash.util.ErrorLog.log(ME, 'FlightDataLoader:mockOptionParse'); catch, end
                 end
             end
 
