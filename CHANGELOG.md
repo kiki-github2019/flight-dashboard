@@ -19,13 +19,25 @@
 
 ---
 
-## [0.13.0-rc1] — 2026-05-15 Modern Responsive GUI
+## [0.13.0] — 2026-05-16 Modern Responsive GUI
 
-Phase 11 묶음 (커밋 b3b87d9..c95491b) — 리뷰 보고서 7건을 단계적으로 흡수한
-프론트엔드 현대화 + 분석 다이얼로그 신설 + 메모리/타이머 회귀 보호.
+Phase 11 묶음 (커밋 b3b87d9..현재) — 리뷰 보고서 7건을 단계적으로 흡수한
+프론트엔드 현대화 + 분석 다이얼로그 신설 + 메모리/타이머 회귀 보호 +
+Project.GuiTheme persistence + 5개 추가 smoke test + 슬라이더 hot-path
+gauge needle 경량화.
 
 (상세 변경사항은 아래 "Phase 11 — Modern Responsive GUI and Real-Time
-Review UX" 절 참조; 이 절은 0.13.0-rc1 으로 동결.)
+Review UX" 절 참조; 이 절은 0.13.0 으로 동결.)
+
+0.13.0-rc1 (커밋 b3b87d9..c95491b) 이후 추가:
+- Patch 4 medium-term — `ProjectModel.GuiTheme` + `ProjectSerializer`
+  round-trip + `buildShell` 읽기 + `toggleTheme` write-back (8f3b09d).
+- Patch 5 — 5개 smoke test 추가: VideoReader 참조 해제, 옵션 자세
+  컬럼 누락 가드, 슬라이더 scrub 마커 프리뷰, Theme 토글이 plot data
+  색상을 건드리지 않음, Dock 토글 후 Workspace width 회복 (8f3b09d).
+- 슬라이더 hot path 경량 게이지 — `updateAttitudeNeedlesOnly` (HGtransform
+  matrix 만 갱신, sprintf 라벨 생략) 추가 + `previewSyncedMarkersOnly`
+  에서 우선 사용; 라벨은 슬라이더 릴리즈 시 final commit 경로가 갱신.
 
 ---
 

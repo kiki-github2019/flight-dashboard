@@ -2903,9 +2903,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 % Marker-only path (existing lightweight method).
                 app.updateMarkersOnly(fIdx, idx);
 
-                % Cheap attitude-gauge update when the helper exists.
-                if ismethod(app, 'updateAttitudeGauges') ...
-                        && app.mappedColAvailable(fIdx, 'Time')
+                % Hot-path gauge update: prefer the needles-only method
+                % (HGtransform matrix only, no sprintf labels) for the
+                % scrub timer hot path. Fall back to the full
+                % updateAttitudeGauges when the lightweight method is
+                % unavailable. Labels still refresh on slider release
+                % via the existing 'final' commit path.
+                if ismethod(app, 'updateAttitudeNeedlesOnly')
+                    try, app.updateAttitudeNeedlesOnly(fIdx, idx); catch, end
+                elseif ismethod(app, 'updateAttitudeGauges')
                     try, app.updateAttitudeGauges(fIdx, idx); catch, end
                 end
             catch ME
@@ -5412,6 +5418,47 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 end
             catch ME
                 app.logCaught(ME, 'AttitudeGauges:update');
+            end
+        end
+
+        function updateAttitudeNeedlesOnly(app, fIdx, index)
+            % Phase 11 follow-up: scrub-timer hot-path gauge update.
+            % Updates only the HGtransform rotation matrices for
+            % hgPitch / hgRoll / hgHdg — skips the sprintf label
+            % refresh that the full updateAttitudeGauges does on every
+            % tick. Labels are refreshed by the final-commit path on
+            % slider release. Cost: 3 set() calls + 3 makehgtform()
+            % calls per tick (no string allocation).
+            try
+                if fIdx < 1 || fIdx > numel(app.Models), return; end
+                if isempty(app.Models(fIdx).rawData), return; end
+
+                hasPitch = app.mappedColAvailable(fIdx, 'Pitch');
+                hasRoll  = app.mappedColAvailable(fIdx, 'Roll');
+                hasHdg   = app.mappedColAvailable(fIdx, 'Heading');
+                if ~hasPitch && ~hasRoll && ~hasHdg, return; end
+
+                nRows = height(app.Models(fIdx).rawData);
+                if nRows < 1, return; end
+                index = max(1, min(nRows, round(index)));
+
+                if hasPitch && isfield(app.UI(fIdx), 'hgPitch') ...
+                        && ~isempty(app.UI(fIdx).hgPitch) && isvalid(app.UI(fIdx).hgPitch)
+                    pitch = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Pitch)(index);
+                    set(app.UI(fIdx).hgPitch, 'Matrix', makehgtform('zrotate', -pitch * pi / 180));
+                end
+                if hasRoll && isfield(app.UI(fIdx), 'hgRoll') ...
+                        && ~isempty(app.UI(fIdx).hgRoll) && isvalid(app.UI(fIdx).hgRoll)
+                    roll = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Roll)(index);
+                    set(app.UI(fIdx).hgRoll, 'Matrix', makehgtform('zrotate', -roll * pi / 180));
+                end
+                if hasHdg && isfield(app.UI(fIdx), 'hgHdg') ...
+                        && ~isempty(app.UI(fIdx).hgHdg) && isvalid(app.UI(fIdx).hgHdg)
+                    hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(index);
+                    set(app.UI(fIdx).hgHdg, 'Matrix', makehgtform('zrotate', -hdg * pi / 180));
+                end
+            catch ME
+                try, app.logCaught(ME, 'AttitudeNeedles:hotpath'); catch, end
             end
         end
 
