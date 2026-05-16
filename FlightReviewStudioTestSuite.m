@@ -1716,6 +1716,56 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(ed);
         end
 
+        function test_T15_Refactor_SessionContextLiveView(testCase)
+            % R1: app.getSessionContext() must return a live facade that
+            % reflects ActiveSessionId / IsEmbedded reads in real time.
+            % Pure unit-level — no Studio shell required.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Standalone dashboard cannot be constructed headlessly: %s', ...
+                    ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctx = app.getSessionContext();
+            testCase.verifyClass(ctx, 'flightdash.runtime.SessionContext');
+            testCase.verifyTrue(isvalid(ctx));
+            testCase.verifyEqual(char(ctx.ActiveSessionId), 'standalone');
+            testCase.verifyFalse(ctx.IsEmbedded);
+            % Mutate the underlying property; facade must reflect it.
+            app.ActiveSessionId = 'S-LIVE';
+            testCase.verifyEqual(char(ctx.ActiveSessionId), 'S-LIVE', ...
+                'SessionContext must reflect post-construction writes.');
+        end
+
+        function test_T15_Refactor_BaselineDiagnostic(testCase)
+            % R1: run the refactor baseline harness end-to-end. Each
+            % step is internally guarded so headless backends produce
+            % FAIL rows rather than crashing the test runner — but at
+            % least the standalone path is expected to PASS on any host
+            % that can build the rest of the test suite.
+            report = [];
+            try
+                report = flightdash.diag.verifyDashboardRefactorBaseline();
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Baseline diagnostic cannot run headlessly: %s', ME.message));
+                return;
+            end
+            testCase.verifyClass(report, 'struct');
+            testCase.verifyTrue(isfield(report, 'Steps'));
+            % Standalone launch is the irreducible smoke test; if even
+            % this fails the refactor has broken legacy startup.
+            idx = find(report.Steps.Name == "standalone_launch_delete", 1);
+            testCase.verifyNotEmpty(idx, 'standalone step missing.');
+            testCase.verifyEqual(char(report.Steps.Status(idx)), 'PASS', ...
+                sprintf('standalone_launch_delete must PASS — got %s (%s)', ...
+                char(report.Steps.Status(idx)), char(report.Steps.Error(idx))));
+        end
+
         function test_T15_Review_ExternalLinks_IncludesOptionFile(testCase)
             % Review fix: ProjectSerializer.collectExternalLinks must
             % emit kind='option_file' entries so missing option*.dat

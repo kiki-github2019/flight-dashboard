@@ -145,6 +145,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
         UndoService         = []              % Per-session undo/redo service injected by Studio
         UseSharedDecodeService logical = false % [PHASE 10] opt-in only
+        % [REFACTOR R1] Read-only facade over the 9 session-identity
+        % properties above. Lazy-created on first getSessionContext()
+        % call so the constructor's existing initialization order is
+        % unaffected. The legacy properties remain the source of truth
+        % until R5 inverts ownership.
+        SessionContext   flightdash.runtime.SessionContext = ...
+            flightdash.runtime.SessionContext.empty
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
 
@@ -209,6 +216,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.DataLoader   = flightdash.model.FlightDataLoader();
             app.LayoutMgr    = flightdash.view.ResponsiveLayoutManager();
             app.UndoService  = flightdash.studio.UndoService(app.ActiveSessionId);
+            % [REFACTOR R1] Construct the SessionContext facade up front
+            % so downstream controllers (or tests) can hold a stable
+            % handle. The facade reads the app's session properties
+            % live via Dependent getters — no state has been moved.
+            app.SessionContext = flightdash.runtime.SessionContext(app);
 
             if isfile('option_flight_area.dat')
                 try
@@ -710,6 +722,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                            'bounds', struct('minLat',0, 'maxLat',0, 'minLon',0, 'maxLon',0, 'isValid', false), ...
                            'altBounds', struct('minAlt',0, 'maxAlt',0), ...
                            'currentIndex', 1, 'selectedRow', 1, 'isMockData', false);
+        end
+
+        function ctx = getSessionContext(app)
+            % [REFACTOR R1] Lazy accessor for the SessionContext facade.
+            % Returns a live view (Dependent properties) over the 9
+            % session-identity fields on the app. Cheap to call: the
+            % facade is constructed once and cached on the app. Safe to
+            % call before / during / after the constructor — it never
+            % touches app state, only reads it on demand.
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            ctx = app.SessionContext;
         end
     end
 

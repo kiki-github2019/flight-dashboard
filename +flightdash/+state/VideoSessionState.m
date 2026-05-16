@@ -1,0 +1,23 @@
+classdef VideoSessionState < handle
+    %VIDEOSESSIONSTATE  Per-app video + sync state scaffold (R2 prep).
+    %
+    %   Holds the fields currently mirrored on the app as VideoState and
+    %   VideoSyncState. R1 declares the shape; no app state has moved.
+    %   R2 will populate this from the existing app properties and the
+    %   app retains compatibility wrappers.
+    %
+    %   Owner: DashboardStateStore.
+
+    properties (Access = public)
+        VideoState      struct = struct()
+        VideoSyncState  struct = struct()
+        SyncState       struct = struct('IsSynced', false, ...
+                                        'SyncT1', 0, ...
+                                        'SyncT2', 0)
+    end
+
+    methods
+        function obj = VideoSessionState()
+        end
+    end
+end
