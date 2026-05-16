@@ -141,7 +141,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % - standalone: RootContainer = UIFigure (생성자가 자동 설정)
         % - embedded:   RootContainer = Studio가 넘긴 부모 컨테이너 (uitab/uipanel)
         % createLayout 등 향후 Phase 3b에서 RootContainer를 layout parent로 사용
-        RootContainer       = []              % [PHASE 3a] uifigure or parent container
+        % RootContainer ownership inverted (R7) — see Dependent block.
         MouseRouter         = []              % [PHASE 3.5] Studio-owned mouse router hook
         SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
         SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
@@ -224,6 +224,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         PendingMode             % proxies app.AsyncDecode.PendingMode
         % R7 session-identity group: storage on SessionContext.
         UseSharedDecodeService  % proxies app.SessionContext.UseSharedDecodeService
+        RootContainer           % proxies app.SessionContext.RootContainer
     end
 
     methods
@@ -588,6 +589,22 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
             app.SessionContext.UseSharedDecodeService = logical(value);
         end
+
+        function v = get.RootContainer(app)
+            v = [];
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = app.SessionContext.RootContainer;
+                end
+            catch
+            end
+        end
+        function set.RootContainer(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.RootContainer = value;
+        end
     end
 
     methods (Access = public)
@@ -651,11 +668,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.DataLoader   = flightdash.model.FlightDataLoader();
             app.LayoutMgr    = flightdash.view.ResponsiveLayoutManager();
             app.UndoService  = flightdash.studio.UndoService(app.ActiveSessionId);
-            % [REFACTOR R1] Construct the SessionContext facade up front
-            % so downstream controllers (or tests) can hold a stable
-            % handle. The facade reads the app's session properties
-            % live via Dependent getters — no state has been moved.
-            app.SessionContext = flightdash.runtime.SessionContext(app);
+            % [REFACTOR R1/R7] Construct the SessionContext facade up
+            % front so downstream controllers (or tests) can hold a
+            % stable handle. Idempotent: the constructor's earlier
+            % `app.RootContainer = parentContainer` Dependent forward
+            % may already have lazy-created the SessionContext — keep
+            % that instance so the RootContainer value survives.
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
             % [REFACTOR R2] Build the StateStore aggregate (one channel
             % entry per existing Models slot) and the Runtime aggregate.
             % StateStore.Channels mirror app.Models on demand via

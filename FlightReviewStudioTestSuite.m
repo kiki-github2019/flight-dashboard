@@ -2501,6 +2501,46 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyTrue(app.getAdapter().useSharedDecode());
         end
 
+        function test_T15_Refactor_R7_RootContainerInverted(testCase)
+            % R7 second commit: RootContainer flips to SessionContext
+            % storage. Critical lifecycle test: in embedded mode the
+            % constructor sets RootContainer BEFORE the explicit
+            % SessionContext = SessionContext(app) line, so the lazy-
+            % create path must preserve the value through the
+            % constructor's idempotent reassignment.
+            host = uifigure('Visible', 'off');
+            cleanupHost = onCleanup(@() delete(host)); %#ok<NASGU>
+            tabs = uitabgroup(host);
+            tab  = uitab(tabs, 'Title', 'RC');
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard(tab, 'S-RC');
+            catch ME
+                testCase.assumeFail(sprintf('Embedded build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Embedded constructor's `app.RootContainer = parentContainer`
+            % must survive into SessionContext storage.
+            testCase.verifyTrue(isequal(app.RootContainer, tab), ...
+                'Embedded RootContainer must equal the parent tab.');
+            testCase.verifyTrue(isequal(app.SessionContext.RootContainer, tab), ...
+                'SessionContext.RootContainer must mirror app.RootContainer post-construction.');
+
+            % Write via app, read via SessionContext.
+            app.RootContainer = host;
+            testCase.verifyTrue(isequal(app.SessionContext.RootContainer, host));
+
+            % Reverse direction.
+            app.SessionContext.RootContainer = tab;
+            testCase.verifyTrue(isequal(app.RootContainer, tab));
+
+            mc = metaclass(app);
+            names = arrayfun(@(p) string(p.Name), mc.PropertyList);
+            testCase.verifyTrue(any(names == "RootContainer"));
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

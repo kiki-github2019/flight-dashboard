@@ -30,12 +30,12 @@ classdef SessionContext < handle
     % as a Dependent forward so legacy reads stay unchanged.
     properties (Access = public)
         UseSharedDecodeService  logical = false
+        RootContainer                   = []
     end
 
     properties (Dependent, SetAccess = private)
         ActiveSessionId         char
         IsEmbedded              logical
-        RootContainer
         UIFigure
         MouseRouter
         SharedCacheService
@@ -77,13 +77,6 @@ classdef SessionContext < handle
             v = false;
             if obj.isValidApp() && isprop(obj.AppRef, 'IsEmbedded')
                 v = logical(obj.AppRef.IsEmbedded);
-            end
-        end
-
-        function v = get.RootContainer(obj)
-            v = [];
-            if obj.isValidApp() && isprop(obj.AppRef, 'RootContainer')
-                v = obj.AppRef.RootContainer;
             end
         end
 
