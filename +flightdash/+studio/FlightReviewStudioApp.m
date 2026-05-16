@@ -954,19 +954,61 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function tf = confirmProjectEditorClose(app)
-            % Pre-PFE-4 stub. Until the dialog exists, app close
-            % cannot be blocked by editor state. Returns true so the
-            % normal close path proceeds. PFE-3 replaces this with a
-            % 3-way Save All / Discard / Cancel prompt.
+            % Pre-PFE-5 close lifecycle contract for the future
+            % ProjectFileEditorDialog. Rules:
+            %   1. No editor          -> true (allow close).
+            %   2. Invalid editor     -> true + drop the stale handle.
+            %   3. Editor.confirmClose() exists -> its scalar logical wins.
+            %   4. Any exception      -> log + true so app close never deadlocks.
+            %
+            % FUTURE EDITOR CLEANUP CONTRACT (read before PFE-3 lands):
+            %   - confirmClose() MUST stop+delete its AutoApplyTimer before
+            %     returning true so no timer fires into a freed figure.
+            %   - confirmClose() MUST NOT block app deletion when the
+            %     editor handle is already invalid.
+            %   - On accept, the editor (or this app) clears
+            %     app.ProjectEditor so a stale handle cannot veto a later
+            %     close attempt.
+            %   - Editor must never orphan its uifigure: delete it in the
+            %     same call that returns true.
             tf = true;
             try
-                if ~isempty(app.ProjectEditor) && isa(app.ProjectEditor, 'handle') ...
-                        && isvalid(app.ProjectEditor) && ismethod(app.ProjectEditor, 'confirmClose')
-                    tf = app.ProjectEditor.confirmClose();
+                ed = app.ProjectEditor;
+                if isempty(ed), return; end
+                if isa(ed, 'handle') && ~isvalid(ed)
+                    app.ProjectEditor = [];
+                    return;
+                end
+                if ismethod(ed, 'confirmClose')
+                    result = ed.confirmClose();
+                    if islogical(result) && isscalar(result)
+                        tf = result;
+                    end
+                end
+            catch ME
+                tf = true;
+                try, app.logCaught(ME, 'Studio:confirmProjectEditorClose'); catch, end
+            end
+        end
+
+        function cleanupProjectEditor(app)
+            % Pre-PFE-5 teardown helper invoked from delete(app). Kept
+            % small and tolerant so it never blocks Studio deletion when
+            % the editor (PFE-1+) installs its own AutoApplyTimer and
+            % uifigure. The future dialog destructor is responsible for:
+            %   - stop(AutoApplyTimer); delete(AutoApplyTimer)
+            %   - delete(EditorFigure) (no orphan uifigure)
+            %   - clear all back-references to app
+            % We deliberately call delete() unguarded inside try/catch so
+            % a partially-constructed editor never wedges Studio shutdown.
+            try
+                ed = app.ProjectEditor;
+                if ~isempty(ed) && isa(ed, 'handle') && isvalid(ed)
+                    try, delete(ed); catch, end
                 end
             catch
-                tf = true;
             end
+            app.ProjectEditor = [];
         end
 
         function toggleTheme(app)
@@ -1170,6 +1212,12 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 end
             catch, end
             app.stopStatusRestoreTimer();
+
+            % Pre-PFE-5: tear down ProjectEditor (if any) before the
+            % manager stack so its AutoApplyTimer (added in PFE-1+) does
+            % not fire into a freed CommandRouter / StatusBar. cleanup is
+            % a no-op when the editor was never opened.
+            try, app.cleanupProjectEditor(); catch, end
 
             try, delete(app.MenuMgr);          catch, end
             try, delete(app.ToolbarMgr);       catch, end
@@ -1398,6 +1446,18 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
         function onCloseRequest(app)
             % Defensive close (Phase 0 pattern): always delete figure.
+            % Pre-PFE-5: ask the future Project File Editor whether the
+            % close should proceed. A false return aborts close so the
+            % editor can keep the user's dirty work alive. Any error in
+            % the confirm path falls through to the original Phase 0
+            % behavior (force-close) — losing the prompt is preferable to
+            % an undeletable Studio window.
+            try
+                if ~app.confirmProjectEditorClose()
+                    return;
+                end
+            catch
+            end
             figHandle = app.UIFigure;
             try
                 delete(app);

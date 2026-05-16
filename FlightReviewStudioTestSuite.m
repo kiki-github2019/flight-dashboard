@@ -1552,6 +1552,63 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             catch, end
         end
 
+        function test_T15_ProjectEditorClose_NoEditorSafe(testCase)
+            % Pre-PFE-5: confirmProjectEditorClose() must return true
+            % when no editor has ever been opened so app close never
+            % deadlocks before the dialog lands.
+            app = testCase.launchStudio();
+            testCase.assumeTrue(ismethod(app, 'confirmProjectEditorClose'), ...
+                'confirmProjectEditorClose missing — skipping.');
+            testCase.assumeTrue(isprop(app, 'ProjectEditor'), ...
+                'ProjectEditor property missing — skipping.');
+            app.ProjectEditor = [];
+            tf = false;
+            try
+                tf = app.confirmProjectEditorClose();
+            catch ME
+                testCase.verifyFail(sprintf( ...
+                    'confirmProjectEditorClose threw: %s', ME.message));
+                return;
+            end
+            testCase.verifyTrue(tf, ...
+                'No editor present must allow close.');
+        end
+
+        function test_T15_ProjectEditorClose_InvalidEditorSafe(testCase)
+            % Pre-PFE-5: a deleted/invalid editor handle must not block
+            % close and must be auto-cleared from app.ProjectEditor so a
+            % stale reference cannot veto a later close attempt.
+            app = testCase.launchStudio();
+            testCase.assumeTrue(ismethod(app, 'confirmProjectEditorClose'), ...
+                'confirmProjectEditorClose missing — skipping.');
+            testCase.assumeTrue(isprop(app, 'ProjectEditor'), ...
+                'ProjectEditor property missing — skipping.');
+            % Install an invalid handle (deleted uifigure) — simulates an
+            % editor whose figure was closed via the OS chrome.
+            stub = [];
+            try
+                stub = uifigure('Visible', 'off');
+                delete(stub);
+            catch
+                testCase.assumeFail('Cannot create headless uifigure stub.');
+                return;
+            end
+            app.ProjectEditor = stub;
+            tf = false;
+            try
+                tf = app.confirmProjectEditorClose();
+            catch ME
+                testCase.verifyFail(sprintf( ...
+                    'confirmProjectEditorClose threw on invalid editor: %s', ...
+                    ME.message));
+                return;
+            end
+            testCase.verifyTrue(tf, ...
+                'Invalid editor handle must allow close.');
+            testCase.verifyTrue(isempty(app.ProjectEditor), ...
+                'Invalid editor handle must be cleared from app.ProjectEditor.');
+        end
+
         function test_T15_DashboardReadOnlyWrappers_NoCrash(testCase)
             % Pre-PFE-3: smoke test the three read-only wrappers via a
             % launched Studio app + active dashboard. Verifies the
