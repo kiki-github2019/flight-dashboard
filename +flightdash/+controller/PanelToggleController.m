@@ -1,51 +1,73 @@
 classdef PanelToggleController < handle
     % flightdash.controller.PanelToggleController
     % - 패널 토글 + DebugMode + SyncToggle 이벤트 구독
-    
+    %
+    % [REFACTOR R5+5] Migrated to DashboardAppAdapter. Pure event-relay
+    % controller — every callback ends in an app verb (togglePanel /
+    % toggleDebugMode / toggleSync / toggleWindowMaximized /
+    % setChannelViewMode) that has no adapter API yet, so the body
+    % uniformly escape-hatches via obj.Adapter.app().
+
     properties (Access = private)
-        App
+        Adapter  % flightdash.runtime.DashboardAppAdapter
         Listeners cell = {}
     end
-    
+
     methods
-        function obj = PanelToggleController(app)
-            obj.App = app;
+        function obj = PanelToggleController(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
+                obj.Adapter = adapterOrApp;
+            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                obj.Adapter = adapterOrApp.getAdapter();
+            else
+                error('PanelToggleController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
+            end
             obj.subscribeEvents();
         end
-        
+
         function subscribeEvents(obj)
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(obj.App, eventName, callback);
-            obj.Listeners{end+1} = EB('PanelToggled',      @(~,d) obj.onPanelToggled(d));
-            obj.Listeners{end+1} = EB('DebugModeToggled',  @(~,d) obj.onDebugToggled(d));
-            obj.Listeners{end+1} = EB('SyncToggled',       @(~,~) obj.onSyncToggled());
+            app = obj.Adapter.app();
+            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
+            obj.Listeners{end+1} = EB('PanelToggled',       @(~,d) obj.onPanelToggled(d));
+            obj.Listeners{end+1} = EB('DebugModeToggled',   @(~,d) obj.onDebugToggled(d));
+            obj.Listeners{end+1} = EB('SyncToggled',        @(~,~) obj.onSyncToggled());
             obj.Listeners{end+1} = EB('LayoutFitRequested', @(~,~) obj.onLayoutFitRequested());
             obj.Listeners{end+1} = EB('ChannelViewChanged', @(~,d) obj.onChannelViewChanged(d));
         end
-        
+
         function onPanelToggled(obj, d)
-            if ~obj.App.isActiveSession(d), return; end
-            obj.App.togglePanel(d.ChannelIdx, d.Payload);
+            app = obj.Adapter.app();
+            if ~app.isActiveSession(d), return; end
+            app.togglePanel(d.ChannelIdx, d.Payload);
         end
         function onDebugToggled(obj, d)
-            if ~obj.App.isActiveSession(d), return; end
-            obj.App.toggleDebugMode(d.Payload);
+            app = obj.Adapter.app();
+            if ~app.isActiveSession(d), return; end
+            app.toggleDebugMode(d.Payload);
         end
         function onSyncToggled(obj)
-            if ~obj.App.isActiveSession(), return; end
-            obj.App.toggleSync();
+            app = obj.Adapter.app();
+            if ~app.isActiveSession(), return; end
+            app.toggleSync();
         end
         function onLayoutFitRequested(obj)
-            if ~obj.App.isActiveSession(), return; end
-            obj.App.toggleWindowMaximized();
+            app = obj.Adapter.app();
+            if ~app.isActiveSession(), return; end
+            app.toggleWindowMaximized();
         end
         function onChannelViewChanged(obj, d)
-            if ~obj.App.isActiveSession(d), return; end
-            obj.App.setChannelViewMode(d.Payload);
+            app = obj.Adapter.app();
+            if ~app.isActiveSession(d), return; end
+            app.setChannelViewMode(d.Payload);
         end
-        
+
         % 호환 wrapper
-        function toggle(obj, fIdx, pnlName), obj.App.togglePanel(fIdx, pnlName); end
-        
+        function toggle(obj, fIdx, pnlName)
+            obj.Adapter.app().togglePanel(fIdx, pnlName);
+        end
+
         function delete(obj)
             for k = 1:numel(obj.Listeners)
                 try, if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end, catch, end

@@ -2021,6 +2021,34 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             try, delete(ctrlB); catch, end
         end
 
+        function test_T15_Refactor_PanelToggleControllerAcceptsAdapter(testCase)
+            % Migration #5: PanelToggleController accepts adapter +
+            % rejects bad input. EventBus subscriptions resolve at
+            % construction without throwing.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrlA = flightdash.controller.PanelToggleController(app.Adapter);
+            testCase.verifyClass(ctrlA, 'flightdash.controller.PanelToggleController');
+            ctrlB = flightdash.controller.PanelToggleController(app);
+            testCase.verifyClass(ctrlB, 'flightdash.controller.PanelToggleController');
+            threw = false;
+            try
+                flightdash.controller.PanelToggleController({});
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'PanelToggleController:BadInput');
+            end
+            testCase.verifyTrue(threw);
+            try, delete(ctrlA); catch, end
+            try, delete(ctrlB); catch, end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
