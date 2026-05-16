@@ -163,10 +163,13 @@ classdef MenuManager < handle
             obj.addLeaf(obj.Roots.Preferences, 'Shortcut Settings',    'Pref:Shortcuts');
 
             obj.Roots.Help = obj.makeRoot(fig, 'Help');
+            obj.addLeaf(obj.Roots.Help, 'Quick Start',     'Help:QuickStart');
             obj.addLeaf(obj.Roots.Help, 'Shortcut Guide',  'Help:Shortcuts');
-            obj.addLeaf(obj.Roots.Help, 'Learning Samples', 'Help:Samples');
+            obj.addLeaf(obj.Roots.Help, 'Learning Samples','Help:Samples');
+            obj.addLeaf(obj.Roots.Help, 'Troubleshooting', 'Help:Troubleshooting');
             obj.addLeaf(obj.Roots.Help, 'Error Log',       'Help:ErrorLog');
-            obj.addSeparator(obj.Roots.Help, 'About', 'Help:About');
+            obj.addSeparator(obj.Roots.Help, 'License',    'Help:License');
+            obj.addLeaf(obj.Roots.Help, 'About Flight Review Studio', 'Help:About');
         end
 
         function m = makeRoot(~, fig, label)

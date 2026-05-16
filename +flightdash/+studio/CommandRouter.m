@@ -55,7 +55,8 @@ classdef CommandRouter < handle
                 'Pref:Mode:Report', 'Pref:Mode:Compact', 'Pref:Mode:DockedFigure', ...
                 'Pref:Theme:Toggle', 'Pref:AutoUpdate', ...
                 'Pref:ToolbarCustomize', 'Pref:Shortcuts', ...
-                'Help:Shortcuts', 'Help:Samples', 'Help:ErrorLog', 'Help:About'};
+                'Help:Shortcuts', 'Help:Samples', 'Help:ErrorLog', 'Help:About', ...
+                'Help:QuickStart', 'Help:Troubleshooting', 'Help:License'};
 
             if any(strcmp(cmdId, globalCommands))
                 scope = 'global';
@@ -181,6 +182,14 @@ classdef CommandRouter < handle
                     if ismethod(app, 'toggleTheme')
                         app.toggleTheme();
                     end
+                case 'Help:About'
+                    flightdash.ui.AboutDialog.show(app);
+                case 'Help:License'
+                    flightdash.ui.LicenseDialog.show(app);
+                case 'Help:QuickStart'
+                    obj.openHelpDoc('QuickStart.md');
+                case 'Help:Troubleshooting'
+                    obj.openHelpDoc('Troubleshooting.md');
                 case 'File:Exit'
                     delete(app);
                 otherwise
@@ -327,6 +336,26 @@ classdef CommandRouter < handle
 
         function s = collapsedToOnOff(~, isCollapsed)
             if isCollapsed, s = 'off'; else, s = 'on'; end
+        end
+
+        function openHelpDoc(obj, basename)
+            % Phase B-2: open a Markdown doc from docs/user/. Falls
+            % back to a status-bar message if the doc is missing —
+            % never blocks the user. Uses `web` so MATLAB's built-in
+            % browser handles the .md (renders as plain text).
+            try
+                here = fileparts(mfilename('fullpath'));
+                root = fullfile(here, '..', '..', '..');
+                docPath = fullfile(root, 'docs', 'user', char(basename));
+                if isfile(docPath)
+                    try, web(docPath, '-browser'); catch, web(docPath); end
+                    obj.setStatus(sprintf('Help: opened %s', basename));
+                else
+                    obj.setStatus(sprintf('Help doc not found: %s', basename));
+                end
+            catch ME
+                obj.reportException('Command', sprintf('Help:%s', basename), ME);
+            end
         end
 
         function togglePanelVisible(obj, mgr, label)
