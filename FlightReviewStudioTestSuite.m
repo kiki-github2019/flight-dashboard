@@ -2755,6 +2755,43 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(app.VideoState(2).videoStartTime, 7.0);
         end
 
+        function test_T15_Refactor_R8_SyncAndVideoSyncStateInverted(testCase)
+            % R8 video-group completion: SyncState + VideoSyncState
+            % flip to VideoSessionState. Constructor writes both
+            % early (~line 304/307) so the idempotent StateStore
+            % guard must preserve them through the explicit
+            % StateStore init.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Constructor writes survive.
+            testCase.verifyFalse(app.SyncState.IsSynced);
+            testCase.verifyEqual(app.SyncState.SyncT1, 0);
+            testCase.verifyEqual(numel(app.VideoSyncState), 2);
+            testCase.verifyEqual(app.VideoSyncState(1).VideoFps, 70);
+            testCase.verifyEqual(app.VideoSyncState(2).DataFps, 50);
+
+            % SyncState struct write/read round trip.
+            app.SyncState.IsSynced = true;
+            testCase.verifyTrue(app.StateStore.Video.SyncState.IsSynced);
+
+            % VideoSyncState subscript-assign through Dependent dispatch.
+            app.VideoSyncState(1).TotalFrames = 1234;
+            testCase.verifyEqual(app.StateStore.Video.VideoSyncState(1).TotalFrames, 1234);
+            testCase.verifyEqual(app.VideoSyncState(2).TotalFrames, 0, ...
+                'Subscript-assign on channel 1 must not touch channel 2.');
+
+            % Reverse direction.
+            app.StateStore.Video.VideoSyncState(2).CurrentFrame = 50;
+            testCase.verifyEqual(app.VideoSyncState(2).CurrentFrame, 50);
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

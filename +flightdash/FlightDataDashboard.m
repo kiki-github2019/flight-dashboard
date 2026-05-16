@@ -37,9 +37,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         SyncBtn
 
         Models
-        SyncState
-        % VideoState ownership inverted (R8) — see Dependent block.
-        VideoSyncState
+        % SyncState / VideoState / VideoSyncState ownership inverted (R8) — see Dependent block.
 
         CoastlineData
         FixedAreaBounds
@@ -236,6 +234,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         VideoFilePath           % multiplexes app.StateStore.Channels(k).VideoFilePath
         % R8 video group: storage on VideoSessionState.
         VideoState              % proxies app.StateStore.Video.VideoState
+        SyncState               % proxies app.StateStore.Video.SyncState
+        VideoSyncState          % proxies app.StateStore.Video.VideoSyncState
     end
 
     methods
@@ -796,6 +796,43 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.StateStore = flightdash.state.DashboardStateStore(2);
             end
             app.StateStore.Video.VideoState = value;
+        end
+
+        function v = get.SyncState(app)
+            v = struct('IsSynced', false, 'SyncT1', 0, 'SyncT2', 0);
+            try
+                if ~isempty(app.StateStore) && isvalid(app.StateStore) ...
+                        && ~isempty(app.StateStore.Video) && isvalid(app.StateStore.Video)
+                    v = app.StateStore.Video.SyncState;
+                end
+            catch
+            end
+        end
+        function set.SyncState(app, value)
+            if isempty(app.StateStore) || ~isvalid(app.StateStore)
+                app.StateStore = flightdash.state.DashboardStateStore(2);
+            end
+            app.StateStore.Video.SyncState = value;
+        end
+
+        function v = get.VideoSyncState(app)
+            v = struct('IsSynced', {false, false}, 'AnchorFrame', {0,0}, ...
+                'AnchorOffset', {0,0}, 'AnchorTime', {0,0}, ...
+                'VideoFps', {70,70}, 'DataFps', {50,50}, ...
+                'TotalFrames', {0,0}, 'CurrentFrame', {1,1});
+            try
+                if ~isempty(app.StateStore) && isvalid(app.StateStore) ...
+                        && ~isempty(app.StateStore.Video) && isvalid(app.StateStore.Video)
+                    v = app.StateStore.Video.VideoSyncState;
+                end
+            catch
+            end
+        end
+        function set.VideoSyncState(app, value)
+            if isempty(app.StateStore) || ~isvalid(app.StateStore)
+                app.StateStore = flightdash.state.DashboardStateStore(2);
+            end
+            app.StateStore.Video.VideoSyncState = value;
         end
     end
 
