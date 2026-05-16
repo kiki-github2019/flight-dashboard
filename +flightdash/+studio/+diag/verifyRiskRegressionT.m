@@ -9,6 +9,8 @@ function results = verifyRiskRegressionTests()
 %   RISK-4  silent / empty catch static scan
 %   RISK-5  multi-session tab deletion resource cleanup
 %   RISK-6  embedded session deletion must not delete existing parpool
+%   RISK-7  option*.dat parser section handling
+%   RISK-8  Pack Project duplicate filename / relative path handling
 %
 % Usage:
 %   clear classes
@@ -26,6 +28,7 @@ function results = verifyRiskRegressionTests()
         'RISK-5', @checkMultiSessionDeleteResourceCleanup
         'RISK-6', @checkEmbeddedDeleteKeepsParpool
         'RISK-7', @checkOptionFileParserSections
+        'RISK-8', @checkPackProjectCollisionAndRelativeLinks
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -644,6 +647,112 @@ function [status, msg] = checkOptionFileParserSections()
 end
 
 % =========================================================================
+% RISK-8
+% =========================================================================
+function [status, msg] = checkPackProjectCollisionAndRelativeLinks()
+% Verify Pack Project keeps duplicate basenames unique and portable.
+
+    requireClass('flightdash.project.ProjectPacker');
+    requireClass('flightdash.project.ProjectSerializer');
+    requireClass('flightdash.project.ProjectHealthChecker');
+    requireClass('flightdash.project.ProjectModel');
+    requireClass('flightdash.project.SessionModel');
+
+    outDir = tempname();
+    mkdir(outDir);
+    cleanup = onCleanup(@() safeRmdir(outDir)); %#ok<NASGU>
+
+    srcA = fullfile(outDir, 'sourceA');
+    srcB = fullfile(outDir, 'sourceB');
+    dest = fullfile(outDir, 'packed');
+    mkdir(srcA);
+    mkdir(srcB);
+    mkdir(dest);
+
+    flightA = fullfile(srcA, 'flight.csv');
+    flightB = fullfile(srcB, 'flight.csv');
+    optionA = fullfile(srcA, 'option.dat');
+    optionB = fullfile(srcB, 'option.dat');
+
+    writeTextFile(flightA, "time,roll" + newline + "0,sourceA");
+    writeTextFile(flightB, "time,roll" + newline + "0,sourceB");
+    writeTextFile(optionA, "# [mapping]" + newline + "Roll : A_ROLL");
+    writeTextFile(optionB, "# [mapping]" + newline + "Roll : B_ROLL");
+
+    project = flightdash.project.ProjectModel('Pack Collision Test');
+    sessA = flightdash.project.SessionModel('Collision A');
+    sessB = flightdash.project.SessionModel('Collision B');
+    sessA.FlightFilePath = {flightA, ''};
+    sessB.FlightFilePath = {flightB, ''};
+    sessA.OptionFilePath = {optionA, ''};
+    sessB.OptionFilePath = {optionB, ''};
+    project = project.addSession(sessA);
+    project = project.addSession(sessB);
+
+    opts = struct('IncludeVideo', false, 'Overwrite', true);
+    result = flightdash.project.ProjectPacker.pack(project, dest, opts);
+    if ~result.OK
+        status = 'FAIL';
+        msg = sprintf('ProjectPacker.pack failed: %s', strjoin(result.Warnings, ' | '));
+        return;
+    end
+
+    packed = flightdash.project.ProjectSerializer.load(result.PackedProjectPath);
+    packed.ProjectFolderPath = result.PackedRoot;
+    if numel(packed.Sessions) ~= 2
+        status = 'FAIL';
+        msg = 'Packed project did not preserve both sessions.';
+        return;
+    end
+
+    flightRel = {packed.Sessions.FlightFilePath};
+    optionRel = {packed.Sessions.OptionFilePath};
+    flightRel = cellfun(@(p) p{1}, flightRel, 'UniformOutput', false);
+    optionRel = cellfun(@(p) p{1}, optionRel, 'UniformOutput', false);
+
+    allRel = [flightRel, optionRel];
+    if any(cellfun(@isAbsolutePathLocal, allRel))
+        status = 'FAIL';
+        msg = 'Packed project still contains absolute asset paths.';
+        return;
+    end
+    if numel(unique(flightRel)) ~= 2 || numel(unique(optionRel)) ~= 2
+        status = 'FAIL';
+        msg = 'Duplicate source basenames were not rewritten to unique packed paths.';
+        return;
+    end
+
+    flightDst = cellfun(@(p) fullfile(result.PackedRoot, strrep(p, '/', filesep)), ...
+        flightRel, 'UniformOutput', false);
+    optionDst = cellfun(@(p) fullfile(result.PackedRoot, strrep(p, '/', filesep)), ...
+        optionRel, 'UniformOutput', false);
+    if any(~cellfun(@isfile, [flightDst, optionDst]))
+        status = 'FAIL';
+        msg = 'One or more rewritten packed asset paths do not exist.';
+        return;
+    end
+    if ~contains(fileread(flightDst{1}), 'sourceA') || ...
+            ~contains(fileread(flightDst{2}), 'sourceB') || ...
+            ~contains(fileread(optionDst{1}), 'A_ROLL') || ...
+            ~contains(fileread(optionDst{2}), 'B_ROLL')
+        status = 'FAIL';
+        msg = 'Packed duplicate filenames did not preserve source-specific contents.';
+        return;
+    end
+
+    report = flightdash.project.ProjectHealthChecker.check(packed);
+    if ~flightdash.project.ProjectHealthChecker.isHealthy(report)
+        status = 'FAIL';
+        msg = sprintf('Packed project health check failed: %s', ...
+            flightdash.project.ProjectHealthChecker.summarize(report));
+        return;
+    end
+
+    status = 'PASS';
+    msg = 'Pack Project keeps duplicate basenames unique and uses relative paths.';
+end
+
+% =========================================================================
 % Helper functions
 % =========================================================================
 function requireClass(className)
@@ -692,6 +801,23 @@ function value = mappingValue(model, key)
     idx = find(string(model.Mapping.Key) == string(key), 1);
     if ~isempty(idx)
         value = char(model.Mapping.MappedField(idx));
+    end
+end
+
+function tf = isAbsolutePathLocal(pathValue)
+    tf = false;
+    try
+        p = char(pathValue);
+        if isempty(p), return; end
+        tf = logical(java.io.File(p).isAbsolute());
+    catch
+        try
+            p = char(pathValue);
+            tf = startsWith(p, filesep) || startsWith(p, '\\') || ...
+                ~isempty(regexp(p, '^[A-Za-z]:[\\/]', 'once'));
+        catch
+            tf = false;
+        end
     end
 end
 
