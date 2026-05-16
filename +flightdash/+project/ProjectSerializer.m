@@ -199,6 +199,11 @@ classdef ProjectSerializer
             clear cleaner;
         end
 
+        function s = projectSnapshot(project)
+            mustBeA(project, 'flightdash.project.ProjectModel');
+            s = flightdash.project.ProjectSerializer.projectToStruct(project);
+        end
+
     end
 
     methods (Static, Access = private)
