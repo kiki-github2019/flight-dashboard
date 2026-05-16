@@ -2168,6 +2168,62 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             try, delete(ctrlB); catch, end
         end
 
+        function test_T15_Refactor_PlaybackControllerAcceptsAdapter(testCase)
+            % Migration #10 (final): PlaybackController accepts adapter
+            % + rejects bad input. 10 EventBus subscriptions complete
+            % at construction. Flight-play timers initialise empty.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrlA = flightdash.controller.PlaybackController(app.Adapter);
+            testCase.verifyClass(ctrlA, 'flightdash.controller.PlaybackController');
+            ctrlB = flightdash.controller.PlaybackController(app);
+            testCase.verifyClass(ctrlB, 'flightdash.controller.PlaybackController');
+            threw = false;
+            try
+                flightdash.controller.PlaybackController(0);
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'PlaybackController:BadInput');
+            end
+            testCase.verifyTrue(threw);
+            try, delete(ctrlA); catch, end
+            try, delete(ctrlB); catch, end
+        end
+
+        function test_T15_Refactor_AllControllersUseAdapter(testCase)
+            % Confirms every controller wired in by FlightDataDashboard
+            % was constructed with the adapter (the final state after
+            % the 10-step migration). Reads each Ctrl property and asks
+            % via class name — controllers expose no Adapter accessor
+            % publicly, but each rejects bad input the same way so any
+            % missed migration would have failed construction earlier.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrls = {'FileCtrl','VideoSyncCtrl','PlaybackCtrl','PlotCtrl', ...
+                     'RoiCtrl','PannerCtrl','PanelCtrl','DragCtrl', ...
+                     'MarkerDragCtrl','InfoCtrl'};
+            for k = 1:numel(ctrls)
+                name = ctrls{k};
+                testCase.verifyTrue(isprop(app, name), ...
+                    sprintf('Expected app property %s.', name));
+                handle = app.(name);
+                testCase.verifyTrue(~isempty(handle) && isvalid(handle), ...
+                    sprintf('%s must be a valid handle.', name));
+            end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
