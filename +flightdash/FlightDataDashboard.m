@@ -932,6 +932,96 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
+        function tf = applyOptionFileModel(app, fIdx, optionModel)
+            % PFE-2: apply an edited OptionFileModel to channel fIdx
+            % without reloading the CSV / AVI. Updates mappedCols +
+            % displayMeta only; rawData is preserved. Returns logical
+            % success. Safe to call when no flight data has been loaded
+            % (mappedCols / displayMeta are updated for the next load).
+            tf = false;
+            try
+                if nargin < 3 || isempty(optionModel), return; end
+                if ~isa(optionModel, 'flightdash.project.OptionFileModel'), return; end
+                if isempty(fIdx) || ~isnumeric(fIdx), return; end
+                fIdx = double(fIdx);
+                if fIdx < 1 || fIdx > numel(app.Models), return; end
+
+                mappedCols  = optionModel.toMappedCols();
+                displayMeta = optionModel.toDisplayMeta();
+
+                if isstruct(mappedCols)
+                    app.Models(fIdx).mappedCols = mappedCols;
+                end
+                if isstruct(displayMeta)
+                    app.Models(fIdx).displayMeta = displayMeta;
+                end
+                % Keep selectedRow in range so the current-info uitable
+                % refresh below does not index past the new row count.
+                if ~isempty(app.Models(fIdx).displayMeta)
+                    n = numel(app.Models(fIdx).displayMeta);
+                    sel = app.Models(fIdx).selectedRow;
+                    if isempty(sel) || sel < 1 || sel > n
+                        app.Models(fIdx).selectedRow = 1;
+                    end
+                end
+                tf = true;
+            catch
+                tf = false;
+            end
+        end
+
+        function refreshFlightDataTable(app, fIdx)
+            % PFE-2: best-effort refresh of the per-channel current-info
+            % uitable after a display-metadata edit. Safe to call before
+            % UI exists (e.g. embedded dashboards still constructing) —
+            % silently returns when the relevant handles are absent.
+            try
+                if isempty(fIdx) || ~isnumeric(fIdx), return; end
+                fIdx = double(fIdx);
+                if fIdx < 1 || fIdx > numel(app.Models), return; end
+                if isempty(app.Models(fIdx).rawData), return; end
+                idx = app.Models(fIdx).currentIndex;
+                if isempty(idx) || idx < 1, idx = 1; end
+                if ismethod(app, 'updateCurrentInfoTable')
+                    app.updateCurrentInfoTable(fIdx, idx);
+                end
+            catch
+            end
+        end
+
+        function refreshPlotFieldChoices(app, fIdx)
+            % PFE-2: best-effort refresh of plot Y-axis dropdowns after a
+            % display-metadata edit (PlotManager + PlotDetails ride on
+            % the displayMeta header list). Headless-safe — silently
+            % returns when the plot subsystems are not yet constructed.
+            try
+                if isempty(fIdx) || ~isnumeric(fIdx), return; end
+                fIdx = double(fIdx);
+                if fIdx < 1 || fIdx > numel(app.Models), return; end
+                if ismethod(app, 'refreshPlotManager')
+                    try, app.refreshPlotManager(fIdx); catch, end
+                end
+                if ismethod(app, 'refreshPlotDetails')
+                    try, app.refreshPlotDetails(fIdx); catch, end
+                end
+            catch
+            end
+        end
+
+        function refreshDashboardLightweight(app, reason)
+            % PFE-2: cheap fan-out refresh after an option-model apply.
+            % Touches the current-info table + plot field choices for
+            % both channels. `reason` is informational only.
+            if nargin < 2, reason = ''; end %#ok<NASGU>
+            try
+                for k = 1:numel(app.Models)
+                    app.refreshFlightDataTable(k);
+                    app.refreshPlotFieldChoices(k);
+                end
+            catch
+            end
+        end
+
         function tf = mappedColAvailable(app, fIdx, key)
             % Stabilization helper (review section 5.4): returns true iff
             % the loader successfully mapped `key` (e.g. 'Roll') AND the

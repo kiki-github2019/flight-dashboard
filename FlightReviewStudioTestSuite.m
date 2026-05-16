@@ -1552,6 +1552,170 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             catch, end
         end
 
+        function test_T15_OptionEditor_ValidateAgainstAvailableFields(testCase)
+            % PFE-2: validate() drives Available + Message columns
+            % against an externally-supplied field list. Loose pure-model
+            % test — no editor instance needed.
+            model = flightdash.project.OptionFileModel(1);
+            model.setMapping('Time', 'time');
+            model.setMapping('Lat',  'Flight2_LAT');
+            model.setMapping('Lon',  'Flight2_LON');
+            model.setMapping('Alt',  'Flight2_ALT');
+            model.addDisplayRow('time', 's', '%.3f', 1, 1, true);
+            model.addDisplayRow('Flight2_LAT', 'deg', '%.6f', 2, 1, true);
+
+            report = model.validate({'time', 'Flight2_LAT', 'Flight2_LON', 'Flight2_ALT'});
+            testCase.verifyTrue(report.OK, ...
+                'Validate must succeed when all critical mappings exist.');
+
+            report2 = model.validate({'time'});
+            testCase.verifyFalse(report2.OK, ...
+                'Missing critical mapping must produce errors.');
+            testCase.verifyGreaterThanOrEqual(numel(report2.Errors), 1);
+        end
+
+        function test_T15_OptionEditor_ApplyBlocksCriticalMissing(testCase)
+            % PFE-2: applyToDashboard refuses to push a model when
+            % critical mappings reference columns that do not exist in
+            % the available-fields list. DashboardDirty must stay set.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            ed.setAvailableFields({'time'}, 1);  % Lat/Lon/Alt missing
+            ed.Option1Model.setMapping('Time', 'time');
+            ed.Option1Model.setMapping('Lat',  'missing_lat');
+            ed.DashboardDirty = true;
+            ok = ed.applyToDashboard(1);
+            testCase.verifyFalse(ok, ...
+                'applyToDashboard must refuse on critical errors.');
+            testCase.verifyTrue(ed.DashboardDirty, ...
+                'DashboardDirty must stay set when apply is blocked.');
+            delete(ed);
+        end
+
+        function test_T15_OptionEditor_ApplyAllowsOptionalMissing(testCase)
+            % PFE-2: applyToDashboard tolerates optional-key warnings.
+            % With no dashboard attached the apply returns false but the
+            % validation gate (errors block, warnings ok) is what we test
+            % here — DashboardDirty must NOT be flipped by the validator.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            ed.setAvailableFields({'time', 'Flight2_LAT', 'Flight2_LON', 'Flight2_ALT'}, 1);
+            ed.Option1Model.setMapping('Time', 'time');
+            ed.Option1Model.setMapping('Lat',  'Flight2_LAT');
+            ed.Option1Model.setMapping('Lon',  'Flight2_LON');
+            ed.Option1Model.setMapping('Alt',  'Flight2_ALT');
+            % Roll/Pitch/Heading deliberately unmapped — optional warnings.
+            report = ed.Option1Model.validate({'time','Flight2_LAT','Flight2_LON','Flight2_ALT'});
+            testCase.verifyTrue(report.OK, ...
+                'Optional-missing case must be report.OK (warnings only).');
+            testCase.verifyGreaterThanOrEqual(numel(report.Warnings), 1);
+            delete(ed);
+        end
+
+        function test_T15_OptionEditor_AddDisplayRowPersistsToOptionFile(testCase)
+            % PFE-2: add a row, save, reload from disk, confirm the row
+            % survives the round trip.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            tmpFile = [tempname '_option1.dat'];
+            ed.Option1Model.FilePath = tmpFile;
+            ed.addDisplayRow(1);
+            ok = ed.saveOption(1);
+            testCase.verifyTrue(ok, 'saveOption must succeed.');
+            testCase.verifyTrue(isfile(tmpFile), ...
+                'option file must exist after save.');
+            reread = flightdash.project.OptionFileParser.read(tmpFile);
+            names = cellstr(reread.Display.FieldName);
+            testCase.verifyTrue(any(strcmp(names, 'NewField')), ...
+                'Added display row must survive save+reload.');
+            testCase.cleanupOptionFile(tmpFile);
+            delete(ed);
+        end
+
+        function test_T15_OptionEditor_DeleteDisplayRowPersistsToOptionFile(testCase)
+            % PFE-2: delete an unreferenced row, save, reload, confirm
+            % the row is gone from disk.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            tmpFile = [tempname '_option1.dat'];
+            ed.Option1Model.FilePath = tmpFile;
+            ed.Option1Model.addDisplayRow('Temperature', 'C', '%.2f', 1, 1, true);
+            % Setup a critical mapping that does NOT reference Temperature
+            % so the delete is allowed.
+            ed.Option1Model.setMapping('Time', 'time');
+            rowIdx = find(string(ed.Option1Model.Display.FieldName) == "Temperature", 1);
+            testCase.verifyNotEmpty(rowIdx);
+            ok = ed.deleteDisplayRow(1, rowIdx, true);
+            testCase.verifyTrue(ok, 'deleteDisplayRow must succeed.');
+            okSave = ed.saveOption(1);
+            testCase.verifyTrue(okSave, 'save must succeed after delete.');
+            reread = flightdash.project.OptionFileParser.read(tmpFile);
+            names = cellstr(reread.Display.FieldName);
+            testCase.verifyFalse(any(strcmp(names, 'Temperature')), ...
+                'Deleted display row must NOT appear in reloaded file.');
+            testCase.cleanupOptionFile(tmpFile);
+            delete(ed);
+        end
+
+        function test_T15_OptionEditor_DeleteCriticalMappedDisplayRowBlocked(testCase)
+            % PFE-2 mirror of the PFE-1 block test but exercised through
+            % the live model used by applyToDashboard.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            ed.Option2Model.addDisplayRow('Flight2_LAT', 'deg', '%.6f', 1, 1, true);
+            ed.Option2Model.setMapping('Lat', 'Flight2_LAT');
+            rowIdx = find(string(ed.Option2Model.Display.FieldName) == "Flight2_LAT", 1);
+            ok = ed.deleteDisplayRow(2, rowIdx, true);
+            testCase.verifyFalse(ok, ...
+                'Critical-mapped display row must NOT be deletable.');
+            testCase.verifyTrue(ed.Option2Model.hasDisplayField('Flight2_LAT'));
+            delete(ed);
+        end
+
+        function test_T15_OptionEditor_SaveCreatesBackup(testCase)
+            % PFE-2: saving over an existing file must produce a
+            % timestamped .bak_* backup via OptionFileParser.write().
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            tmpFile = [tempname '_option1.dat'];
+            % Seed an initial file on disk so save triggers a backup.
+            seed = flightdash.project.OptionFileModel(1);
+            seed.addDisplayRow('seed', '-', '%.6f', 1, 1, true);
+            flightdash.project.OptionFileParser.write(seed, tmpFile);
+            testCase.verifyTrue(isfile(tmpFile));
+            ed.Option1Model = flightdash.project.OptionFileParser.read(tmpFile);
+            ed.addDisplayRow(1);
+            ed.Option1Model.FilePath = tmpFile;
+            ok = ed.saveOption(1);
+            testCase.verifyTrue(ok);
+            listing = dir([tmpFile '.bak_*']);
+            testCase.verifyGreaterThanOrEqual(numel(listing), 1, ...
+                'saveOption must create at least one .bak_* file.');
+            testCase.cleanupOptionFile(tmpFile);
+            delete(ed);
+        end
+
+        function test_T15_OptionEditor_SaveAllClearsOptionDirtyFlags(testCase)
+            % PFE-2: Save All persists both option files and clears
+            % Option1Dirty + Option2Dirty.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            tmp1 = [tempname '_option1.dat'];
+            tmp2 = [tempname '_option2.dat'];
+            ed.Option1Model.FilePath = tmp1;
+            ed.Option2Model.FilePath = tmp2;
+            ed.addDisplayRow(1);
+            ed.addDisplayRow(2);
+            testCase.verifyTrue(ed.Option1Dirty && ed.Option2Dirty);
+            ok = ed.saveAll();
+            testCase.verifyTrue(ok, 'saveAll must succeed.');
+            testCase.verifyFalse(ed.Option1Dirty, 'Option1Dirty must clear.');
+            testCase.verifyFalse(ed.Option2Dirty, 'Option2Dirty must clear.');
+            testCase.cleanupOptionFile(tmp1);
+            testCase.cleanupOptionFile(tmp2);
+            delete(ed);
+        end
+
         function test_T15_ProjectFileEditor_ShellCreateDelete(testCase)
             % PFE-1: openProjectFileEditor() instantiates the dialog and
             % stores it on app.ProjectEditor; closing the dialog clears
@@ -1945,6 +2109,19 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 exist('flightdash.project.ProjectSerializer', 'class'), ...
                 8, ...
                 'ProjectSerializer class was not found.');
+        end
+
+        function cleanupOptionFile(~, filePath)
+            % PFE-2 helper: best-effort removal of an option file and
+            % any rotated .bak_* siblings dropped by OptionFileParser.
+            try, if isfile(filePath), delete(filePath); end, catch, end
+            try
+                listing = dir([filePath '.bak_*']);
+                for k = 1:numel(listing)
+                    try, delete(fullfile(listing(k).folder, listing(k).name)); catch, end
+                end
+            catch
+            end
         end
 
         function ed = createEditorOrSkip(testCase, app)

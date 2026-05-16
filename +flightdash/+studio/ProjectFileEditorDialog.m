@@ -226,12 +226,94 @@ classdef ProjectFileEditorDialog < handle
         end
 
         function ok = saveAll(obj)
+            % PFE-2: Save All applies pending dashboard changes first
+            % (when DashboardDirty) so the saved file and the live
+            % dashboard agree, then persists option*.dat. Apply failures
+            % do not block save — option-file persistence is the more
+            % durable change.
             ok = true;
+            if obj.DashboardDirty
+                try
+                    if obj.Option1Dirty, obj.applyToDashboard(1); end
+                    if obj.Option2Dirty, obj.applyToDashboard(2); end
+                catch ME
+                    try, obj.logCaught(ME, 'PFE:saveAll:apply'); catch, end
+                end
+            end
             if obj.Option1Dirty
                 ok = obj.saveOption(1) && ok;
             end
             if obj.Option2Dirty
                 ok = obj.saveOption(2) && ok;
+            end
+            if ok
+                obj.setStatus(sprintf('Save All complete (%s).', ...
+                    datestr(now, 'HH:MM:SS')));
+            else
+                obj.setStatus('Save All completed with errors.');
+            end
+        end
+
+        function ok = applyToDashboard(obj, optIdx)
+            % PFE-2: push the edited OptionFileModel into the live
+            % FlightDataDashboard via its public applyOptionFileModel
+            % wrapper. Validation gates the apply: critical errors block,
+            % optional-only warnings prompt the user (headless path
+            % auto-allows). rawData is preserved; only mappedCols +
+            % displayMeta change.
+            ok = false;
+            try
+                model = obj.modelFor(optIdx);
+                report = model.validate(obj.AvailableFields);
+                if ~isempty(report.Errors)
+                    obj.alert(sprintf( ...
+                        ['Cannot apply: %d critical error(s). Fix the ' ...
+                         'mapping / display rows first.'], ...
+                        numel(report.Errors)), 'Apply blocked', 'error');
+                    return;
+                end
+                if ~isempty(report.Warnings)
+                    if ~isempty(obj.Figure) && isvalid(obj.Figure)
+                        proceed = obj.confirm(sprintf( ...
+                            'Apply with %d warning(s)?', numel(report.Warnings)), ...
+                            'Apply with warnings');
+                        if ~proceed, return; end
+                    end
+                end
+                if isempty(obj.App) || ~isvalid(obj.App)
+                    obj.alert('Studio app unavailable; cannot apply.', ...
+                        'Apply blocked', 'error');
+                    return;
+                end
+                dash = obj.App.getActiveDashboard();
+                if isempty(dash) || ~isvalid(dash)
+                    obj.alert('No active dashboard; cannot apply.', ...
+                        'Apply blocked', 'warning');
+                    return;
+                end
+                if ~ismethod(dash, 'applyOptionFileModel')
+                    obj.alert('Dashboard apply wrapper unavailable.', ...
+                        'Apply blocked', 'error');
+                    return;
+                end
+                applied = dash.applyOptionFileModel(obj.FlightIndex, model);
+                if ~applied
+                    obj.alert('Dashboard refused the model.', ...
+                        'Apply failed', 'error');
+                    return;
+                end
+                try, dash.refreshFlightDataTable(obj.FlightIndex); catch, end
+                try, dash.refreshPlotFieldChoices(obj.FlightIndex); catch, end
+                try, dash.refreshDashboardLightweight('PFE apply'); catch, end
+                obj.DashboardDirty = false;
+                obj.refreshDirtyDots();
+                obj.setStatus(sprintf('Applied option%d.dat to dashboard (%s).', ...
+                    optIdx, datestr(now, 'HH:MM:SS')));
+                ok = true;
+            catch ME
+                try, obj.logCaught(ME, 'PFE:applyToDashboard'); catch, end
+                obj.alert(sprintf('Apply failed: %s', ME.message), ...
+                    'Apply failed', 'error');
             end
         end
     end
@@ -291,19 +373,23 @@ classdef ProjectFileEditorDialog < handle
             outer.Padding     = [4 4 4 4];
             outer.RowSpacing  = 4;
 
-            % Row 1 — toolbar (path, Load/Validate/Save).
-            tb = uigridlayout(outer, [1 5]);
+            % Row 1 — toolbar (path, Reset/Validate/Apply/Save + dirty dot).
+            tb = uigridlayout(outer, [1 7]);
             tb.RowHeight   = {26};
-            tb.ColumnWidth = {'1x', 90, 90, 90, 26};
+            tb.ColumnWidth = {'1x', 110, 90, 130, 90, 90, 26};
             tb.Padding     = [0 0 0 0];
-            tab.PathLabel = uilabel(tb, 'Text', sprintf('%s: (not set)', titleText));
-            tab.LoadBtn     = uibutton(tb, 'Text', 'Reload', ...
+            tab.PathLabel    = uilabel(tb, 'Text', sprintf('%s: (not set)', titleText));
+            tab.LoadBtn      = uibutton(tb, 'Text', 'Reset from file', ...
                 'ButtonPushedFcn', @(~,~) obj.onReload(optIdx));
-            tab.ValidateBtn = uibutton(tb, 'Text', 'Validate', ...
+            tab.ValidateBtn  = uibutton(tb, 'Text', 'Validate', ...
                 'ButtonPushedFcn', @(~,~) obj.runValidation(optIdx));
-            tab.SaveBtn     = uibutton(tb, 'Text', 'Save', ...
+            tab.ApplyBtn     = uibutton(tb, 'Text', 'Apply to Dashboard', ...
+                'ButtonPushedFcn', @(~,~) obj.applyToDashboard(optIdx));
+            tab.SaveBtn      = uibutton(tb, 'Text', 'Save', ...
                 'ButtonPushedFcn', @(~,~) obj.saveOption(optIdx));
-            tab.DirtyDot    = uilabel(tb, 'Text', '', ...
+            tab.SaveAllBtn   = uibutton(tb, 'Text', 'Save All', ...
+                'ButtonPushedFcn', @(~,~) obj.saveAll());
+            tab.DirtyDot     = uilabel(tb, 'Text', '', ...
                 'FontColor', [0.85 0.4 0.1], 'FontWeight', 'bold', ...
                 'HorizontalAlignment', 'center');
 
