@@ -25,12 +25,14 @@ classdef VideoModel < handle
     methods
         function attachReader(obj, vr, filePath, imageHandle)
             % Reader 부착 + (옵션) 메타 동기 set + VideoLoaded notify
-            if nargin < 2 || isempty(vr) || ~isvalid(vr)
+            % P0-1: VideoReader 는 graphics/timer 처럼 handle delete 의미가
+            % 보장되지 않으므로 reference release 만 사용.
+            if nargin < 2 || isempty(vr)
                 return;
             end
             try
-                if ~isempty(obj.Reader) && isvalid(obj.Reader) && ~isequal(obj.Reader, vr)
-                    delete(obj.Reader);
+                if ~isempty(obj.Reader) && ~isequal(obj.Reader, vr)
+                    obj.Reader = [];
                 end
             catch ME
                 flightdash.util.ErrorLog.log(ME, 'VideoModel:replaceReader');
@@ -40,11 +42,13 @@ classdef VideoModel < handle
             if nargin >= 4 && ~isempty(imageHandle), obj.ImageHandle = imageHandle; end
             notify(obj, 'VideoLoaded');
         end
-        
+
         function tf = isReady(obj)
+            % P0-1: VideoReader 에 isvalid 적용하지 않음 — non-empty + 핸들
+            % 자체 존재만으로 ready 로 판정 (실제 read 실패는 호출 측이 처리).
             tf = false;
             try
-                tf = ~isempty(obj.Reader) && isvalid(obj.Reader) && ...
+                tf = ~isempty(obj.Reader) && ...
                      ~isempty(obj.ImageHandle) && isvalid(obj.ImageHandle);
             catch
             end
@@ -60,7 +64,7 @@ classdef VideoModel < handle
             else
                 vr = obj.Reader;
             end
-            if isempty(vr) || ~isvalid(vr), return; end
+            if isempty(vr), return; end  % P0-1: skip isvalid on VideoReader
             try
                 if isprop(vr, 'NumFrames') && ~isempty(vr.NumFrames) && vr.NumFrames > 0
                     totalFrames = double(vr.NumFrames);
@@ -115,18 +119,19 @@ classdef VideoModel < handle
         end
         
         function cleanup(obj)
-            % VideoReader 명시적 해제 (파일락 즉시 반환)
+            % VideoReader 해제: reference release 만 사용 (P0-1).
+            % delete()/isvalid() 는 VideoReader 에서 MATLAB 버전/플랫폼별
+            % 의미가 일관되지 않아 secondary error 의 원인이 되었음.
             try
-                if ~isempty(obj.Reader) && isvalid(obj.Reader)
-                    delete(obj.Reader);
-                end
-            catch ME, flightdash.util.ErrorLog.log(ME, 'silent'); end
-            obj.Reader       = [];
+                obj.Reader = [];
+            catch ME, flightdash.util.ErrorLog.log(ME, 'VideoModel:cleanup'); end
             obj.StartTime    = 0;
             obj.FilePath     = '';
             obj.TotalFrames  = 0;
             obj.CurrentFrame = 1;
-            notify(obj, 'VideoCleared');
+            try
+                notify(obj, 'VideoCleared');
+            catch ME, flightdash.util.ErrorLog.log(ME, 'VideoModel:VideoCleared'); end
         end
     end
 end

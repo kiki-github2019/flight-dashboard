@@ -583,12 +583,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         end
                     catch ME, app.logCaught(ME, 'silent'); end
                     % VideoReader 정리 (worker가 같은 파일 잡고 있을 가능성 차단 후)
+                    % P0-1: reference release — VideoReader.delete()/isvalid()
+                    % 의 의미가 MATLAB 버전/플랫폼별로 일관되지 않음.
                     try
-                        if ~isempty(app.VideoState(fIdx).videoReader) && ...
-                           isvalid(app.VideoState(fIdx).videoReader)
-                            delete(app.VideoState(fIdx).videoReader);
-                        end
-                    catch ME, app.logCaught(ME, 'silent'); end
+                        app.VideoState(fIdx).videoReader = [];
+                    catch ME, app.logCaught(ME, 'cleanupVideoResources:reader'); end
                 end
                 % 캐시 비우기 (메모리 즉시 해제) - CacheModel 위임
                 if ~isempty(app.CacheModel)
@@ -2340,11 +2339,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function deleteDetachedVideoReader(app, vr)
+        function deleteDetachedVideoReader(app, vr) %#ok<INUSD>
+            % P0-1: VideoReader 는 reference release 로 해제. local 변수
+            % `vr` 을 비우면 caller 쪽 핸들의 마지막 참조가 사라질 때
+            % MATLAB 의 참조 카운트가 자동으로 file lock 해제.
             try
-                if ~isempty(vr) && isvalid(vr)
-                    delete(vr);
-                end
+                vr = []; %#ok<NASGU>
             catch ME
                 app.logCaught(ME, 'Video:deleteDetachedReader');
             end
@@ -3043,11 +3043,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
         end
 
-        function deleteReaderQuietly(app, vr)
+        function deleteReaderQuietly(app, vr) %#ok<INUSD>
+            % P0-1: VideoReader reference release (see deleteDetachedVideoReader).
             try
-                if ~isempty(vr) && isvalid(vr)
-                    delete(vr);
-                end
+                vr = []; %#ok<NASGU>
             catch ME
                 app.logCaught(ME, 'prefetch:cleanup');
             end
@@ -3165,8 +3164,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.VideoSyncState(fIdx).AnchorOffset = anchorOffset;
             app.VideoSyncState(fIdx).AnchorTime   = timeVal;
 
-            % 6. UI 피드백
-            app.UI(fIdx).vidSyncBtn.Text = 'Reset Sync';
+            % 6. UI 피드백 (P0-2: 'Reset Sync' 즉시 덮어쓰던 중복 라인 제거 —
+            % 'Sync Off' 가 실제로 사용자에게 보이는 라벨)
             app.UI(fIdx).vidSyncBtn.Text = 'Sync Off';
             app.UI(fIdx).vidSyncBtn.BackgroundColor = [0.8 0.2 0.2];
             app.UI(fIdx).vidSyncStatus.Text = sprintf('Sync OK (F%d -> %.3fs)', frameNo, timeVal);
@@ -3771,8 +3770,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % ---------------------------------------------------------------------
         function updateMarkersOnly(app, fIdx, idx)
             % [V3.17 (4)(11)] persistent inCascade → InCascade 인스턴스 속성으로 이동
-            isOuter = ~app.InCascade;
-
+            % (P0-3: 동일 할당 중복 라인 제거)
             isOuter = ~app.InCascade;
             app.Models(fIdx).currentIndex = idx;
             timeCol = app.Models(fIdx).mappedCols.Time;
