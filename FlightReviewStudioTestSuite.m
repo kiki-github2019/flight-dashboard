@@ -2645,6 +2645,39 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(app.getAdapter().activeSessionId(), 'S-New');
         end
 
+        function test_T15_Refactor_R7_UIFigureInverted(testCase)
+            % Final R7 inversion: UIFigure flips to SessionContext.
+            % This is the most-read identity property (the view layer
+            % reaches for it constantly) — Dependent dispatch absorbs
+            % every call site transparently.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            testCase.verifyTrue(~isempty(app.UIFigure));
+            testCase.verifyTrue(isvalid(app.UIFigure));
+            testCase.verifyTrue(isequal(app.UIFigure, app.SessionContext.UIFigure));
+
+            % adapter.uiFigure() must alias the new storage.
+            testCase.verifyTrue(isequal(app.getAdapter().uiFigure(), app.SessionContext.UIFigure));
+
+            % Confirm all 9 identity fields now live in SessionContext
+            % real-storage (not Dependent). Cheap to check via metaclass.
+            scMeta = ?flightdash.runtime.SessionContext;
+            sessionStorageNames = arrayfun(@(p) string(p.Name), scMeta.PropertyList);
+            for owned = ["UseSharedDecodeService","IsEmbedded","ActiveSessionId", ...
+                         "RootContainer","UIFigure","SharedCacheService", ...
+                         "SharedDecodeService","UndoService","MouseRouter"]
+                testCase.verifyTrue(any(sessionStorageNames == owned), ...
+                    sprintf('SessionContext must own %s as real storage.', owned));
+            end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

@@ -1,46 +1,37 @@
 classdef SessionContext < handle
-    %SESSIONCONTEXT  Live view of a FlightDataDashboard's session identity.
+    %SESSIONCONTEXT  Storage for a FlightDataDashboard's session identity.
     %
-    %   Phase R1 — additive refactor scaffolding. This class does NOT
-    %   own state; it is a Dependent-property facade over the existing
-    %   FlightDataDashboard properties so callers can read session
-    %   identity through a focused object without inheriting access to
-    %   the full app surface.
+    %   Owns the nine session-identity fields the R1 brief identified
+    %   (ActiveSessionId / IsEmbedded / RootContainer / UIFigure /
+    %   MouseRouter / SharedCacheService / SharedDecodeService /
+    %   UndoService / UseSharedDecodeService).
     %
-    %   Why a live view (not a snapshot): the app mutates ActiveSessionId
-    %   when Studio retargets the dashboard between tabs. A snapshot
-    %   would drift; a Dependent facade always reflects the truth.
+    %   History: R1 introduced this class as a Dependent live-view
+    %   over the app's properties (no ownership change). R7 inverted
+    %   ownership one field at a time so this handle is now the real
+    %   storage. The app keeps the same property names as Dependent
+    %   forwards declared on FlightDataDashboard so every legacy read
+    %   and write keeps compiling.
     %
-    %   Lifetime: SessionContext is held by the app and shares its
-    %   lifetime. When the app's delete() runs, this handle goes out of
-    %   scope alongside it. Do not cache references in unrelated
-    %   components — they would outlive the app.
-    %
-    %   Future phases (R5) will route controller construction through
-    %   this object so per-controller dependencies become explicit.
+    %   Lifetime: held by the app and shares its lifetime. When the
+    %   app's delete() runs, this handle goes out of scope alongside
+    %   it. Do not cache references in unrelated components — they
+    %   would outlive the app.
 
     properties (Access = private)
         AppRef  % flightdash.FlightDataDashboard — owning app
     end
 
-    % [REFACTOR R7] Storage for fields inverted from the app. As each
-    % identity property's external-read count reaches zero (via
-    % adapter routing) it migrates from the Dependent block below to
-    % this real-storage block. The app keeps the same property name
-    % as a Dependent forward so legacy reads stay unchanged.
     properties (Access = public)
         UseSharedDecodeService  logical = false
         IsEmbedded              logical = false
         ActiveSessionId         char    = 'standalone'
         RootContainer                   = []
+        UIFigure                        = []
         SharedCacheService              = []
         SharedDecodeService             = []
         UndoService                     = []
         MouseRouter                     = []
-    end
-
-    properties (Dependent, SetAccess = private)
-        UIFigure
     end
 
     methods
@@ -64,15 +55,4 @@ classdef SessionContext < handle
         end
     end
 
-    % -------- Dependent getters (live reads from app) --------
-    methods
-        function v = get.UIFigure(obj)
-            v = [];
-            if obj.isValidApp() && isprop(obj.AppRef, 'UIFigure')
-                v = obj.AppRef.UIFigure;
-            end
-        end
-
-
-    end
 end

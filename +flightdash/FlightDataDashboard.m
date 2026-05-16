@@ -30,7 +30,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     % Shared constants live in flightdash.util.AppConstants.
 
     properties (Access = public)
-        UIFigure
+        % UIFigure ownership inverted (R7).
         UI
         UIGroup
         SyncInput
@@ -230,6 +230,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         UndoService             % proxies app.SessionContext.UndoService
         ActiveSessionId         % proxies app.SessionContext.ActiveSessionId
         MouseRouter             % proxies app.SessionContext.MouseRouter
+        UIFigure                % proxies app.SessionContext.UIFigure
     end
 
     methods
@@ -705,6 +706,22 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.SessionContext = flightdash.runtime.SessionContext(app);
             end
             app.SessionContext.MouseRouter = value;
+        end
+
+        function v = get.UIFigure(app)
+            v = [];
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = app.SessionContext.UIFigure;
+                end
+            catch
+            end
+        end
+        function set.UIFigure(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.UIFigure = value;
         end
     end
 
