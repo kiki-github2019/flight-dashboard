@@ -111,12 +111,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % inverted — AsyncDecodeState owns the storage. Dependent
         % forwards below preserve every legacy app.* read/write.
         VideoFilePath       = {'', ''}        % [V3.19 (1)] worker가 자체 VideoReader 생성용
-        LayoutProfile       = 'wide'          % [RESPONSIVE] wide|medium|compact|narrow
-        LastLayoutSize      = [NaN, NaN]      % [RESPONSIVE] last measured figure size in px
-        InResponsiveLayout  = false           % [RESPONSIVE] resize/layout re-entry guard
-        PreferredVideoWidth = [NaN, NaN]      % [RESPONSIVE] video aspect preferred width in px
-        ManualVideoWidth    = [NaN, NaN]      % [RESPONSIVE] splitter-requested video width in px
-        ManualPanelWidths   = {struct(), struct()} % splitter-requested non-video panel widths
+        % [REFACTOR R6] LayoutProfile / LastLayoutSize /
+        % InResponsiveLayout / PreferredVideoWidth / ManualVideoWidth /
+        % ManualPanelWidths: ownership inverted — DashboardLayoutState
+        % owns the storage. Dependent forwards below preserve every
+        % legacy read/write. The remaining external readers all live
+        % in +flightdash/+view/ResponsiveLayoutManager.m and use
+        % transparent patterns (subscript reads, whole-array writes,
+        % struct-field access) that flow through Dependent dispatch.
         % [REFACTOR R6] PanelSplitterFIdx / PanelSplitterKind /
         % IsDraggingPanelSplitter / NormalFigurePosition: ownership
         % inverted — DashboardLayoutState now owns the storage. The
@@ -124,7 +126,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % so every legacy reader/writer keeps compiling. LayoutHandles
         % stays as a regular property until its external read count
         % drops to zero.
-        LayoutHandles       = struct()        % [RESPONSIVE] shell/header/body layout handles
+        % LayoutHandles ownership inverted (R6) — see Dependent block.
         FlightFilePath      = {'', ''}        % session config: loaded flight data paths
         InfoFormatModes     = {struct(), struct()} % per-channel value display modes keyed by normalized header
         ChannelViewMode     = 'both'          % both|flight1|flight2
@@ -202,6 +204,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         PanelSplitterKind       % proxies app.LayoutState.PanelSplitterKind
         IsDraggingPanelSplitter % proxies app.LayoutState.IsDraggingPanelSplitter
         NormalFigurePosition    % proxies app.LayoutState.NormalFigurePosition
+        LayoutProfile           % proxies app.LayoutState.LayoutProfile
+        LastLayoutSize          % proxies app.LayoutState.LastLayoutSize
+        InResponsiveLayout      % proxies app.LayoutState.InResponsiveLayout
+        PreferredVideoWidth     % proxies app.LayoutState.PreferredVideoWidth
+        ManualVideoWidth        % proxies app.LayoutState.ManualVideoWidth
+        ManualPanelWidths       % proxies app.LayoutState.ManualPanelWidths
+        LayoutHandles           % proxies app.LayoutState.LayoutHandles
         % R6 async-decode group: storage on AsyncDecodeState.
         UseAsyncDecode          % proxies app.AsyncDecode.UseAsyncDecode
         AsyncPool               % proxies app.AsyncDecode.AsyncPool
@@ -278,6 +287,118 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.LayoutState = flightdash.state.DashboardLayoutState(app);
             end
             app.LayoutState.NormalFigurePosition = value;
+        end
+
+        function v = get.LayoutProfile(app)
+            v = 'wide';
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.LayoutProfile;
+                end
+            catch
+            end
+        end
+        function set.LayoutProfile(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.LayoutProfile = char(value);
+        end
+
+        function v = get.LastLayoutSize(app)
+            v = [NaN, NaN];
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.LastLayoutSize;
+                end
+            catch
+            end
+        end
+        function set.LastLayoutSize(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.LastLayoutSize = value;
+        end
+
+        function v = get.InResponsiveLayout(app)
+            v = false;
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.InResponsiveLayout;
+                end
+            catch
+            end
+        end
+        function set.InResponsiveLayout(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.InResponsiveLayout = logical(value);
+        end
+
+        function v = get.PreferredVideoWidth(app)
+            v = [NaN, NaN];
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.PreferredVideoWidth;
+                end
+            catch
+            end
+        end
+        function set.PreferredVideoWidth(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.PreferredVideoWidth = value;
+        end
+
+        function v = get.ManualVideoWidth(app)
+            v = [NaN, NaN];
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.ManualVideoWidth;
+                end
+            catch
+            end
+        end
+        function set.ManualVideoWidth(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.ManualVideoWidth = value;
+        end
+
+        function v = get.ManualPanelWidths(app)
+            v = {struct(), struct()};
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.ManualPanelWidths;
+                end
+            catch
+            end
+        end
+        function set.ManualPanelWidths(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.ManualPanelWidths = value;
+        end
+
+        function v = get.LayoutHandles(app)
+            v = struct();
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.LayoutHandles;
+                end
+            catch
+            end
+        end
+        function set.LayoutHandles(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.LayoutHandles = value;
         end
 
         % ===== Async-decode group (R6) =====

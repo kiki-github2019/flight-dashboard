@@ -2408,6 +2408,61 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function test_T15_Refactor_R6_LayoutOwnershipComplete(testCase)
+            % R6 final layout commit: LayoutProfile / LastLayoutSize /
+            % InResponsiveLayout / PreferredVideoWidth /
+            % ManualVideoWidth / ManualPanelWidths / LayoutHandles all
+            % flip to LayoutState. After this, all 11 fields the R4
+            % brief listed are owned by the new handle.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Whole-property writes via app, read via LayoutState.
+            app.LayoutProfile = 'narrow';
+            app.LastLayoutSize = [640, 480];
+            app.InResponsiveLayout = true;
+            app.PreferredVideoWidth = [320, 160];
+            app.ManualVideoWidth = [480, 240];
+            app.ManualPanelWidths = {struct('att',100), struct('att',50)};
+            app.LayoutHandles = struct('header', 'h', 'bodyGrid', 'b');
+            testCase.verifyEqual(char(app.LayoutState.LayoutProfile), 'narrow');
+            testCase.verifyEqual(app.LayoutState.LastLayoutSize, [640, 480]);
+            testCase.verifyTrue(app.LayoutState.InResponsiveLayout);
+            testCase.verifyEqual(app.LayoutState.PreferredVideoWidth, [320, 160]);
+            testCase.verifyEqual(app.LayoutState.ManualVideoWidth, [480, 240]);
+            testCase.verifyEqual(app.LayoutState.ManualPanelWidths{1}.att, 100);
+            testCase.verifyEqual(app.LayoutState.LayoutHandles.header, 'h');
+
+            % Legacy subscript-assign patterns from
+            % ResponsiveLayoutManager.m must keep working.
+            app.ManualPanelWidths{2}.att = 999;
+            testCase.verifyEqual(app.LayoutState.ManualPanelWidths{2}.att, 999, ...
+                'Cell-subscript struct-field assign must flow through Dependent dispatch.');
+            app.LastLayoutSize(2) = 720;
+            testCase.verifyEqual(app.LayoutState.LastLayoutSize, [640, 720]);
+
+            % syncFromApp must be a no-op now.
+            app.LayoutState.LayoutProfile = 'wide';
+            app.LayoutState.syncFromApp();
+            testCase.verifyEqual(char(app.LayoutState.LayoutProfile), 'wide', ...
+                'syncFromApp must NOT clobber inverted-owner storage.');
+
+            mc = metaclass(app);
+            names = arrayfun(@(p) string(p.Name), mc.PropertyList);
+            for inverted = ["LayoutProfile","LastLayoutSize", ...
+                            "InResponsiveLayout","PreferredVideoWidth", ...
+                            "ManualVideoWidth","ManualPanelWidths","LayoutHandles"]
+                testCase.verifyTrue(any(names == inverted), ...
+                    sprintf('metaclass must still list %s.', inverted));
+            end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

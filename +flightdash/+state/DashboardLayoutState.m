@@ -44,29 +44,12 @@ classdef DashboardLayoutState < handle
                 && isvalid(obj.AppRef);
         end
 
-        function syncFromApp(obj)
-            % R4 lazy mirror for properties the app still owns. R6
-            % inverted four of the original 11 layout properties
-            % (PanelSplitterFIdx / PanelSplitterKind /
-            % IsDraggingPanelSplitter / NormalFigurePosition) so they
-            % are NOT synced here — their storage IS this handle.
-            % Tolerant of partial construction so a sync during the
-            % legacy constructor never errors.
-            if ~obj.isBound(), return; end
-            a = obj.AppRef;
-            try
-                if isprop(a, 'LayoutProfile'),           obj.LayoutProfile           = char(a.LayoutProfile);     end
-                if isprop(a, 'LastLayoutSize'),          obj.LastLayoutSize          = a.LastLayoutSize;          end
-                if isprop(a, 'InResponsiveLayout'),      obj.InResponsiveLayout      = logical(a.InResponsiveLayout); end
-                if isprop(a, 'PreferredVideoWidth'),     obj.PreferredVideoWidth     = a.PreferredVideoWidth;     end
-                if isprop(a, 'ManualVideoWidth'),        obj.ManualVideoWidth        = a.ManualVideoWidth;        end
-                if isprop(a, 'ManualPanelWidths'),       obj.ManualPanelWidths       = a.ManualPanelWidths;       end
-                if isprop(a, 'LayoutHandles'),           obj.LayoutHandles           = a.LayoutHandles;           end
-            catch
-                % Best-effort: a broken sync must never break legacy
-                % layout reads. Callers can fall back to app.* directly
-                % during the migration.
-            end
+        function syncFromApp(obj)  %#ok<MANU>
+            % R6 final: all 11 DashboardLayoutState fields are owned
+            % by this handle (the app's properties are Dependent
+            % forwards). Mirror is therefore a no-op. The method is
+            % kept (rather than deleted) so app.getLayoutState() can
+            % keep calling syncFromApp() without an ismethod guard.
         end
 
         function setLayoutProfile(obj, profile)
