@@ -2301,6 +2301,62 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function test_T15_Refactor_R6_AsyncOwnershipInverted(testCase)
+            % R6 (async group): UseAsyncDecode / AsyncPool /
+            % AsyncFutures / AsyncTargetFrame / AsyncGen /
+            % DragVelocity / DragVelocitySamples are Dependent
+            % forwards to AsyncDecodeState. Both directions reach the
+            % same storage; legacy subscript-assign patterns
+            % (app.AsyncGen(fIdx) = ..., app.AsyncFutures{fIdx} = ...)
+            % keep working through MATLAB's getter+modify+setter
+            % auto-chain.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Whole-array writes via app, read via AsyncDecode.
+            app.UseAsyncDecode = true;
+            app.AsyncPool = struct('placeholder', 1);
+            app.AsyncTargetFrame = [33 77];
+            app.AsyncGen = [5 9];
+            app.DragVelocity = [-1.5, 2.0];
+            testCase.verifyTrue(app.AsyncDecode.UseAsyncDecode);
+            testCase.verifyTrue(isstruct(app.AsyncDecode.AsyncPool));
+            testCase.verifyEqual(app.AsyncDecode.AsyncTargetFrame, [33 77]);
+            testCase.verifyEqual(app.AsyncDecode.AsyncGen, [5 9]);
+            testCase.verifyEqual(app.AsyncDecode.DragVelocity, [-1.5, 2.0]);
+
+            % Legacy subscript-assign pattern from the 3 cancel sites
+            % (FlightDataDashboard:600-611, :722-734, :2699-...) must
+            % keep working through the Dependent dispatch.
+            app.AsyncGen(1) = app.AsyncGen(1) + 1;
+            testCase.verifyEqual(app.AsyncDecode.AsyncGen, [6 9], ...
+                'app.AsyncGen(fIdx) = app.AsyncGen(fIdx)+1 must flow through Dependent forward.');
+            app.AsyncTargetFrame(2) = NaN;
+            testCase.verifyTrue(isnan(app.AsyncDecode.AsyncTargetFrame(2)));
+            app.AsyncFutures{1} = [];
+            testCase.verifyTrue(isempty(app.AsyncDecode.AsyncFutures{1}));
+
+            % Reverse direction.
+            app.AsyncDecode.UseAsyncDecode = false;
+            testCase.verifyFalse(app.UseAsyncDecode);
+
+            % metaclass(app) must still list all seven names.
+            mc = metaclass(app);
+            names = arrayfun(@(p) string(p.Name), mc.PropertyList);
+            for inverted = ["UseAsyncDecode","AsyncPool","AsyncFutures", ...
+                            "AsyncTargetFrame","AsyncGen","DragVelocity", ...
+                            "DragVelocitySamples"]
+                testCase.verifyTrue(any(names == inverted), ...
+                    sprintf('metaclass must still list %s.', inverted));
+            end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

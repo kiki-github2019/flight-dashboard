@@ -46,7 +46,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         DebugMode         = false   % [V3.14 항목 6] true 시 zoom/pan off 등 로그 출력
         State             = 'IDLE'  % [V3.17 (8)] 'IDLE' | 'DRAGGING' | 'UPDATING' | 'DECODING'
-        UseAsyncDecode    = false   % [V3.19 (1)] 비동기 디코딩 활성화 (Parallel Toolbox 필요)
+        % UseAsyncDecode ownership inverted (R6) — see Dependent block.
 
         % Timer-based slider scrubbing (review report: timer-based scrubbing).
         % onVdubSliderChanging only records SliderPendingFrame; the timer
@@ -107,13 +107,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         InCascade           = false          % [V3.17 (4)(11)] cascade 재귀 가드 (인스턴스 속성)
         IsDeleting          = false          % [FIX] delete(app) 중복 호출 방어 플래그
         IsDecoding          = [false, false] % [V3.17 (7)] 디코딩 진행 중 가드
-        AsyncPool           = []              % [V3.19 (1)] parallel pool 핸들
-        AsyncFutures        = {[], []}        % [V3.19 (1)] 진행 중 parfeval future
-        AsyncTargetFrame    = [NaN, NaN]      % [V3.19 (1)] 비동기 디코딩 중인 frame No
-        AsyncGen            = [0, 0]          % [V3.21 #1-A] generation counter (race 차단)
+        % [REFACTOR R6] AsyncPool / AsyncFutures / AsyncTargetFrame /
+        % AsyncGen / DragVelocity / DragVelocitySamples: ownership
+        % inverted — AsyncDecodeState owns the storage. Dependent
+        % forwards below preserve every legacy app.* read/write.
         VideoFilePath       = {'', ''}        % [V3.19 (1)] worker가 자체 VideoReader 생성용
-        DragVelocity        = [0, 0]          % [V3.19 (2)] frames/sec (부호: 방향)
-        DragVelocitySamples = {[], []}        % [V3.19 (2)] 최근 샘플 (이동평균용)
         LayoutProfile       = 'wide'          % [RESPONSIVE] wide|medium|compact|narrow
         LastLayoutSize      = [NaN, NaN]      % [RESPONSIVE] last measured figure size in px
         InResponsiveLayout  = false           % [RESPONSIVE] resize/layout re-entry guard
@@ -205,6 +203,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         PanelSplitterKind       % proxies app.LayoutState.PanelSplitterKind
         IsDraggingPanelSplitter % proxies app.LayoutState.IsDraggingPanelSplitter
         NormalFigurePosition    % proxies app.LayoutState.NormalFigurePosition
+        % R6 async-decode group: storage on AsyncDecodeState.
+        UseAsyncDecode          % proxies app.AsyncDecode.UseAsyncDecode
+        AsyncPool               % proxies app.AsyncDecode.AsyncPool
+        AsyncFutures            % proxies app.AsyncDecode.AsyncFutures
+        AsyncTargetFrame        % proxies app.AsyncDecode.AsyncTargetFrame
+        AsyncGen                % proxies app.AsyncDecode.AsyncGen
+        DragVelocity            % proxies app.AsyncDecode.DragVelocity
+        DragVelocitySamples     % proxies app.AsyncDecode.DragVelocitySamples
     end
 
     methods
@@ -270,6 +276,124 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.LayoutState = flightdash.state.DashboardLayoutState(app);
             end
             app.LayoutState.NormalFigurePosition = value;
+        end
+
+        % ===== Async-decode group (R6) =====
+        % Defaults match the pre-inversion property defaults so any
+        % read before AsyncDecode is constructed (or after the app's
+        % delete() ran) returns the same safe value the old storage
+        % did.
+
+        function v = get.UseAsyncDecode(app)
+            v = false;
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.UseAsyncDecode;
+                end
+            catch
+            end
+        end
+        function set.UseAsyncDecode(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.UseAsyncDecode = logical(value);
+        end
+
+        function v = get.AsyncPool(app)
+            v = [];
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.AsyncPool;
+                end
+            catch
+            end
+        end
+        function set.AsyncPool(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.AsyncPool = value;
+        end
+
+        function v = get.AsyncFutures(app)
+            v = {[], []};
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.AsyncFutures;
+                end
+            catch
+            end
+        end
+        function set.AsyncFutures(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.AsyncFutures = value;
+        end
+
+        function v = get.AsyncTargetFrame(app)
+            v = [NaN, NaN];
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.AsyncTargetFrame;
+                end
+            catch
+            end
+        end
+        function set.AsyncTargetFrame(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.AsyncTargetFrame = value;
+        end
+
+        function v = get.AsyncGen(app)
+            v = [0, 0];
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.AsyncGen;
+                end
+            catch
+            end
+        end
+        function set.AsyncGen(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.AsyncGen = value;
+        end
+
+        function v = get.DragVelocity(app)
+            v = [0, 0];
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.DragVelocity;
+                end
+            catch
+            end
+        end
+        function set.DragVelocity(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.DragVelocity = value;
+        end
+
+        function v = get.DragVelocitySamples(app)
+            v = {[], []};
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.DragVelocitySamples;
+                end
+            catch
+            end
+        end
+        function set.DragVelocitySamples(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.DragVelocitySamples = value;
         end
     end
 

@@ -50,23 +50,19 @@ classdef AsyncDecodeState < handle
         end
 
         function syncFromApp(obj)
-            % R3 lazy mirror — pull every legacy property into the
-            % handle. Called from app.getAsyncDecode() right before the
-            % handle is returned to a caller. Tolerant of partial
-            % construction.
+            % R3 lazy mirror for properties the app still owns. R6
+            % inverted 7 of the 10 fields (UseAsyncDecode / AsyncPool /
+            % AsyncFutures / AsyncTargetFrame / AsyncGen / DragVelocity
+            % / DragVelocitySamples) so they are NOT synced here —
+            % their storage IS this handle. IsDecoding / PendingFrame
+            % / PendingMode still mirror through the app until their
+            % external read counts also drop to zero.
             if ~obj.isBound(), return; end
             a = obj.AppRef;
             try
-                if isprop(a, 'UseAsyncDecode'),     obj.UseAsyncDecode     = logical(a.UseAsyncDecode); end
-                if isprop(a, 'AsyncPool'),          obj.AsyncPool          = a.AsyncPool;        end
-                if isprop(a, 'AsyncFutures'),       obj.AsyncFutures       = a.AsyncFutures;     end
-                if isprop(a, 'AsyncTargetFrame'),   obj.AsyncTargetFrame   = a.AsyncTargetFrame; end
-                if isprop(a, 'AsyncGen'),           obj.AsyncGen           = a.AsyncGen;         end
                 if isprop(a, 'IsDecoding'),         obj.IsDecoding         = a.IsDecoding;       end
                 if isprop(a, 'PendingFrame'),       obj.PendingFrame       = a.PendingFrame;     end
                 if isprop(a, 'PendingMode'),        obj.PendingMode        = a.PendingMode;      end
-                if isprop(a, 'DragVelocity'),       obj.DragVelocity       = a.DragVelocity;     end
-                if isprop(a, 'DragVelocitySamples'),obj.DragVelocitySamples= a.DragVelocitySamples; end
             catch
                 % Lazy mirror is best-effort — never throw out of a
                 % bound sync.
