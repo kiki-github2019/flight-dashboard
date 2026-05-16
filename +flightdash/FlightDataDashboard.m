@@ -184,17 +184,32 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     end
 
     % =========================================================================
-    % [REFACTOR R6] Ownership-inverted layout properties. The storage
-    % lives on app.LayoutState (a DashboardLayoutState handle); these
-    % Dependent forwards keep every legacy app.PanelSplitterFIdx /
-    % app.PanelSplitterKind / app.IsDraggingPanelSplitter /
-    % app.NormalFigurePosition read + write working unchanged. Because
-    % LayoutState is constructed before the constructor returns, the
-    % first reader after construction always sees the new storage.
-    % Before LayoutState exists (the brief window during construction
-    % when the legacy `app.NormalFigurePosition = app.UIFigure.Position`
-    % assignment runs), the getter returns the same defaults the
-    % property had before inversion so initialization order is safe.
+    % [REFACTOR R6 / R7 / R8] Ownership-inverted Dependent forwards.
+    % Each name below was once a storage slot on the app; the storage
+    % now lives on a dedicated state class (DashboardLayoutState,
+    % AsyncDecodeState, SessionContext, VideoSessionState,
+    % ChannelState). The Dependent forward keeps every legacy app.*
+    % read and write compiling unchanged — MATLAB's get-modify-set
+    % chain absorbs subscript-assign patterns automatically.
+    %
+    % Storage is constructed eagerly in the constructor; for any field
+    % the constructor writes BEFORE the explicit state-class init
+    % line, the setter's lazy-create path runs and the explicit init
+    % is idempotent (`if isempty(...)`), so the value survives.
+    %
+    % NOT INVERTED (R2 brief remainder, deferred):
+    %   Models   — 77 read sites with deep struct-array access
+    %              (app.Models(fIdx).rawData.column(idx)). Inversion
+    %              would force Dependent dispatch into multiple hot
+    %              paths (updateDashboard, applyTimeChange, plot
+    %              renderers). Needs a separate design pass that
+    %              either reduces the read-site count via
+    %              app.channel(fIdx) routing or adopts a different
+    %              ownership shape.
+    %
+    % The verifyDashboardRefactorBaseline diagnostic locks the 35
+    % inversions in place — any regression that moves storage back
+    % to the app fails the r6r7r8_ownership_baseline step.
     % =========================================================================
     properties (Dependent, Access = public)
         PanelSplitterFIdx       % proxies app.LayoutState.PanelSplitterFIdx

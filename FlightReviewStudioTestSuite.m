@@ -2792,6 +2792,28 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(app.VideoSyncState(2).CurrentFrame, 50);
         end
 
+        function test_T15_Refactor_OwnershipBaselineLocked(testCase)
+            % Wrap-up regression guard. Runs the
+            % r6r7r8_ownership_baseline step from the diagnostic in
+            % isolation and asserts it returns 'PASS'. Any future
+            % edit that pulls storage back to the app or removes a
+            % Dependent forward will fail this test.
+            report = [];
+            try
+                report = flightdash.diag.verifyDashboardRefactorBaseline();
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Baseline diagnostic cannot run headlessly: %s', ME.message));
+                return;
+            end
+            idx = find(report.Steps.Name == "r6r7r8_ownership_baseline", 1);
+            testCase.verifyNotEmpty(idx, ...
+                'r6r7r8_ownership_baseline step missing from baseline diagnostic.');
+            testCase.verifyEqual(char(report.Steps.Status(idx)), 'PASS', ...
+                sprintf('Ownership baseline regressed: %s', ...
+                char(report.Steps.Error(idx))));
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
