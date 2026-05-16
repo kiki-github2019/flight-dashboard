@@ -49,24 +49,13 @@ classdef AsyncDecodeState < handle
                 && isvalid(obj.AppRef);
         end
 
-        function syncFromApp(obj)
-            % R3 lazy mirror for properties the app still owns. R6
-            % inverted 7 of the 10 fields (UseAsyncDecode / AsyncPool /
-            % AsyncFutures / AsyncTargetFrame / AsyncGen / DragVelocity
-            % / DragVelocitySamples) so they are NOT synced here —
-            % their storage IS this handle. IsDecoding / PendingFrame
-            % / PendingMode still mirror through the app until their
-            % external read counts also drop to zero.
-            if ~obj.isBound(), return; end
-            a = obj.AppRef;
-            try
-                if isprop(a, 'IsDecoding'),         obj.IsDecoding         = a.IsDecoding;       end
-                if isprop(a, 'PendingFrame'),       obj.PendingFrame       = a.PendingFrame;     end
-                if isprop(a, 'PendingMode'),        obj.PendingMode        = a.PendingMode;      end
-            catch
-                % Lazy mirror is best-effort — never throw out of a
-                % bound sync.
-            end
+        function syncFromApp(obj)  %#ok<MANU>
+            % R6 final: all 10 AsyncDecodeState fields are now
+            % source-of-truth here (the app's properties are Dependent
+            % forwards). Mirror is therefore a no-op. The method is
+            % kept (rather than deleted) so the R3 callers
+            % (app.getAsyncDecode) don't need a conditional ismethod()
+            % check — they keep calling syncFromApp() unchanged.
         end
 
         function cancelChannel(obj, fIdx)

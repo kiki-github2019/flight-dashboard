@@ -102,11 +102,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         LayoutMgr           = []
         CacheBudgetMB       = 30              % [V3.14 항목 3] 호환 유지: setCacheBudget 진입점이 사용
         InGoToFrame         = [false, false] % [V3.16] goToFrame 재진입 차단 플래그
-        PendingFrame        = [NaN, NaN]     % [V3.17 (1)(9)] 처리 중 들어온 최신 frame 요청
-        PendingMode         = {'', ''}        % [V3.17 (1)(9)] 처리 중 들어온 최신 mode
+        % PendingFrame / PendingMode ownership inverted (R6) — see Dependent block.
         InCascade           = false          % [V3.17 (4)(11)] cascade 재귀 가드 (인스턴스 속성)
         IsDeleting          = false          % [FIX] delete(app) 중복 호출 방어 플래그
-        IsDecoding          = [false, false] % [V3.17 (7)] 디코딩 진행 중 가드
+        % IsDecoding ownership inverted (R6) — see Dependent block.
         % [REFACTOR R6] AsyncPool / AsyncFutures / AsyncTargetFrame /
         % AsyncGen / DragVelocity / DragVelocitySamples: ownership
         % inverted — AsyncDecodeState owns the storage. Dependent
@@ -211,6 +210,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         AsyncGen                % proxies app.AsyncDecode.AsyncGen
         DragVelocity            % proxies app.AsyncDecode.DragVelocity
         DragVelocitySamples     % proxies app.AsyncDecode.DragVelocitySamples
+        IsDecoding              % proxies app.AsyncDecode.IsDecoding
+        PendingFrame            % proxies app.AsyncDecode.PendingFrame
+        PendingMode             % proxies app.AsyncDecode.PendingMode
     end
 
     methods
@@ -394,6 +396,54 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
             end
             app.AsyncDecode.DragVelocitySamples = value;
+        end
+
+        function v = get.IsDecoding(app)
+            v = [false, false];
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.IsDecoding;
+                end
+            catch
+            end
+        end
+        function set.IsDecoding(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.IsDecoding = logical(value);
+        end
+
+        function v = get.PendingFrame(app)
+            v = [NaN, NaN];
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.PendingFrame;
+                end
+            catch
+            end
+        end
+        function set.PendingFrame(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.PendingFrame = value;
+        end
+
+        function v = get.PendingMode(app)
+            v = {'', ''};
+            try
+                if ~isempty(app.AsyncDecode) && isvalid(app.AsyncDecode)
+                    v = app.AsyncDecode.PendingMode;
+                end
+            catch
+            end
+        end
+        function set.PendingMode(app, value)
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            app.AsyncDecode.PendingMode = value;
         end
     end
 

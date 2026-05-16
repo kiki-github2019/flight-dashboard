@@ -2357,6 +2357,57 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function test_T15_Refactor_R6_AsyncOwnershipComplete(testCase)
+            % R6 final async commit: IsDecoding / PendingFrame /
+            % PendingMode also flip to AsyncDecodeState. After this,
+            % all 10 fields the R3 brief listed are owned by the new
+            % handle. Confirms both subscript-assign patterns the
+            % legacy clearPending site uses
+            % (FlightDataDashboard:~1267: app.PendingFrame(fIdx) =
+            % NaN; app.PendingMode{fIdx} = '';) still work through the
+            % Dependent dispatch.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            app.IsDecoding = [true false];
+            app.PendingFrame = [10 20];
+            app.PendingMode = {'play', 'scrub'};
+            testCase.verifyEqual(app.AsyncDecode.IsDecoding, [true false]);
+            testCase.verifyEqual(app.AsyncDecode.PendingFrame, [10 20]);
+            testCase.verifyEqual(app.AsyncDecode.PendingMode, {'play', 'scrub'});
+
+            % Legacy clearPending subscript-assign pattern.
+            app.PendingFrame(1) = NaN;
+            app.PendingMode{1} = '';
+            testCase.verifyTrue(isnan(app.AsyncDecode.PendingFrame(1)));
+            testCase.verifyEqual(app.AsyncDecode.PendingMode{1}, '');
+            testCase.verifyEqual(app.AsyncDecode.PendingFrame(2), 20, ...
+                'Subscript-assign on channel 1 must not touch channel 2.');
+
+            % IsDecoding subscript-assign.
+            app.IsDecoding(2) = true;
+            testCase.verifyEqual(app.AsyncDecode.IsDecoding, [true true]);
+
+            % AsyncDecodeState.syncFromApp must be a no-op now.
+            app.AsyncDecode.IsDecoding = [false false];
+            app.AsyncDecode.syncFromApp();
+            testCase.verifyEqual(app.AsyncDecode.IsDecoding, [false false], ...
+                'syncFromApp must NOT clobber inverted-owner storage.');
+
+            mc = metaclass(app);
+            names = arrayfun(@(p) string(p.Name), mc.PropertyList);
+            for inverted = ["IsDecoding","PendingFrame","PendingMode"]
+                testCase.verifyTrue(any(names == inverted), ...
+                    sprintf('metaclass must still list %s.', inverted));
+            end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
