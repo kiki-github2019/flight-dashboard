@@ -1928,6 +1928,35 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function test_T15_Refactor_MarkerDragControllerAcceptsAdapter(testCase)
+            % Migration #2: MarkerDragController constructor accepts
+            % adapter and rejects bad input. Idle-state defaults are
+            % preserved across the migration.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrlA = flightdash.controller.MarkerDragController(app.Adapter);
+            testCase.verifyClass(ctrlA, 'flightdash.controller.MarkerDragController');
+            ctrlB = flightdash.controller.MarkerDragController(app);
+            testCase.verifyClass(ctrlB, 'flightdash.controller.MarkerDragController');
+            threw = false;
+            try
+                flightdash.controller.MarkerDragController('not-a-handle');
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'MarkerDragController:BadInput');
+            end
+            testCase.verifyTrue(threw);
+            testCase.verifyFalse(app.MarkerDragCtrl.IsDraggingMarker, ...
+                'MarkerDragCtrl must start in idle state.');
+            testCase.verifyEqual(app.MarkerDragCtrl.DraggedFIdx, 0);
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

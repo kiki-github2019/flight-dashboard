@@ -1,9 +1,18 @@
 classdef MarkerDragController < handle
     % flightdash.controller.MarkerDragController
     % Owns plot marker / video frame drag lifecycle and per-drag state.
+    %
+    % [REFACTOR R5+2] Migrated to DashboardAppAdapter. Adapter routes
+    % session / uiFigure / logCaught; the dense write surface
+    % (app.State / app.Models / app.UI / app.throttleReset /
+    % app.setXLimListenersEnabled / app.findClosestIndexByTime /
+    % app.updateMarkersOnly / app.goToFrame / app.updateDashboard /
+    % app.prefetchAdjacentFrames / app.setStateUpdating / app.isActive-
+    % Session / app.updateDragVelocity / app.UndoService) still uses
+    % obj.Adapter.app() — too coupled to peel apart in a single phase.
 
     properties (Access = private)
-        App
+        Adapter  % flightdash.runtime.DashboardAppAdapter
     end
 
     properties (SetAccess = private)
@@ -18,13 +27,21 @@ classdef MarkerDragController < handle
     end
 
     methods
-        function obj = MarkerDragController(app)
-            obj.App = app;
+        function obj = MarkerDragController(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
+                obj.Adapter = adapterOrApp;
+            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                obj.Adapter = adapterOrApp.getAdapter();
+            else
+                error('MarkerDragController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
+            end
         end
 
         function startPlotMarkerDrag(obj, fIdx, ~, src, event)
             if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
-            app = obj.App;
+            app = obj.Adapter.app();
             if event.Button ~= 1, return; end
             if isempty(app.Models(fIdx).rawData), return; end
             if app.SyncState.IsSynced && fIdx == 2, return; end
@@ -40,7 +57,7 @@ classdef MarkerDragController < handle
             try
                 app.throttleReset('MapPathDragUpdate', fIdx);
                 app.throttleReset('PlotDragTimelineUpdate', fIdx);
-            catch ME, app.logCaught(ME, 'silent'); end
+            catch ME, obj.Adapter.logCaught(ME, 'silent'); end
             app.State = 'DRAGGING';
             src.HitTest = 'off';
 
@@ -50,7 +67,7 @@ classdef MarkerDragController < handle
                     obj.DraggedMarker.UserData = ax.Interactions;
                     ax.Interactions = [];
                 end
-            catch ME, app.logCaught(ME, 'silent'); end
+            catch ME, obj.Adapter.logCaught(ME, 'silent'); end
 
             app.setXLimListenersEnabled(fIdx, false);
 
@@ -66,16 +83,16 @@ classdef MarkerDragController < handle
                 if isfield(app.UI(fIdx), 'timeLine') && ~isempty(app.UI(fIdx).timeLine) && isvalid(app.UI(fIdx).timeLine)
                     app.UI(fIdx).timeLine.Alpha = 1.0;
                 end
-            catch ME, app.logCaught(ME, 'silent'); end
+            catch ME, obj.Adapter.logCaught(ME, 'silent'); end
 
-            if ~obj.bindFigureCallbacks(app)
+            if ~obj.bindFigureCallbacks()
                 obj.stopDrag();
             end
         end
 
         function startVideoFrameDrag(obj, fIdx, src, event)
             if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
-            app = obj.App;
+            app = obj.Adapter.app();
             if event.Button ~= 1, return; end
             if isempty(app.VideoState(fIdx).videoReader), return; end
 
@@ -96,34 +113,37 @@ classdef MarkerDragController < handle
                     obj.DraggedMarker.UserData = ax.Interactions;
                     ax.Interactions = [];
                 end
-            catch ME, app.logCaught(ME, 'silent'); end
+            catch ME, obj.Adapter.logCaught(ME, 'silent'); end
 
             app.setXLimListenersEnabled(fIdx, false);
 
-            if ~obj.bindFigureCallbacks(app)
+            if ~obj.bindFigureCallbacks()
                 obj.stopDrag();
             end
         end
 
-        function tf = bindFigureCallbacks(obj, app)
+        function tf = bindFigureCallbacks(obj)
             % [PHASE 3.5] Standalone keeps writing the figure callback
             % directly. Embedded mode hands the lock to the Studio's
             % StudioMouseRouter so a single owner dispatches motion +
             % up events for every session sharing the host figure.
             tf = false;
-            if app.IsEmbedded
-                router = obj.lookupRouter(app);
+            session = obj.Adapter.session();
+            if ~isempty(session) && session.IsEmbedded
+                router = obj.lookupRouter();
                 if ~isempty(router) && isvalid(router)
-                    if router.requestDragLock(app.ActiveSessionId, obj)
+                    if router.requestDragLock(session.ActiveSessionId, obj)
                         tf = true;
                         return;  % router will dispatch handleDragMotion / stopDrag
                     end
                 end
-                obj.logEmbeddedRouterIssue(app);
+                obj.logEmbeddedRouterIssue();
                 return;
             end
-            app.UIFigure.WindowButtonMotionFcn = @(~,~) flightdash.controller.MarkerDragController.safeHandleDragMotion(obj);
-            app.UIFigure.WindowButtonUpFcn    = @(~,~) flightdash.controller.MarkerDragController.safeStopDrag(obj);
+            fig = obj.Adapter.uiFigure();
+            if isempty(fig) || ~isvalid(fig), return; end
+            fig.WindowButtonMotionFcn = @(~,~) flightdash.controller.MarkerDragController.safeHandleDragMotion(obj);
+            fig.WindowButtonUpFcn    = @(~,~) flightdash.controller.MarkerDragController.safeStopDrag(obj);
             tf = true;
         end
 
@@ -140,28 +160,29 @@ classdef MarkerDragController < handle
             end
         end
 
-        function router = lookupRouter(~, app)
+        function router = lookupRouter(obj)
             router = [];
             try
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
-                        && isappdata(app.UIFigure, 'StudioMouseRouter')
-                    router = getappdata(app.UIFigure, 'StudioMouseRouter');
+                fig = obj.Adapter.uiFigure();
+                if ~isempty(fig) && isvalid(fig) ...
+                        && isappdata(fig, 'StudioMouseRouter')
+                    router = getappdata(fig, 'StudioMouseRouter');
                 end
             catch
             end
         end
 
-        function logEmbeddedRouterIssue(~, app)
+        function logEmbeddedRouterIssue(obj)
             try
                 ME = MException('FlightDash:NoStudioMouseRouter', ...
                     'Embedded marker drag requires StudioMouseRouter.');
-                app.logCaught(ME, 'Drag:router');
+                obj.Adapter.logCaught(ME, 'Drag:router');
             catch
             end
         end
 
         function plotMarkerDragMotion(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             if ~obj.IsDraggingMarker, return; end
             % [PHASE 4 review] Figure-level WindowButtonMotionFcn is a
             % single slot. If the user switched workspace tabs after the
@@ -183,11 +204,11 @@ classdef MarkerDragController < handle
                 idx = app.findClosestIndexByTime(times, targetTime);
                 if isequal(app.Models(fIdx).currentIndex, idx), return; end
                 app.updateMarkersOnly(fIdx, idx);
-            catch ME_silent, app.logCaught(ME_silent, 'silent'); end
+            catch ME_silent, obj.Adapter.logCaught(ME_silent, 'silent'); end
         end
 
         function videoFrameDragMotion(obj, fIdx)
-            app = obj.App;
+            app = obj.Adapter.app();
             if ~obj.IsDraggingMarker, return; end
             if ~app.isActiveSession(), return; end
             try
@@ -202,11 +223,10 @@ classdef MarkerDragController < handle
                 app.updateDragVelocity(fIdx, targetFrame);
                 app.goToFrame(fIdx, targetFrame, 'drag');
                 drawnow limitrate;
-            catch ME_silent, app.logCaught(ME_silent, 'silent'); end
+            catch ME_silent, obj.Adapter.logCaught(ME_silent, 'silent'); end
         end
 
         function computeDynamicVideoThrottle(obj)
-            app = obj.App;
             try
                 fIdx = obj.DraggedFIdx;
                 if fIdx < 1 || fIdx > 2, return; end
@@ -222,12 +242,12 @@ classdef MarkerDragController < handle
                     target = 0.05;
                 end
                 obj.VideoThrottleDyn = 0.7 * obj.VideoThrottleDyn + 0.3 * target;
-            catch ME_silent, app.logCaught(ME_silent, 'silent'); end
+            catch ME_silent, obj.Adapter.logCaught(ME_silent, 'silent'); end
         end
 
         function stopDrag(obj)
             if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
-            app = obj.App;
+            app = obj.Adapter.app();
             wasDraggingFIdx = obj.DraggedFIdx;
             draggedMarker = obj.DraggedMarker;
             oldPosition = obj.OriginalMarkerPosition;
@@ -243,11 +263,14 @@ classdef MarkerDragController < handle
             % session in the Studio. The router calls releaseDragLock
             % itself after stopDrag returns.
             try
-                if ~app.IsEmbedded && ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    app.UIFigure.WindowButtonMotionFcn = '';
-                    app.UIFigure.WindowButtonUpFcn = '';
+                session = obj.Adapter.session();
+                fig = obj.Adapter.uiFigure();
+                if (isempty(session) || ~session.IsEmbedded) ...
+                        && ~isempty(fig) && isvalid(fig)
+                    fig.WindowButtonMotionFcn = '';
+                    fig.WindowButtonUpFcn = '';
                 end
-            catch ME, app.logCaught(ME, 'silent'); end
+            catch ME, obj.Adapter.logCaught(ME, 'silent'); end
 
             try
                 if ~isempty(obj.DraggedMarker) && isvalid(obj.DraggedMarker)
@@ -257,7 +280,7 @@ classdef MarkerDragController < handle
                         ax.Interactions = obj.DraggedMarker.UserData;
                     end
                 end
-            catch ME, app.logCaught(ME, 'silent'); end
+            catch ME, obj.Adapter.logCaught(ME, 'silent'); end
 
             obj.DraggedMarker = [];
             obj.DraggedFIdx = 0;
@@ -281,7 +304,7 @@ classdef MarkerDragController < handle
                     if isfield(app.UI(fIdx), 'timeLine') && ~isempty(app.UI(fIdx).timeLine) && isvalid(app.UI(fIdx).timeLine)
                         app.UI(fIdx).timeLine.Alpha = 0.5;
                     end
-                catch ME, app.logCaught(ME, 'silent'); end
+                catch ME, obj.Adapter.logCaught(ME, 'silent'); end
             end
 
             if wasDraggingFIdx >= 1 && wasDraggingFIdx <= 2
@@ -297,7 +320,7 @@ classdef MarkerDragController < handle
                     try
                         app.updateDashboard(fIdx, idx);
                     catch e
-                        if isvalid(app), app.logCaught(e, 'stopPlotMarkerDrag:sync'); end
+                        if isvalid(app), obj.Adapter.logCaught(e, 'stopPlotMarkerDrag:sync'); end
                     end
                     clear cleanup_;
                     if isvalid(app), app.prefetchAdjacentFrames(fIdx); end
@@ -338,7 +361,7 @@ classdef MarkerDragController < handle
         function idx = readCurrentIndex(obj, fIdx)
             idx = NaN;
             try
-                app = obj.App;
+                app = obj.Adapter.app();
                 if fIdx >= 1 && fIdx <= numel(app.Models)
                     idx = app.Models(fIdx).currentIndex;
                 end
@@ -349,21 +372,25 @@ classdef MarkerDragController < handle
 
         function pushMoveMarkerCommand(obj, fIdx, marker, oldPosition, newPosition, oldIndex, newIndex)
             try
-                app = obj.App;
+                app = obj.Adapter.app();
                 markerMoved = ~(isempty(oldPosition) || isempty(newPosition) || isequal(oldPosition, newPosition));
                 indexMoved = ~(isempty(oldIndex) || isempty(newIndex) || isnan(oldIndex) || isnan(newIndex) || oldIndex == newIndex);
                 if ~markerMoved && ~indexMoved
                     return;
                 end
                 if isempty(marker) || ~isvalid(marker), return; end
-                if isempty(app) || ~isvalid(app) || ~isprop(app, 'UndoService') || isempty(app.UndoService)
+                undoSvc = obj.Adapter.undoService();
+                if isempty(app) || ~isvalid(app) || isempty(undoSvc)
                     return;
                 end
-                cmd = flightdash.command.MoveMarkerCommand(app.ActiveSessionId, marker, ...
+                session = obj.Adapter.session();
+                sessionId = 'standalone';
+                if ~isempty(session), sessionId = session.ActiveSessionId; end
+                cmd = flightdash.command.MoveMarkerCommand(sessionId, marker, ...
                     oldPosition, newPosition, 'Move Marker', app, fIdx, oldIndex, newIndex);
-                app.UndoService.push(cmd);
+                undoSvc.push(cmd);
             catch ME
-                try, obj.App.logCaught(ME, 'MarkerDrag:undoPush'); catch, end
+                obj.Adapter.logCaught(ME, 'MarkerDrag:undoPush');
             end
         end
     end

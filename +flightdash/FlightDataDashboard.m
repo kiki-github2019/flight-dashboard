@@ -335,7 +335,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.PannerCtrl    = flightdash.controller.PannerController(app);
             app.PanelCtrl     = flightdash.controller.PanelToggleController(app);
             app.DragCtrl      = flightdash.controller.DragController(app);
-            app.MarkerDragCtrl = flightdash.controller.MarkerDragController(app);
+            app.MarkerDragCtrl = flightdash.controller.MarkerDragController(app.Adapter);
             app.InfoCtrl      = flightdash.controller.InfoController(app.Adapter);
 
             app.createLayout();
