@@ -912,6 +912,28 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
         end
 
+        function toggleTheme(app)
+            % Review §15-18 theme toggle. Light ↔ Dark only chrome (panels,
+            % labels, axes); plot data colors and gauge needles are
+            % intentionally left untouched. Public so test_T12 and the
+            % Pref:Theme:Toggle command can reach it from outside the class.
+            try
+                if strcmp(app.CurrentTheme, 'Dark')
+                    app.CurrentTheme = 'Light';
+                    app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
+                else
+                    app.CurrentTheme = 'Dark';
+                    app.CurrentThemeStruct = flightdash.ui.StudioTheme.dark();
+                end
+                flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(sprintf('Theme: %s', app.CurrentTheme));
+                end
+            catch ME
+                try, app.logCaught(ME, 'Studio:toggleTheme'); catch, end
+            end
+        end
+
         function applyWindowStyle(app, style)
             % Phase 10: optional WindowStyle='docked' for local MATLAB. On
             % MATLAB Online or any environment that rejects the setter the
@@ -1272,27 +1294,6 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
                 flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
             catch
-            end
-        end
-
-        function toggleTheme(app)
-            % Review §15-18 theme toggle. Light ↔ Dark only chrome (panels,
-            % labels, axes); plot data colors and gauge needles are
-            % intentionally left untouched.
-            try
-                if strcmp(app.CurrentTheme, 'Dark')
-                    app.CurrentTheme = 'Light';
-                    app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
-                else
-                    app.CurrentTheme = 'Dark';
-                    app.CurrentThemeStruct = flightdash.ui.StudioTheme.dark();
-                end
-                flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
-                if ~isempty(app.StatusBar)
-                    app.StatusBar.setMessage(sprintf('Theme: %s', app.CurrentTheme));
-                end
-            catch ME
-                try, app.logCaught(ME, 'Studio:toggleTheme'); catch, end
             end
         end
 
