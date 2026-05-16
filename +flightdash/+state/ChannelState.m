@@ -55,16 +55,12 @@ classdef ChannelState < handle
 
     methods
         function syncFromApp(obj, app, fIdx)
-            % R2 mirror entry point. Pulls the legacy app.Models(fIdx)
-            % struct + cell-array file-path fields into this handle so
-            % callers using app.channel(fIdx) read fresh data. Cheap:
-            % the struct copy is shallow; the rawData table is copied
-            % by reference (MATLAB tables are value types but copy-on-
-            % write so unmodified shares the same memory).
-            %
-            % Tolerant: any missing field is left at its current value
-            % so a partially-constructed app (constructor in progress)
-            % still returns a usable ChannelState.
+            % R2 mirror for fields the app still owns. R8 inverted
+            % FlightFilePath + VideoFilePath so they are NOT pulled
+            % here — this handle IS their storage (the app's Dependent
+            % forward multiplexes the cell array through us). The R2
+            % brief's other targets (Models struct fields) still
+            % mirror through the app.
             if nargin < 3 || isempty(fIdx), return; end
             try
                 if ~isnumeric(fIdx), return; end
@@ -75,14 +71,6 @@ classdef ChannelState < handle
                     if isstruct(s)
                         obj.copyFromStruct(s);
                     end
-                end
-                if isprop(app, 'FlightFilePath') && iscell(app.FlightFilePath) ...
-                        && numel(app.FlightFilePath) >= fIdx
-                    obj.FlightFilePath = char(app.FlightFilePath{fIdx});
-                end
-                if isprop(app, 'VideoFilePath') && iscell(app.VideoFilePath) ...
-                        && numel(app.VideoFilePath) >= fIdx
-                    obj.VideoFilePath = char(app.VideoFilePath{fIdx});
                 end
                 obj.ChannelIndex = fIdx;
             catch

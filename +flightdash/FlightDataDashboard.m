@@ -110,7 +110,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % AsyncGen / DragVelocity / DragVelocitySamples: ownership
         % inverted — AsyncDecodeState owns the storage. Dependent
         % forwards below preserve every legacy app.* read/write.
-        VideoFilePath       = {'', ''}        % [V3.19 (1)] worker가 자체 VideoReader 생성용
+        % VideoFilePath ownership inverted (R8) — per-channel storage on ChannelState.
         % [REFACTOR R6] LayoutProfile / LastLayoutSize /
         % InResponsiveLayout / PreferredVideoWidth / ManualVideoWidth /
         % ManualPanelWidths: ownership inverted — DashboardLayoutState
@@ -127,7 +127,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % stays as a regular property until its external read count
         % drops to zero.
         % LayoutHandles ownership inverted (R6) — see Dependent block.
-        FlightFilePath      = {'', ''}        % session config: loaded flight data paths
+        % FlightFilePath ownership inverted (R8) — per-channel storage on ChannelState.
         InfoFormatModes     = {struct(), struct()} % per-channel value display modes keyed by normalized header
         ChannelViewMode     = 'both'          % both|flight1|flight2
         % [PHASE 0.8] Session/Studio integration prototype
@@ -231,6 +231,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         ActiveSessionId         % proxies app.SessionContext.ActiveSessionId
         MouseRouter             % proxies app.SessionContext.MouseRouter
         UIFigure                % proxies app.SessionContext.UIFigure
+        % R8 channel-state group: per-channel storage on ChannelState.
+        FlightFilePath          % multiplexes app.StateStore.Channels(k).FlightFilePath
+        VideoFilePath           % multiplexes app.StateStore.Channels(k).VideoFilePath
     end
 
     methods
@@ -722,6 +725,58 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.SessionContext = flightdash.runtime.SessionContext(app);
             end
             app.SessionContext.UIFigure = value;
+        end
+
+        % ===== Channel-state group (R8) =====
+        % FlightFilePath + VideoFilePath multiplex per-channel storage
+        % on ChannelState into the legacy {'', ''} cell shape so
+        % subscript reads/writes (app.FlightFilePath{fIdx} = X) keep
+        % working through MATLAB's get-modify-set Dependent dispatch.
+
+        function v = get.FlightFilePath(app)
+            v = {'', ''};
+            try
+                if ~isempty(app.StateStore) && isvalid(app.StateStore)
+                    n = numel(app.StateStore.Channels);
+                    v = cell(1, n);
+                    for k = 1:n
+                        v{k} = char(app.StateStore.Channels(k).FlightFilePath);
+                    end
+                end
+            catch
+            end
+        end
+        function set.FlightFilePath(app, value)
+            if isempty(app.StateStore) || ~isvalid(app.StateStore)
+                app.StateStore = flightdash.state.DashboardStateStore(2);
+            end
+            if ~iscell(value), return; end
+            for k = 1:min(numel(value), numel(app.StateStore.Channels))
+                app.StateStore.Channels(k).FlightFilePath = char(value{k});
+            end
+        end
+
+        function v = get.VideoFilePath(app)
+            v = {'', ''};
+            try
+                if ~isempty(app.StateStore) && isvalid(app.StateStore)
+                    n = numel(app.StateStore.Channels);
+                    v = cell(1, n);
+                    for k = 1:n
+                        v{k} = char(app.StateStore.Channels(k).VideoFilePath);
+                    end
+                end
+            catch
+            end
+        end
+        function set.VideoFilePath(app, value)
+            if isempty(app.StateStore) || ~isvalid(app.StateStore)
+                app.StateStore = flightdash.state.DashboardStateStore(2);
+            end
+            if ~iscell(value), return; end
+            for k = 1:min(numel(value), numel(app.StateStore.Channels))
+                app.StateStore.Channels(k).VideoFilePath = char(value{k});
+            end
         end
     end
 

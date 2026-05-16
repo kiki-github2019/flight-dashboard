@@ -2678,6 +2678,49 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function test_T15_Refactor_R8_FilePathsInverted(testCase)
+            % R8: FlightFilePath + VideoFilePath flip from cell-array
+            % storage on the app to per-channel storage on ChannelState
+            % (already declared in R2 scaffolding). The app's Dependent
+            % property multiplexes the cell shape so legacy subscript
+            % patterns (app.FlightFilePath{fIdx} = X) keep working
+            % through get-modify-set.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Defaults: empty per channel.
+            testCase.verifyEqual(app.FlightFilePath, {'', ''});
+            testCase.verifyEqual(app.VideoFilePath, {'', ''});
+
+            % Whole-cell write via app, read via channel().
+            app.FlightFilePath = {'C:\f1.csv', 'C:\f2.csv'};
+            testCase.verifyEqual(app.channel(1).FlightFilePath, 'C:\f1.csv');
+            testCase.verifyEqual(app.channel(2).FlightFilePath, 'C:\f2.csv');
+
+            % Subscript-assign pattern (used by FlightDataDashboard internals).
+            app.FlightFilePath{1} = 'D:\new.csv';
+            testCase.verifyEqual(app.channel(1).FlightFilePath, 'D:\new.csv');
+            testCase.verifyEqual(app.channel(2).FlightFilePath, 'C:\f2.csv');
+
+            % Reverse direction: write via channel, read via app cell.
+            app.StateStore.Channels(2).FlightFilePath = 'E:\reverse.csv';
+            paths = app.FlightFilePath;
+            testCase.verifyEqual(paths{2}, 'E:\reverse.csv');
+
+            % Same for VideoFilePath.
+            app.VideoFilePath = {'A.mp4', 'B.mp4'};
+            testCase.verifyEqual(app.channel(1).VideoFilePath, 'A.mp4');
+            testCase.verifyEqual(app.channel(2).VideoFilePath, 'B.mp4');
+            app.VideoFilePath{2} = 'C.mp4';
+            testCase.verifyEqual(app.channel(2).VideoFilePath, 'C.mp4');
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
