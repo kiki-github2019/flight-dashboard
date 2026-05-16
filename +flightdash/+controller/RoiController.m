@@ -172,11 +172,8 @@ classdef RoiController < handle
                         return;
                     end
                 end
-                session = obj.Adapter.session();
-                sessionId = 'standalone';
-                if ~isempty(session), sessionId = session.ActiveSessionId; end
                 request = flightdash.analysis.AnalysisService.makeRoiStatisticsRequest( ...
-                    sessionId, fIdx, roiIdx, rows(roiIdx, :), ...
+                    obj.Adapter.activeSessionId(), fIdx, roiIdx, rows(roiIdx, :), ...
                     times, app.Models(fIdx).rawData, app.VideoSyncState(fIdx), ...
                     flightdash.analysis.AnalysisService.DefaultRoiStatsThemeId);
                 analysisResult = flightdash.analysis.AnalysisService.run(request);
@@ -311,11 +308,8 @@ classdef RoiController < handle
                     end
                 catch
                 end
-                session = obj.Adapter.session();
-                sessionId = 'standalone';
-                if ~isempty(session), sessionId = session.ActiveSessionId; end
                 if ~isempty(router) && isvalid(router) && ...
-                        router.requestDragLock(sessionId, obj, 'fleur', 'roi')
+                        router.requestDragLock(obj.Adapter.activeSessionId(), obj, 'fleur', 'roi')
                     obj.IsDraggingRoi = true;
                 end
             catch ME
@@ -453,10 +447,7 @@ classdef RoiController < handle
                 if isequaln(oldRow, newRow)
                     return;
                 end
-                session = obj.Adapter.session();
-                sessionId = 'standalone';
-                if ~isempty(session), sessionId = session.ActiveSessionId; end
-                cmd = flightdash.command.MoveROICommand(sessionId, app, ...
+                cmd = flightdash.command.MoveROICommand(obj.Adapter.activeSessionId(), app, ...
                     fIdx, roiIdx, oldRow, newRow, sprintf('Move ROI %d', roiIdx));
                 undoSvc.push(cmd);
             catch ME
@@ -587,10 +578,7 @@ classdef RoiController < handle
                 if isempty(app) || ~isvalid(app) || isempty(undoSvc)
                     return;
                 end
-                session = obj.Adapter.session();
-                sessionId = 'standalone';
-                if ~isempty(session), sessionId = session.ActiveSessionId; end
-                cmd = flightdash.command.RoiRowsCommand(sessionId, obj, ...
+                cmd = flightdash.command.RoiRowsCommand(obj.Adapter.activeSessionId(), obj, ...
                     fIdx, rowIdx, rowData, operation, description);
                 undoSvc.push(cmd);
             catch ME

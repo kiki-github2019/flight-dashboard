@@ -128,11 +128,10 @@ classdef MarkerDragController < handle
             % StudioMouseRouter so a single owner dispatches motion +
             % up events for every session sharing the host figure.
             tf = false;
-            session = obj.Adapter.session();
-            if ~isempty(session) && session.IsEmbedded
+            if obj.Adapter.isEmbedded()
                 router = obj.lookupRouter();
                 if ~isempty(router) && isvalid(router)
-                    if router.requestDragLock(session.ActiveSessionId, obj)
+                    if router.requestDragLock(obj.Adapter.activeSessionId(), obj)
                         tf = true;
                         return;  % router will dispatch handleDragMotion / stopDrag
                     end
@@ -263,10 +262,8 @@ classdef MarkerDragController < handle
             % session in the Studio. The router calls releaseDragLock
             % itself after stopDrag returns.
             try
-                session = obj.Adapter.session();
                 fig = obj.Adapter.uiFigure();
-                if (isempty(session) || ~session.IsEmbedded) ...
-                        && ~isempty(fig) && isvalid(fig)
+                if ~obj.Adapter.isEmbedded() && ~isempty(fig) && isvalid(fig)
                     fig.WindowButtonMotionFcn = '';
                     fig.WindowButtonUpFcn = '';
                 end
@@ -383,10 +380,7 @@ classdef MarkerDragController < handle
                 if isempty(app) || ~isvalid(app) || isempty(undoSvc)
                     return;
                 end
-                session = obj.Adapter.session();
-                sessionId = 'standalone';
-                if ~isempty(session), sessionId = session.ActiveSessionId; end
-                cmd = flightdash.command.MoveMarkerCommand(sessionId, marker, ...
+                cmd = flightdash.command.MoveMarkerCommand(obj.Adapter.activeSessionId(), marker, ...
                     oldPosition, newPosition, 'Move Marker', app, fIdx, oldIndex, newIndex);
                 undoSvc.push(cmd);
             catch ME

@@ -2224,6 +2224,36 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function test_T15_Refactor_AdapterSessionShortcuts(testCase)
+            % Adapter session-shortcut methods (isActiveSession,
+            % activeSessionId, isEmbedded) must mirror the underlying
+            % app behavior and return safe defaults when the app is
+            % gone.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ad = app.getAdapter();
+            % Live values.
+            testCase.verifyEqual(ad.activeSessionId(), char(app.ActiveSessionId));
+            testCase.verifyEqual(ad.isEmbedded(), logical(app.IsEmbedded));
+            % isActiveSession with no arg must match app.isActiveSession().
+            testCase.verifyEqual(ad.isActiveSession(), app.isActiveSession());
+            % After delete, all three must return safe defaults instead
+            % of throwing.
+            delete(app);
+            testCase.verifyEqual(ad.activeSessionId(), 'standalone', ...
+                'activeSessionId() must fall back to standalone post-delete.');
+            testCase.verifyFalse(ad.isEmbedded(), ...
+                'isEmbedded() must return false post-delete.');
+            testCase.verifyFalse(ad.isActiveSession(), ...
+                'isActiveSession() must return false post-delete.');
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

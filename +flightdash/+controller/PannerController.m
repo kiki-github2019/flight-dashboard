@@ -114,17 +114,13 @@ classdef PannerController < handle
                     obj.DragFIdx = 0;
                     obj.DragSide = '';
                     fig = obj.Adapter.uiFigure();
-                    session = obj.Adapter.session();
-                    if (isempty(session) || ~session.IsEmbedded) ...
-                            && ~isempty(fig) && isprop(fig, 'Pointer')
+                    if ~obj.Adapter.isEmbedded() && ~isempty(fig) && isprop(fig, 'Pointer')
                         fig.Pointer = 'arrow';
                     end
                     return;
                 end
                 fig = obj.Adapter.uiFigure();
-                session = obj.Adapter.session();
-                if (isempty(session) || ~session.IsEmbedded) ...
-                        && ~isempty(fig) && isprop(fig, 'Pointer')
+                if ~obj.Adapter.isEmbedded() && ~isempty(fig) && isprop(fig, 'Pointer')
                     fig.Pointer = 'fleur';
                 end
             catch ME
@@ -174,10 +170,8 @@ classdef PannerController < handle
                 % [PHASE 3.5] Embedded mode lets StudioMouseRouter
                 % manage the WindowButton callbacks; only standalone
                 % clears them itself.
-                session = obj.Adapter.session();
                 fig = obj.Adapter.uiFigure();
-                if (isempty(session) || ~session.IsEmbedded) ...
-                        && ~isempty(fig) && isvalid(fig)
+                if ~obj.Adapter.isEmbedded() && ~isempty(fig) && isvalid(fig)
                     fig.WindowButtonMotionFcn = '';
                     fig.WindowButtonUpFcn = '';
                     if isprop(fig, 'Pointer'), fig.Pointer = 'arrow'; end
@@ -199,11 +193,10 @@ classdef PannerController < handle
             % [PHASE 3.5] Standalone keeps direct callback assignment.
             % Embedded mode hands off to the central router.
             tf = false;
-            session = obj.Adapter.session();
-            if ~isempty(session) && session.IsEmbedded
+            if obj.Adapter.isEmbedded()
                 router = obj.lookupRouter();
                 if ~isempty(router) && isvalid(router)
-                    if router.requestDragLock(session.ActiveSessionId, obj)
+                    if router.requestDragLock(obj.Adapter.activeSessionId(), obj)
                         tf = true;
                         return;
                     end

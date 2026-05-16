@@ -130,6 +130,54 @@ classdef DashboardAppAdapter < handle
             end
         end
 
+        % ===== Session convenience =====
+        % These short-circuits collapse two of the most common
+        % escape-hatch patterns from the controller migration. Both
+        % return safe defaults when the app is gone so callers do not
+        % need additional isvalid() guards.
+
+        function tf = isActiveSession(obj, varargin)
+            % Forwards to app.isActiveSession; returns false when the
+            % app is deleted (matches the safe-default the controllers
+            % previously had via obj.Adapter.app().isActiveSession()).
+            tf = false;
+            if ~obj.isValidApp(), return; end
+            try
+                tf = obj.AppRef.isActiveSession(varargin{:});
+            catch
+                tf = false;
+            end
+        end
+
+        function sid = activeSessionId(obj)
+            % Returns the active session id ('standalone' as fallback)
+            % without the verbose session() null-check the controller
+            % migration commit had to write at every undo-command site.
+            sid = 'standalone';
+            if ~obj.isValidApp(), return; end
+            try
+                if isprop(obj.AppRef, 'ActiveSessionId') ...
+                        && ~isempty(obj.AppRef.ActiveSessionId)
+                    sid = char(obj.AppRef.ActiveSessionId);
+                end
+            catch
+            end
+        end
+
+        function tf = isEmbedded(obj)
+            % Returns the IsEmbedded flag with safe-default false when
+            % the app is gone. Used by drag controllers to choose
+            % between WindowButton callbacks and StudioMouseRouter.
+            tf = false;
+            if ~obj.isValidApp(), return; end
+            try
+                if isprop(obj.AppRef, 'IsEmbedded')
+                    tf = logical(obj.AppRef.IsEmbedded);
+                end
+            catch
+            end
+        end
+
         % ===== Cross-cutting plumbing =====
 
         function logCaught(obj, ME, tag)

@@ -116,12 +116,11 @@ classdef InfoController < handle
                 obj.IsDraggingInfoRow = false;
                 obj.InfoDragFIdx = 0;
                 obj.InfoDragSourceRow = 0;
-                session = obj.Adapter.session();
-                if ~isempty(session) && session.IsEmbedded
+                if obj.Adapter.isEmbedded()
                     router = obj.lookupRouter();
                     if ~isempty(router) && isvalid(router) && ...
                             ismethod(router, 'isLockHeldBy') && ...
-                            router.isLockHeldBy(session.ActiveSessionId)
+                            router.isLockHeldBy(obj.Adapter.activeSessionId())
                         router.releaseDragLock();
                     end
                 else
@@ -152,8 +151,7 @@ classdef InfoController < handle
         function tf = bindMouseUp(obj)
             tf = false;
             try
-                session = obj.Adapter.session();
-                if ~isempty(session) && session.IsEmbedded
+                if obj.Adapter.isEmbedded()
                     router = obj.lookupRouter();
                     if isempty(router) || ~isvalid(router)
                         ME = MException('FlightDash:NoStudioMouseRouter', ...
@@ -161,7 +159,7 @@ classdef InfoController < handle
                         obj.Adapter.logCaught(ME, 'InfoDrag:router');
                         return;
                     end
-                    tf = router.requestDragLock(session.ActiveSessionId, obj);
+                    tf = router.requestDragLock(obj.Adapter.activeSessionId(), obj);
                     return;
                 end
                 fig = obj.Adapter.uiFigure();
