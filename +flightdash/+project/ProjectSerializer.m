@@ -501,6 +501,22 @@ classdef ProjectSerializer
                             'absolutePath', char(p)); %#ok<AGROW>
                     end
                 end
+                % Review fix: option*.dat files are first-class external
+                % deps too. Previously only flight_data + video were
+                % tracked, so a missing option file would not surface in
+                % external_links.json / health reports.
+                if isfield(s, 'OptionFilePath') && iscell(s.OptionFilePath)
+                    for ch = 1:numel(s.OptionFilePath)
+                        p = s.OptionFilePath{ch};
+                        if ~isempty(p)
+                            links{end+1} = struct( ...
+                                'sessionId', char(s.SessionId), ...
+                                'channelIdx', ch, ...
+                                'kind', 'option_file', ...
+                                'absolutePath', char(p)); %#ok<AGROW>
+                        end
+                    end
+                end
             end
         end
 

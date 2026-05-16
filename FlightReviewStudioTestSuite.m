@@ -1716,6 +1716,70 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(ed);
         end
 
+        function test_T15_Review_ExternalLinks_IncludesOptionFile(testCase)
+            % Review fix: ProjectSerializer.collectExternalLinks must
+            % emit kind='option_file' entries so missing option*.dat
+            % deps surface in external_links.json / support bundles.
+            % Pure pkg static call — no GUI dependency.
+            sess = struct( ...
+                'SessionId',      'sess-1', ...
+                'FlightFilePath', {{'C:\flight.csv', ''}}, ...
+                'VideoFilePath',  {{'', ''}}, ...
+                'OptionFilePath', {{'C:\option1.dat', 'C:\option2.dat'}});
+            project = struct('Sessions', sess);
+            links = flightdash.project.ProjectSerializer.collectExternalLinks(project);
+            testCase.verifyClass(links, 'cell');
+            kinds = cellfun(@(L) char(L.kind), links, 'UniformOutput', false);
+            testCase.verifyTrue(any(strcmp(kinds, 'option_file')), ...
+                'collectExternalLinks must emit kind=option_file entries.');
+            % Exactly one flight + two option entries (empty paths skipped).
+            testCase.verifyEqual(sum(strcmp(kinds, 'flight_data')), 1, ...
+                'Empty FlightFilePath cells must be skipped.');
+            testCase.verifyEqual(sum(strcmp(kinds, 'option_file')), 2, ...
+                'Both populated OptionFilePath cells must be emitted.');
+            testCase.verifyEqual(sum(strcmp(kinds, 'video')), 0, ...
+                'Empty VideoFilePath cells must be skipped.');
+        end
+
+        function test_T15_Review_ExternalLinks_TolerantToMissingField(testCase)
+            % Review fix: legacy sessions without OptionFilePath must
+            % NOT make collectExternalLinks throw — the new loop is
+            % guarded by isfield.
+            sess = struct( ...
+                'SessionId',      'sess-legacy', ...
+                'FlightFilePath', {{'C:\old.csv'}}, ...
+                'VideoFilePath',  {{'C:\old.mp4'}});
+            project = struct('Sessions', sess);
+            links = flightdash.project.ProjectSerializer.collectExternalLinks(project);
+            testCase.verifyClass(links, 'cell');
+            kinds = cellfun(@(L) char(L.kind), links, 'UniformOutput', false);
+            testCase.verifyEqual(sum(strcmp(kinds, 'option_file')), 0, ...
+                'Legacy session must produce zero option_file entries.');
+        end
+
+        function test_T15_Review_SampleProjectPath_RootDepthCorrect(testCase)
+            % Review fix: WorkspaceManager.openSampleProject must compute
+            % a repo root that actually contains the +flightdash package
+            % (the previous three-up calculation landed one directory
+            % above the repo). Verifies the math via the same expression
+            % as the live method, but executed against this test file's
+            % location for portability.
+            wmPath = which('flightdash.studio.WorkspaceManager');
+            testCase.assumeTrue(~isempty(wmPath) && isfile(wmPath), ...
+                'WorkspaceManager source not found on path.');
+            here = fileparts(wmPath);
+            root = fullfile(here, '..', '..');
+            testCase.verifyTrue(isfolder(root), ...
+                sprintf('Repo root "%s" must be a folder.', root));
+            testCase.verifyTrue(isfolder(fullfile(root, '+flightdash')), ...
+                'Resolved root must contain the +flightdash package folder.');
+            % Negative check: the old three-up calculation should NOT
+            % contain +flightdash directly (proves the fix matters).
+            tooDeep = fullfile(here, '..', '..', '..');
+            testCase.verifyFalse(isfolder(fullfile(tooDeep, '+flightdash')), ...
+                'Old three-up root should NOT contain +flightdash directly.');
+        end
+
         function test_T15_ProjectFileEditor_ShellCreateDelete(testCase)
             % PFE-1: openProjectFileEditor() instantiates the dialog and
             % stores it on app.ProjectEditor; closing the dialog clears

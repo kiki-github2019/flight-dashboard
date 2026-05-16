@@ -103,7 +103,8 @@ classdef WorkspaceManager < handle
                             && isfield(obj.App.CurrentThemeStruct, 'Background')
                         flightdash.ui.StudioTheme.apply(tab, obj.App.CurrentThemeStruct);
                     end
-                catch
+                catch ME
+                    obj.logIfPossible(ME, 'Workspace:addDashboardTab:theme');
                 end
             catch ME
                 % Roll back the empty tab if dashboard construction fails
@@ -149,7 +150,8 @@ classdef WorkspaceManager < handle
                     try, delete(activeTab); catch, end
                     obj.onTabChanged();
                 end
-            catch
+            catch ME
+                obj.logIfPossible(ME, 'Workspace:closeActiveTab');
             end
         end
 
@@ -160,7 +162,8 @@ classdef WorkspaceManager < handle
                 if ~isempty(obj.App) && isvalid(obj.App)
                     obj.App.removeAllSessions();
                 end
-            catch
+            catch ME
+                obj.logIfPossible(ME, 'Workspace:closeAllTabs');
             end
         end
 
@@ -233,7 +236,8 @@ classdef WorkspaceManager < handle
                         dash.LayoutMgr.applyLayout(dash, char(reason));
                     end
                 end
-            catch
+            catch ME
+                obj.logIfPossible(ME, 'Workspace:refreshActiveLayout');
             end
         end
 
@@ -376,21 +380,50 @@ classdef WorkspaceManager < handle
         end
 
         function openSampleProject(obj)
+            % Review fix: WorkspaceManager.m lives at
+            % <root>/+flightdash/+studio/WorkspaceManager.m so the
+            % repo root is two `..` levels up — NOT three. The previous
+            % three-up calculation landed one directory above <root>,
+            % making the Start Page sample button always report
+            % "not found" even on installs that shipped the sample.
             try
                 here = fileparts(mfilename('fullpath'));
-                root = fullfile(here, '..', '..', '..');
+                root = fullfile(here, '..', '..');
+                if ~isfolder(root)
+                    obj.notifyStatus(sprintf( ...
+                        'Sample project search: repo root "%s" not a folder.', root));
+                    return;
+                end
                 samplePath = fullfile(root, 'sample_data', 'sample_project.frsproj');
                 if isfile(samplePath) && ismethod(obj.App, 'openProject')
                     obj.App.openProject(samplePath);
                 else
-                    if ~isempty(obj.App) && isvalid(obj.App) ...
-                            && ~isempty(obj.App.StatusBar)
-                        obj.App.StatusBar.setMessage( ...
-                            'Sample project not found at sample_data/sample_project.frsproj');
-                    end
+                    obj.notifyStatus(sprintf( ...
+                        'Sample project not found at %s', samplePath));
                 end
             catch ME
                 warning('WorkspaceManager:OpenSample', '%s', ME.message);
+                obj.logIfPossible(ME, 'WorkspaceManager:openSampleProject');
+            end
+        end
+
+        function notifyStatus(obj, msg)
+            try
+                if ~isempty(obj.App) && isvalid(obj.App) ...
+                        && ~isempty(obj.App.StatusBar) && isvalid(obj.App.StatusBar)
+                    obj.App.StatusBar.setMessage(msg);
+                end
+            catch
+            end
+        end
+
+        function logIfPossible(obj, ME, tag)
+            try
+                if ~isempty(obj.App) && isa(obj.App, 'handle') && isvalid(obj.App) ...
+                        && ismethod(obj.App, 'logCaught')
+                    obj.App.logCaught(ME, tag);
+                end
+            catch
             end
         end
 
@@ -435,7 +468,8 @@ classdef WorkspaceManager < handle
                             && ismethod(obj.App.SharedDecodeService, 'setActiveSession')
                         obj.App.SharedDecodeService.setActiveSession(newId);
                     end
-                catch
+                catch ME
+                    obj.logIfPossible(ME, 'Workspace:onTabChanged:sharedDecode');
                 end
                 obj.refreshActiveLayout('tabActivated');
                 obj.refreshActiveInspector();

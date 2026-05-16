@@ -230,7 +230,8 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     app.UndoListeners.remove(sessionId);
                 end
                 app.refreshUndoStateForActiveSession();
-            catch
+            catch ME
+                try, app.logCaught(ME, 'Studio:removeSessionFromWorkspace'); catch, end
             end
         end
 
@@ -244,19 +245,22 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     canRedo = svc.canRedo();
                     app.UndoService = svc;
                 end
-            catch
+            catch ME
+                try, app.logCaught(ME, 'Studio:refreshUndoState:svc'); catch, end
             end
             try
                 if ~isempty(app.ToolbarMgr) && isvalid(app.ToolbarMgr) && ismethod(app.ToolbarMgr, 'setUndoState')
                     app.ToolbarMgr.setUndoState(canUndo, canRedo);
                 end
-            catch
+            catch ME
+                try, app.logCaught(ME, 'Studio:refreshUndoState:toolbar'); catch, end
             end
             try
                 if ~isempty(app.MenuMgr) && isvalid(app.MenuMgr) && ismethod(app.MenuMgr, 'setUndoState')
                     app.MenuMgr.setUndoState(canUndo, canRedo);
                 end
-            catch
+            catch ME
+                try, app.logCaught(ME, 'Studio:refreshUndoState:menu'); catch, end
             end
         end
 
@@ -338,7 +342,8 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 if ~isempty(app.ProjectExplorer) && isvalid(app.ProjectExplorer)
                     app.ProjectExplorer.refreshFromProject(app.Project);
                 end
-            catch
+            catch ME
+                try, app.logCaught(ME, 'Studio:refreshExplorer'); catch, end
             end
         end
 
