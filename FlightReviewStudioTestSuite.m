@@ -1889,6 +1889,45 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             ls.syncFromApp();  % no-op when unbound — must not throw
         end
 
+        function test_T15_Refactor_InfoControllerAcceptsAdapter(testCase)
+            % Migration #1: InfoController constructor must accept the
+            % adapter directly and also still accept the app handle
+            % (backward-compat path for external test code).
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            % Adapter path: what FlightDataDashboard now uses.
+            ctrlAdapter = flightdash.controller.InfoController(app.Adapter);
+            testCase.verifyClass(ctrlAdapter, 'flightdash.controller.InfoController');
+            % Backward-compat: pass the app directly — must auto-resolve.
+            ctrlApp = flightdash.controller.InfoController(app);
+            testCase.verifyClass(ctrlApp, 'flightdash.controller.InfoController');
+            % Bad input: must error cleanly, not crash with class probe.
+            threw = false;
+            try
+                flightdash.controller.InfoController(struct('fake', true));
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'InfoController:BadInput');
+            end
+            testCase.verifyTrue(threw, ...
+                'InfoController must reject non-adapter/non-app input.');
+            % The dashboard-owned InfoCtrl must work for row-move logic
+            % even before any flight data is loaded (empty displayMeta
+            % => early return, no exception).
+            try
+                app.InfoCtrl.moveSelectedRow(1, 'up');
+            catch ME
+                testCase.verifyFail(sprintf( ...
+                    'moveSelectedRow on empty meta must not throw: %s', ME.message));
+            end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

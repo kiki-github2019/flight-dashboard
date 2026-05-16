@@ -1,9 +1,16 @@
 classdef InfoController < handle
     % flightdash.controller.InfoController
     % Owns current-info table interactions: row reorder, drag-to-reorder.
+    %
+    % [REFACTOR R5+1] Migrated from full-app dependency to
+    % DashboardAppAdapter. Adapter routes the calls the controller
+    % actually needs (logCaught / session / uiFigure); write paths to
+    % app.Models(fIdx).displayMeta and app.updateCurrentInfoTable still
+    % use the adapter.app() escape hatch — these are the future
+    % migration candidates the R5 brief flagged.
 
     properties (Access = private)
-        App
+        Adapter  % flightdash.runtime.DashboardAppAdapter
     end
 
     properties (SetAccess = private)
@@ -13,12 +20,23 @@ classdef InfoController < handle
     end
 
     methods
-        function obj = InfoController(app)
-            obj.App = app;
+        function obj = InfoController(adapterOrApp)
+            % Accept either the adapter (new path) or the app handle
+            % (legacy path) so external test code constructing the
+            % controller directly is unaffected during the transition.
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
+                obj.Adapter = adapterOrApp;
+            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                obj.Adapter = adapterOrApp.getAdapter();
+            else
+                error('InfoController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
+            end
         end
 
         function handleTableSelection(obj, fIdx, event)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 if isempty(event) || isempty(event.Indices), return; end
                 row = event.Indices(1, 1);
@@ -35,16 +53,16 @@ classdef InfoController < handle
                 obj.IsDraggingInfoRow = true;
                 obj.InfoDragFIdx = fIdx;
                 obj.InfoDragSourceRow = row;
-                if ~obj.bindMouseUp(app)
+                if ~obj.bindMouseUp()
                     obj.clearState();
                 end
             catch ME
-                app.logCaught(ME, 'InfoDrag:select');
+                obj.Adapter.logCaught(ME, 'InfoDrag:select');
             end
         end
 
         function moveSelectedRow(obj, fIdx, direction)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 meta = app.Models(fIdx).displayMeta;
                 if isempty(meta), return; end
@@ -58,12 +76,12 @@ classdef InfoController < handle
                 if target < 1 || target > numel(meta), return; end
                 obj.moveRowTo(fIdx, row, target);
             catch ME
-                app.logCaught(ME, 'InfoOrder:move');
+                obj.Adapter.logCaught(ME, 'InfoOrder:move');
             end
         end
 
         function moveRowTo(obj, fIdx, fromRow, toRow)
-            app = obj.App;
+            app = obj.Adapter.app();
             try
                 meta = app.Models(fIdx).displayMeta;
                 if isempty(meta), return; end
@@ -89,27 +107,31 @@ classdef InfoController < handle
                 catch
                 end
             catch ME
-                app.logCaught(ME, 'InfoOrder:moveTo');
+                obj.Adapter.logCaught(ME, 'InfoOrder:moveTo');
             end
         end
 
         function stopRowDrag(obj)
-            app = obj.App;
             try
                 obj.IsDraggingInfoRow = false;
                 obj.InfoDragFIdx = 0;
                 obj.InfoDragSourceRow = 0;
-                if app.IsEmbedded
-                    router = obj.lookupRouter(app);
+                session = obj.Adapter.session();
+                if ~isempty(session) && session.IsEmbedded
+                    router = obj.lookupRouter();
                     if ~isempty(router) && isvalid(router) && ...
-                            ismethod(router, 'isLockHeldBy') && router.isLockHeldBy(app.ActiveSessionId)
+                            ismethod(router, 'isLockHeldBy') && ...
+                            router.isLockHeldBy(session.ActiveSessionId)
                         router.releaseDragLock();
                     end
-                elseif ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    app.UIFigure.WindowButtonUpFcn = '';
+                else
+                    fig = obj.Adapter.uiFigure();
+                    if ~isempty(fig) && isvalid(fig)
+                        fig.WindowButtonUpFcn = '';
+                    end
                 end
             catch ME
-                app.logCaught(ME, 'InfoDrag:stop');
+                obj.Adapter.logCaught(ME, 'InfoDrag:stop');
             end
         end
 
@@ -127,35 +149,38 @@ classdef InfoController < handle
             obj.InfoDragSourceRow = 0;
         end
 
-        function tf = bindMouseUp(obj, app)
+        function tf = bindMouseUp(obj)
             tf = false;
             try
-                if app.IsEmbedded
-                    router = obj.lookupRouter(app);
+                session = obj.Adapter.session();
+                if ~isempty(session) && session.IsEmbedded
+                    router = obj.lookupRouter();
                     if isempty(router) || ~isvalid(router)
                         ME = MException('FlightDash:NoStudioMouseRouter', ...
                             'Embedded info row drag requires StudioMouseRouter.');
-                        app.logCaught(ME, 'InfoDrag:router');
+                        obj.Adapter.logCaught(ME, 'InfoDrag:router');
                         return;
                     end
-                    tf = router.requestDragLock(app.ActiveSessionId, obj);
+                    tf = router.requestDragLock(session.ActiveSessionId, obj);
                     return;
                 end
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    app.UIFigure.WindowButtonUpFcn = @(~,~) obj.stopRowDrag();
+                fig = obj.Adapter.uiFigure();
+                if ~isempty(fig) && isvalid(fig)
+                    fig.WindowButtonUpFcn = @(~,~) obj.stopRowDrag();
                     tf = true;
                 end
             catch ME
-                app.logCaught(ME, 'InfoDrag:bind');
+                obj.Adapter.logCaught(ME, 'InfoDrag:bind');
             end
         end
 
-        function router = lookupRouter(~, app)
+        function router = lookupRouter(obj)
             router = [];
             try
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure) ...
-                        && isappdata(app.UIFigure, 'StudioMouseRouter')
-                    router = getappdata(app.UIFigure, 'StudioMouseRouter');
+                fig = obj.Adapter.uiFigure();
+                if ~isempty(fig) && isvalid(fig) ...
+                        && isappdata(fig, 'StudioMouseRouter')
+                    router = getappdata(fig, 'StudioMouseRouter');
                 end
             catch
             end
