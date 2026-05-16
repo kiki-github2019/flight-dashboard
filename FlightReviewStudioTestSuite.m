@@ -1789,6 +1789,66 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Zero channel index must return empty.');
         end
 
+        function test_T15_Refactor_AsyncDecodeHelpersMirrorApp(testCase)
+            % R3: bound AsyncDecodeState helpers must mutate the legacy
+            % app properties identically to the legacy inline cleanup.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ad = app.getAsyncDecode();
+            testCase.verifyClass(ad, 'flightdash.state.AsyncDecodeState');
+            testCase.verifyTrue(isequal(ad, app.Runtime.AsyncDecode), ...
+                'Runtime.AsyncDecode must alias app.AsyncDecode.');
+
+            app.AsyncGen = [2 3];
+            app.AsyncTargetFrame = [50 60];
+            app.PendingFrame = [1 2];
+            app.PendingMode = {'play', 'scrub'};
+            app.AsyncFutures = {[], []};
+
+            ad.resetGeneration(2);
+            testCase.verifyEqual(app.AsyncGen, [2 4], ...
+                'resetGeneration(2) must bump only channel 2.');
+
+            ad.clearPending(1);
+            testCase.verifyTrue(isnan(app.PendingFrame(1)));
+            testCase.verifyEqual(app.PendingMode{1}, '');
+            testCase.verifyEqual(app.PendingFrame(2), 2, ...
+                'clearPending(1) must not touch channel 2.');
+
+            ad.cancelChannel(1);
+            testCase.verifyEqual(app.AsyncGen(1), 3, ...
+                'cancelChannel must bump AsyncGen.');
+            testCase.verifyTrue(isnan(app.AsyncTargetFrame(1)), ...
+                'cancelChannel must NaN-clear AsyncTargetFrame.');
+
+            ad.cancelAll();
+            testCase.verifyTrue(all(isnan(app.AsyncTargetFrame)), ...
+                'cancelAll must NaN-clear every channel target.');
+        end
+
+        function test_T15_Refactor_AsyncDecodeUnboundFallback(testCase)
+            % R3: an unbound AsyncDecodeState (no app handle) must still
+            % allow the helpers to run locally without throwing.
+            ad = flightdash.state.AsyncDecodeState();
+            ad.AsyncGen = [0 0];
+            ad.PendingFrame = [5 5];
+            ad.PendingMode = {'x', 'y'};
+            ad.AsyncFutures = {[], []};
+            ad.resetGeneration(1);
+            testCase.verifyEqual(ad.AsyncGen, [1 0]);
+            ad.clearPending(2);
+            testCase.verifyTrue(isnan(ad.PendingFrame(2)));
+            testCase.verifyEqual(ad.PendingMode{2}, '');
+            ad.cancelChannel(1);  % no future to cancel — must not throw
+            ad.cancelAll();        % iterates without binding
+        end
+
         function test_T15_Refactor_BaselineDiagnostic(testCase)
             % R1: run the refactor baseline harness end-to-end. Each
             % step is internally guarded so headless backends produce

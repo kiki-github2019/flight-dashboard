@@ -1,16 +1,20 @@
 classdef AsyncDecodeState < handle
-    %ASYNCDECODESTATE  Async decode state scaffold (R3 prep).
+    %ASYNCDECODESTATE  Async-decode state container + helper API (R3).
     %
     %   Mirrors the 10 properties listed in the refactor brief for the
     %   parfeval-based async video decode path on FlightDataDashboard.
-    %   R1 ships declarations only; R3 will move state ownership here
-    %   and replace cleanup code with the helper methods below.
     %
-    %   The cleanup helpers (cancelChannel / cancelAll / resetGeneration
-    %   / clearPending) are no-ops until R3 wires them. They are present
-    %   now so call sites can reference the eventual API without churn.
+    %   Two operating modes:
+    %     - Unbound (constructor with no app): a pure value container.
+    %       The helper methods only update the local fields. Useful for
+    %       isolated unit tests.
+    %     - App-bound (constructor with app handle): every helper also
+    %       mutates the matching app property so the helpers are drop-in
+    %       replacements for the legacy inline cleanup code. R3 wires
+    %       this mode through FlightDataDashboard.getAsyncDecode().
     %
-    %   Owner: DashboardRuntime.
+    %   Owner: DashboardRuntime (after R3 wiring) — co-owned with the
+    %   FlightDataDashboard app, both holding the same handle.
 
     properties (Access = public)
         UseAsyncDecode        logical = false
@@ -25,37 +29,194 @@ classdef AsyncDecodeState < handle
         DragVelocitySamples   cell    = {[], []}
     end
 
+    properties (Constant, Access = private)
+        CancelWaitTimeoutSec = 0.5
+    end
+
+    properties (Access = private)
+        AppRef
+    end
+
     methods
-        function obj = AsyncDecodeState()
+        function obj = AsyncDecodeState(app)
+            if nargin >= 1 && ~isempty(app) && isa(app, 'handle')
+                obj.AppRef = app;
+            end
         end
 
-        function cancelChannel(obj, fIdx) %#ok<INUSD>
-            % R3 will move the parfeval cancel + future-clear logic here.
-            % No-op in R1: existing FlightDataDashboard cleanup remains
-            % the source of truth.
+        function tf = isBound(obj)
+            tf = ~isempty(obj.AppRef) && isa(obj.AppRef, 'handle') ...
+                && isvalid(obj.AppRef);
         end
 
-        function cancelAll(obj) %#ok<MANU>
-            % R3 entry point — see cancelChannel.
+        function syncFromApp(obj)
+            % R3 lazy mirror — pull every legacy property into the
+            % handle. Called from app.getAsyncDecode() right before the
+            % handle is returned to a caller. Tolerant of partial
+            % construction.
+            if ~obj.isBound(), return; end
+            a = obj.AppRef;
+            try
+                if isprop(a, 'UseAsyncDecode'),     obj.UseAsyncDecode     = logical(a.UseAsyncDecode); end
+                if isprop(a, 'AsyncPool'),          obj.AsyncPool          = a.AsyncPool;        end
+                if isprop(a, 'AsyncFutures'),       obj.AsyncFutures       = a.AsyncFutures;     end
+                if isprop(a, 'AsyncTargetFrame'),   obj.AsyncTargetFrame   = a.AsyncTargetFrame; end
+                if isprop(a, 'AsyncGen'),           obj.AsyncGen           = a.AsyncGen;         end
+                if isprop(a, 'IsDecoding'),         obj.IsDecoding         = a.IsDecoding;       end
+                if isprop(a, 'PendingFrame'),       obj.PendingFrame       = a.PendingFrame;     end
+                if isprop(a, 'PendingMode'),        obj.PendingMode        = a.PendingMode;      end
+                if isprop(a, 'DragVelocity'),       obj.DragVelocity       = a.DragVelocity;     end
+                if isprop(a, 'DragVelocitySamples'),obj.DragVelocitySamples= a.DragVelocitySamples; end
+            catch
+                % Lazy mirror is best-effort — never throw out of a
+                % bound sync.
+            end
+        end
+
+        function cancelChannel(obj, fIdx)
+            % Drop-in replacement for the legacy inline cancel pattern
+            % at FlightDataDashboard.cleanupVideoResources / channel
+            % cancel sites:
+            %   AsyncGen(fIdx) = AsyncGen(fIdx) + 1
+            %   AsyncTargetFrame(fIdx) = NaN
+            %   if valid future: cancel + wait(0.5) + clear
+            %
+            % Bumps generation BEFORE issuing cancel so any worker
+            % result that races in is discarded as stale. The wait is
+            % bounded by CancelWaitTimeoutSec so a stuck worker cannot
+            % hold the caller indefinitely.
+            if nargin < 2 || isempty(fIdx) || ~isnumeric(fIdx), return; end
+            fIdx = double(fIdx);
+            if fIdx < 1, return; end
+            obj.resetGeneration(fIdx);
+            obj.setAsyncTargetFrame(fIdx, NaN);
+            futures = obj.currentFutures();
+            if fIdx > numel(futures), return; end
+            fut = futures{fIdx};
+            try
+                if ~isempty(fut) && isvalid(fut)
+                    cancel(fut);
+                    try
+                        wait(fut, 'finished', obj.CancelWaitTimeoutSec);
+                    catch ME_wait
+                        obj.logIfBound(ME_wait, 'AsyncDecode:cancelChannel:wait');
+                    end
+                end
+            catch ME
+                obj.logIfBound(ME, 'AsyncDecode:cancelChannel');
+            end
+            obj.clearFutureSlot(fIdx);
+        end
+
+        function cancelAll(obj)
+            % Cancel every per-channel future. Iterates by current
+            % future-cell length so a 1- or 2-channel deployment both
+            % work without code change.
+            futures = obj.currentFutures();
+            for k = 1:numel(futures)
+                obj.cancelChannel(k);
+            end
         end
 
         function resetGeneration(obj, fIdx)
-            % Increment the per-channel generation counter so any
-            % in-flight worker result is discarded as stale on arrival.
-            % Implementation is local-only in R1; R3 will route the app
-            % through this helper.
-            if nargin < 2 || isempty(fIdx) || fIdx < 1 || fIdx > numel(obj.AsyncGen)
-                return;
+            % Bump the per-channel generation counter so any in-flight
+            % worker result is discarded as stale on arrival. Mirrors to
+            % app.AsyncGen when bound.
+            if nargin < 2 || isempty(fIdx) || ~isnumeric(fIdx), return; end
+            fIdx = double(fIdx);
+            if fIdx < 1, return; end
+            % Operate on the live source (app when bound, else local).
+            if obj.isBound() && isprop(obj.AppRef, 'AsyncGen')
+                a = obj.AppRef;
+                if fIdx <= numel(a.AsyncGen)
+                    a.AsyncGen(fIdx) = a.AsyncGen(fIdx) + 1;
+                    obj.AsyncGen = a.AsyncGen;
+                    return;
+                end
             end
-            obj.AsyncGen(fIdx) = obj.AsyncGen(fIdx) + 1;
+            if fIdx <= numel(obj.AsyncGen)
+                obj.AsyncGen(fIdx) = obj.AsyncGen(fIdx) + 1;
+            end
         end
 
         function clearPending(obj, fIdx)
-            if nargin < 2 || isempty(fIdx) || fIdx < 1 || fIdx > numel(obj.PendingFrame)
+            % Clear the per-channel pending frame + mode. Mirrors to
+            % app.PendingFrame / app.PendingMode when bound.
+            if nargin < 2 || isempty(fIdx) || ~isnumeric(fIdx), return; end
+            fIdx = double(fIdx);
+            if fIdx < 1, return; end
+            if obj.isBound()
+                a = obj.AppRef;
+                try
+                    if isprop(a, 'PendingFrame') && fIdx <= numel(a.PendingFrame)
+                        a.PendingFrame(fIdx) = NaN;
+                        obj.PendingFrame = a.PendingFrame;
+                    end
+                    if isprop(a, 'PendingMode') && fIdx <= numel(a.PendingMode)
+                        a.PendingMode{fIdx} = '';
+                        obj.PendingMode = a.PendingMode;
+                    end
+                catch ME
+                    obj.logIfBound(ME, 'AsyncDecode:clearPending');
+                end
                 return;
             end
-            obj.PendingFrame(fIdx) = NaN;
-            obj.PendingMode{fIdx} = '';
+            if fIdx <= numel(obj.PendingFrame)
+                obj.PendingFrame(fIdx) = NaN;
+            end
+            if fIdx <= numel(obj.PendingMode)
+                obj.PendingMode{fIdx} = '';
+            end
+        end
+    end
+
+    % ---------- private helpers ----------
+    methods (Access = private)
+        function futures = currentFutures(obj)
+            futures = obj.AsyncFutures;
+            if obj.isBound() && isprop(obj.AppRef, 'AsyncFutures')
+                try, futures = obj.AppRef.AsyncFutures; catch, end
+            end
+        end
+
+        function setAsyncTargetFrame(obj, fIdx, val)
+            if obj.isBound() && isprop(obj.AppRef, 'AsyncTargetFrame')
+                a = obj.AppRef;
+                if fIdx <= numel(a.AsyncTargetFrame)
+                    a.AsyncTargetFrame(fIdx) = val;
+                    obj.AsyncTargetFrame = a.AsyncTargetFrame;
+                    return;
+                end
+            end
+            if fIdx <= numel(obj.AsyncTargetFrame)
+                obj.AsyncTargetFrame(fIdx) = val;
+            end
+        end
+
+        function clearFutureSlot(obj, fIdx)
+            if obj.isBound() && isprop(obj.AppRef, 'AsyncFutures')
+                a = obj.AppRef;
+                try
+                    if fIdx <= numel(a.AsyncFutures)
+                        a.AsyncFutures{fIdx} = [];
+                        obj.AsyncFutures = a.AsyncFutures;
+                    end
+                catch
+                end
+                return;
+            end
+            if fIdx <= numel(obj.AsyncFutures)
+                obj.AsyncFutures{fIdx} = [];
+            end
+        end
+
+        function logIfBound(obj, ME, tag)
+            try
+                if obj.isBound() && ismethod(obj.AppRef, 'logCaught')
+                    obj.AppRef.logCaught(ME, tag);
+                end
+            catch
+            end
         end
     end
 end

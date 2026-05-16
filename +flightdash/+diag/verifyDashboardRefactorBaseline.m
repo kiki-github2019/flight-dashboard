@@ -48,6 +48,9 @@ steps = appendStep(steps, 'no_new_errorlog_entries', ...
 steps = appendStep(steps, 'r2_channel_accessor_mirrors_models', ...
     @() doR2ChannelMirror());
 
+steps = appendStep(steps, 'r3_async_decode_helpers', ...
+    @() doR3AsyncDecodeHelpers());
+
 if includeClearProbe
     steps = appendStep(steps, 'clear_classes_rehash_compat', ...
         @() doClearClassesProbe());
@@ -189,6 +192,64 @@ function doR2ChannelMirror()
     if ~isequal(store, app.Runtime.StateStore)
         error('Diag:RuntimeStateStoreDrift', ...
             'Runtime.StateStore must reference the same handle as app.StateStore.');
+    end
+end
+
+function doR3AsyncDecodeHelpers()
+    % R3: getAsyncDecode() returns a bound facade; its helpers must
+    % mutate the legacy app properties identically to the inline
+    % cleanup code at FlightDataDashboard:2526-2538.
+    app = flightdash.FlightDataDashboard();
+    cleanup = onCleanup(@() safeDelete(app)); %#ok<NASGU>
+    ad = app.getAsyncDecode();
+    assertHandleValid(ad, 'getAsyncDecode() returned empty');
+    if ~isequal(ad, app.Runtime.AsyncDecode)
+        error('Diag:AsyncDecodeRuntimeDrift', ...
+            'Runtime.AsyncDecode must reference the same handle as app.AsyncDecode.');
+    end
+    % Seed app state then exercise the helpers.
+    app.AsyncGen = [5 9];
+    app.AsyncTargetFrame = [123 456];
+    app.PendingFrame = [10 20];
+    app.PendingMode = {'play', 'scrub'};
+
+    ad.resetGeneration(1);
+    if app.AsyncGen(1) ~= 6
+        error('Diag:AsyncGen', ...
+            'resetGeneration(1) must bump app.AsyncGen(1) from 5 to 6 (got %g).', ...
+            app.AsyncGen(1));
+    end
+    if app.AsyncGen(2) ~= 9
+        error('Diag:AsyncGen', ...
+            'resetGeneration(1) must leave AsyncGen(2) untouched.');
+    end
+
+    ad.clearPending(2);
+    if ~isnan(app.PendingFrame(2))
+        error('Diag:PendingFrame', ...
+            'clearPending(2) must NaN-clear app.PendingFrame(2).');
+    end
+    if ~isempty(app.PendingMode{2})
+        error('Diag:PendingMode', ...
+            'clearPending(2) must empty-clear app.PendingMode{2}.');
+    end
+    if isnan(app.PendingFrame(1)) ~= isnan(NaN) && app.PendingFrame(1) ~= 10
+        error('Diag:PendingFrameLeak', ...
+            'clearPending(2) must NOT touch channel 1.');
+    end
+
+    % cancelChannel with no live future: must bump gen + NaN target
+    % without throwing even when AsyncFutures{fIdx} is [].
+    app.AsyncFutures = {[], []};
+    genBefore = app.AsyncGen(1);
+    ad.cancelChannel(1);
+    if app.AsyncGen(1) ~= genBefore + 1
+        error('Diag:CancelChannel', ...
+            'cancelChannel(1) must bump AsyncGen even without a future.');
+    end
+    if ~isnan(app.AsyncTargetFrame(1))
+        error('Diag:CancelChannel', ...
+            'cancelChannel(1) must NaN-clear AsyncTargetFrame(1).');
     end
 end
 

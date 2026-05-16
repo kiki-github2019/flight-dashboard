@@ -161,6 +161,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             flightdash.state.DashboardStateStore.empty
         Runtime          flightdash.runtime.DashboardRuntime = ...
             flightdash.runtime.DashboardRuntime.empty
+        % [REFACTOR R3] App-bound AsyncDecodeState facade. Legacy
+        % properties (AsyncPool / AsyncFutures / AsyncGen / etc.)
+        % remain the source of truth; the helpers (cancelChannel /
+        % cancelAll / resetGeneration / clearPending) operate on the
+        % live app state when bound.
+        AsyncDecode      flightdash.state.AsyncDecodeState = ...
+            flightdash.state.AsyncDecodeState.empty
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
 
@@ -238,6 +245,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.Runtime = flightdash.runtime.DashboardRuntime(app);
             app.Runtime.StateStore = app.StateStore;
             app.Runtime.Session = app.SessionContext;
+            % [REFACTOR R3] App-bound AsyncDecodeState. The helpers
+            % cancelChannel / cancelAll / resetGeneration / clearPending
+            % mutate the legacy app properties so they are drop-in
+            % replacements for the existing inline cleanup pattern.
+            app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            app.Runtime.AsyncDecode = app.AsyncDecode;
 
             if isfile('option_flight_area.dat')
                 try
@@ -791,6 +804,26 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 try, app.logCaught(ME, 'Dashboard:getStateStore'); catch, end
             end
             store = app.StateStore;
+        end
+
+        function ad = getAsyncDecode(app)
+            % [REFACTOR R3] App-bound AsyncDecodeState accessor. The
+            % returned handle is bound to this app so its helper methods
+            % (cancelChannel / cancelAll / resetGeneration /
+            % clearPending) mutate the legacy app properties directly —
+            % they are functionally identical to the inline cleanup
+            % code at the existing cancel sites. Lazy-syncs the 10
+            % async-decode properties into the handle before returning
+            % so read-only callers see a coherent snapshot.
+            if isempty(app.AsyncDecode) || ~isvalid(app.AsyncDecode)
+                app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
+            end
+            try
+                app.AsyncDecode.syncFromApp();
+            catch ME
+                try, app.logCaught(ME, 'Dashboard:getAsyncDecode'); catch, end
+            end
+            ad = app.AsyncDecode;
         end
     end
 
