@@ -4508,16 +4508,10 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 service.setActiveSession(app.ActiveSessionId);
                 videoPath = app.VideoFilePath{fIdx};
                 decoder = @(req) app.decodeFrameSyncLocal(fIdx, req.FrameNo);
-                reply = service.requestFrame(app.ActiveSessionId, fIdx, videoPath, clampedFrame, decoder);
-                if strcmp(reply.Status, 'cache-hit')
-                    img = reply.Frame;
-                    return;
-                end
-                if strcmp(reply.Status, 'queued')
-                    [result, decoded] = service.runRequest(reply.RequestId);
-                    if strcmp(result.Status, 'completed')
-                        img = decoded;
-                    end
+                [result, decoded] = service.decodeNow( ...
+                    app.ActiveSessionId, fIdx, videoPath, clampedFrame, decoder);
+                if strcmp(result.Status, 'cache-hit') || strcmp(result.Status, 'completed')
+                    img = decoded;
                 end
             catch ME
                 app.logCaught(ME, 'decodeShared');

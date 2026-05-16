@@ -13,11 +13,12 @@ function results = verifyPhase10()
         'P10-6', @checkStaleGenerationDiscard
         'P10-7', @checkRunAllAndCacheStats
         'P10-8', @checkRunRequestSpecific
-        'P10-9', @checkStudioInjectionHooks
-        'P10-10', @checkDashboardDecodeOptInHooks
-        'P10-11', @checkSessionCleanupHooks
-        'P10-12', @checkSessionScopeFailClosed
-        'P10-13', @checkPrototypeScopeGuard
+        'P10-9', @checkDecodeNowCachesWithoutQueue
+        'P10-10', @checkStudioInjectionHooks
+        'P10-11', @checkDashboardDecodeOptInHooks
+        'P10-12', @checkSessionCleanupHooks
+        'P10-13', @checkSessionScopeFailClosed
+        'P10-14', @checkPrototypeScopeGuard
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -162,6 +163,17 @@ function [ok, msg, status] = checkRunRequestSpecific()
         svc.queueLength() == 0;
     msg = passFail(ok, 'runRequest executes the requested queued decode without priority drift', ...
         'runRequest did not execute the requested queued decode');
+end
+
+function [ok, msg, status] = checkDecodeNowCachesWithoutQueue()
+    status = '';
+    svc = flightdash.services.SharedDecodeService();
+    [result, img] = svc.decodeNow('S1', 1, 'now.avi', 9, @decodeFromRequest);
+    [hit, cached] = svc.Cache.get('S1', 1, 'now.avi', 9);
+    ok = strcmp(result.Status, 'completed') && svc.queueLength() == 0 && ...
+        ~isempty(img) && img(1) == uint8(9) && hit && isequal(cached, img);
+    msg = passFail(ok, 'decodeNow populates cache without growing the queue', ...
+        'decodeNow queued work or missed cache store');
 end
 
 function [ok, msg, status] = checkStudioInjectionHooks()

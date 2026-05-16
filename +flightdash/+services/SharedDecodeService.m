@@ -41,21 +41,27 @@ classdef SharedDecodeService < handle
                 return;
             end
 
-            obj.RequestCounter = obj.RequestCounter + 1;
-            req = struct( ...
-                'RequestId', char(sprintf('D%06d', double(obj.RequestCounter))), ...
-                'SessionId', char(sessionId), ...
-                'ChannelIdx', double(channelIdx), ...
-                'VideoPath', char(videoPath), ...
-                'FrameNo', double(frameNo), ...
-                'Generation', obj.generation(sessionId), ...
-                'Priority', obj.priorityFor(sessionId), ...
-                'Sequence', double(obj.RequestCounter), ...
-                'DecoderFcn', decoderFcn);
+            req = obj.makeRequest(sessionId, channelIdx, videoPath, frameNo, decoderFcn);
 
             obj.coalesceStream(req);
             obj.Queue(end+1) = req;
             reply = obj.reply('queued', req.RequestId, []);
+        end
+
+        function [result, frame] = decodeNow(obj, sessionId, channelIdx, videoPath, frameNo, decoderFcn)
+            frame = [];
+            if nargin < 6 || isempty(decoderFcn)
+                decoderFcn = @flightdash.services.SharedDecodeService.defaultDecoder;
+            end
+
+            [hit, frame] = obj.Cache.get(sessionId, channelIdx, videoPath, frameNo);
+            if hit
+                result = obj.reply('cache-hit', '', frame);
+                return;
+            end
+
+            req = obj.makeRequest(sessionId, channelIdx, videoPath, frameNo, decoderFcn);
+            [result, frame] = obj.decodeRequest(req);
         end
 
         function n = queueLength(obj)
@@ -129,7 +135,11 @@ classdef SharedDecodeService < handle
             frame = [];
             req = obj.Queue(idx);
             obj.Queue(idx) = [];
+            [result, frame] = obj.decodeRequest(req);
+        end
 
+        function [result, frame] = decodeRequest(obj, req)
+            frame = [];
             if req.Generation ~= obj.generation(req.SessionId)
                 obj.DiscardedCount = obj.DiscardedCount + 1;
                 result = obj.reply('stale-discard', req.RequestId, []);
@@ -146,6 +156,20 @@ classdef SharedDecodeService < handle
                 obj.LastError = ME.message;
                 result = obj.reply('error', req.RequestId, []);
             end
+        end
+
+        function req = makeRequest(obj, sessionId, channelIdx, videoPath, frameNo, decoderFcn)
+            obj.RequestCounter = obj.RequestCounter + 1;
+            req = struct( ...
+                'RequestId', char(sprintf('D%06d', double(obj.RequestCounter))), ...
+                'SessionId', char(sessionId), ...
+                'ChannelIdx', double(channelIdx), ...
+                'VideoPath', char(videoPath), ...
+                'FrameNo', double(frameNo), ...
+                'Generation', obj.generation(sessionId), ...
+                'Priority', obj.priorityFor(sessionId), ...
+                'Sequence', double(obj.RequestCounter), ...
+                'DecoderFcn', decoderFcn);
         end
 
         function q = emptyQueue(~)
