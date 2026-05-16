@@ -134,7 +134,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % - standalone: 단독 실행 시 'standalone'
         % - embedded:   Studio가 부모 컨테이너에 embed 시 'S001', 'S002' 등 SessionId 부여
         % 모든 SessionId-aware 코드(throttle, drag controller, EventBus)는 이 값을 참조
-        ActiveSessionId     = 'standalone'    % [PHASE 0.8] active session id (Studio 통합 prep)
+        % ActiveSessionId ownership inverted (R7).
         % IsEmbedded ownership inverted (R7).
 
         % [PHASE 3a] 임베드 인터페이스 자리 표시
@@ -142,7 +142,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % - embedded:   RootContainer = Studio가 넘긴 부모 컨테이너 (uitab/uipanel)
         % createLayout 등 향후 Phase 3b에서 RootContainer를 layout parent로 사용
         % RootContainer ownership inverted (R7) — see Dependent block.
-        MouseRouter         = []              % [PHASE 3.5] Studio-owned mouse router hook
+        % MouseRouter ownership inverted (R7).
         % SharedCacheService / SharedDecodeService ownership inverted (R7).
         % UndoService ownership inverted (R7).
         % UseSharedDecodeService ownership inverted (R7) — see Dependent block.
@@ -228,6 +228,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         SharedDecodeService     % proxies app.SessionContext.SharedDecodeService
         IsEmbedded              % proxies app.SessionContext.IsEmbedded
         UndoService             % proxies app.SessionContext.UndoService
+        ActiveSessionId         % proxies app.SessionContext.ActiveSessionId
+        MouseRouter             % proxies app.SessionContext.MouseRouter
     end
 
     methods
@@ -671,6 +673,38 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.SessionContext = flightdash.runtime.SessionContext(app);
             end
             app.SessionContext.UndoService = value;
+        end
+
+        function v = get.ActiveSessionId(app)
+            v = 'standalone';
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = char(app.SessionContext.ActiveSessionId);
+                end
+            catch
+            end
+        end
+        function set.ActiveSessionId(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.ActiveSessionId = char(value);
+        end
+
+        function v = get.MouseRouter(app)
+            v = [];
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = app.SessionContext.MouseRouter;
+                end
+            catch
+            end
+        end
+        function set.MouseRouter(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.MouseRouter = value;
         end
     end
 

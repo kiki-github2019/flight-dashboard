@@ -2611,6 +2611,40 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(app.SessionContext.UndoService, stubSvc);
         end
 
+        function test_T15_Refactor_R7_ActiveSessionIdAndMouseRouterInverted(testCase)
+            % R7 fifth commit: ActiveSessionId + MouseRouter flip.
+            % ActiveSessionId is the constructor's first identity
+            % write (line ~628 standalone / ~629 embedded). Idempotent
+            % SessionContext init guard preserves it.
+            host = uifigure('Visible', 'off');
+            cleanupHost = onCleanup(@() delete(host)); %#ok<NASGU>
+            tabs = uitabgroup(host);
+            tab  = uitab(tabs, 'Title', 'AS');
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard(tab, 'S-Active');
+            catch ME
+                testCase.assumeFail(sprintf('Embedded build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            testCase.verifyEqual(char(app.ActiveSessionId), 'S-Active');
+            testCase.verifyEqual(char(app.SessionContext.ActiveSessionId), 'S-Active');
+            testCase.verifyTrue(isempty(app.MouseRouter));
+            testCase.verifyTrue(isempty(app.SessionContext.MouseRouter));
+
+            app.ActiveSessionId = 'S-New';
+            testCase.verifyEqual(char(app.SessionContext.ActiveSessionId), 'S-New');
+
+            stubRouter = struct('placeholder', 'router');
+            app.MouseRouter = stubRouter;
+            testCase.verifyEqual(app.SessionContext.MouseRouter, stubRouter);
+
+            % adapter.activeSessionId() must reflect the new storage.
+            testCase.verifyEqual(app.getAdapter().activeSessionId(), 'S-New');
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

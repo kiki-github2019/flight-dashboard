@@ -31,16 +31,16 @@ classdef SessionContext < handle
     properties (Access = public)
         UseSharedDecodeService  logical = false
         IsEmbedded              logical = false
+        ActiveSessionId         char    = 'standalone'
         RootContainer                   = []
         SharedCacheService              = []
         SharedDecodeService             = []
         UndoService                     = []
+        MouseRouter                     = []
     end
 
     properties (Dependent, SetAccess = private)
-        ActiveSessionId         char
         UIFigure
-        MouseRouter
     end
 
     methods
@@ -66,13 +66,6 @@ classdef SessionContext < handle
 
     % -------- Dependent getters (live reads from app) --------
     methods
-        function v = get.ActiveSessionId(obj)
-            v = 'standalone';
-            if obj.isValidApp() && isprop(obj.AppRef, 'ActiveSessionId')
-                v = char(obj.AppRef.ActiveSessionId);
-            end
-        end
-
         function v = get.UIFigure(obj)
             v = [];
             if obj.isValidApp() && isprop(obj.AppRef, 'UIFigure')
@@ -80,12 +73,6 @@ classdef SessionContext < handle
             end
         end
 
-        function v = get.MouseRouter(obj)
-            v = [];
-            if obj.isValidApp() && isprop(obj.AppRef, 'MouseRouter')
-                v = obj.AppRef.MouseRouter;
-            end
-        end
 
     end
 end
