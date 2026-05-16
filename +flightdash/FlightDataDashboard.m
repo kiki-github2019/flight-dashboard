@@ -146,7 +146,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
         SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
         UndoService         = []              % Per-session undo/redo service injected by Studio
-        UseSharedDecodeService logical = false % [PHASE 10] opt-in only
+        % UseSharedDecodeService ownership inverted (R7) — see Dependent block.
         % [REFACTOR R1] Read-only facade over the 9 session-identity
         % properties above. Lazy-created on first getSessionContext()
         % call so the constructor's existing initialization order is
@@ -222,6 +222,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         IsDecoding              % proxies app.AsyncDecode.IsDecoding
         PendingFrame            % proxies app.AsyncDecode.PendingFrame
         PendingMode             % proxies app.AsyncDecode.PendingMode
+        % R7 session-identity group: storage on SessionContext.
+        UseSharedDecodeService  % proxies app.SessionContext.UseSharedDecodeService
     end
 
     methods
@@ -565,6 +567,26 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
             end
             app.AsyncDecode.PendingMode = value;
+        end
+
+        % ===== Session-identity group (R7) =====
+        % First identity property migrated from the R1 Dependent
+        % live-view design to real storage on SessionContext.
+
+        function v = get.UseSharedDecodeService(app)
+            v = false;
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = app.SessionContext.UseSharedDecodeService;
+                end
+            catch
+            end
+        end
+        function set.UseSharedDecodeService(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.UseSharedDecodeService = logical(value);
         end
     end
 

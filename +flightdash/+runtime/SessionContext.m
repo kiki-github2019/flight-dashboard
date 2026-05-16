@@ -23,6 +23,15 @@ classdef SessionContext < handle
         AppRef  % flightdash.FlightDataDashboard — owning app
     end
 
+    % [REFACTOR R7] Storage for fields inverted from the app. As each
+    % identity property's external-read count reaches zero (via
+    % adapter routing) it migrates from the Dependent block below to
+    % this real-storage block. The app keeps the same property name
+    % as a Dependent forward so legacy reads stay unchanged.
+    properties (Access = public)
+        UseSharedDecodeService  logical = false
+    end
+
     properties (Dependent, SetAccess = private)
         ActiveSessionId         char
         IsEmbedded              logical
@@ -32,7 +41,6 @@ classdef SessionContext < handle
         SharedCacheService
         SharedDecodeService
         UndoService
-        UseSharedDecodeService  logical
     end
 
     methods
@@ -111,13 +119,6 @@ classdef SessionContext < handle
             v = [];
             if obj.isValidApp() && isprop(obj.AppRef, 'UndoService')
                 v = obj.AppRef.UndoService;
-            end
-        end
-
-        function v = get.UseSharedDecodeService(obj)
-            v = false;
-            if obj.isValidApp() && isprop(obj.AppRef, 'UseSharedDecodeService')
-                v = logical(obj.AppRef.UseSharedDecodeService);
             end
         end
     end

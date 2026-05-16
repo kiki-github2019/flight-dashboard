@@ -2463,6 +2463,44 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function test_T15_Refactor_R7_SessionFirstInversion(testCase)
+            % R7 first commit: UseSharedDecodeService migrates from
+            % R1-style Dependent live-view to real storage on
+            % SessionContext. Proves the SessionContext can hold
+            % storage; future commits invert the other 8 identity
+            % fields the same way.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Default value matches the old storage.
+            testCase.verifyFalse(app.UseSharedDecodeService);
+            testCase.verifyFalse(app.SessionContext.UseSharedDecodeService);
+
+            % Write via app, read via SessionContext.
+            app.UseSharedDecodeService = true;
+            testCase.verifyTrue(app.SessionContext.UseSharedDecodeService);
+
+            % Reverse direction.
+            app.SessionContext.UseSharedDecodeService = false;
+            testCase.verifyFalse(app.UseSharedDecodeService);
+
+            % metaclass name preservation (Phase-10 diag relies on it).
+            mc = metaclass(app);
+            names = arrayfun(@(p) string(p.Name), mc.PropertyList);
+            testCase.verifyTrue(any(names == "UseSharedDecodeService"));
+
+            % adapter.useSharedDecode() must still mirror the value.
+            testCase.verifyFalse(app.getAdapter().useSharedDecode());
+            app.UseSharedDecodeService = true;
+            testCase.verifyTrue(app.getAdapter().useSharedDecode());
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
