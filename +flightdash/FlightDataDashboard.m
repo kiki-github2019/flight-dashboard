@@ -38,7 +38,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
         Models
         SyncState
-        VideoState
+        % VideoState ownership inverted (R8) — see Dependent block.
         VideoSyncState
 
         CoastlineData
@@ -234,6 +234,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % R8 channel-state group: per-channel storage on ChannelState.
         FlightFilePath          % multiplexes app.StateStore.Channels(k).FlightFilePath
         VideoFilePath           % multiplexes app.StateStore.Channels(k).VideoFilePath
+        % R8 video group: storage on VideoSessionState.
+        VideoState              % proxies app.StateStore.Video.VideoState
     end
 
     methods
@@ -778,6 +780,23 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.StateStore.Channels(k).VideoFilePath = char(value{k});
             end
         end
+
+        function v = get.VideoState(app)
+            v = struct('videoReader', {[], []}, 'videoStartTime', {0, 0}, 'vidImageHandle', {[], []});
+            try
+                if ~isempty(app.StateStore) && isvalid(app.StateStore) ...
+                        && ~isempty(app.StateStore.Video) && isvalid(app.StateStore.Video)
+                    v = app.StateStore.Video.VideoState;
+                end
+            catch
+            end
+        end
+        function set.VideoState(app, value)
+            if isempty(app.StateStore) || ~isvalid(app.StateStore)
+                app.StateStore = flightdash.state.DashboardStateStore(2);
+            end
+            app.StateStore.Video.VideoState = value;
+        end
     end
 
     methods (Access = public)
@@ -854,7 +873,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % entry per existing Models slot) and the Runtime aggregate.
             % StateStore.Channels mirror app.Models on demand via
             % app.channel(fIdx); legacy reads remain untouched.
-            app.StateStore = flightdash.state.DashboardStateStore(numel(app.Models));
+            % Idempotent — R8 Dependent forwards (FlightFilePath /
+            % VideoState etc.) may have lazy-created the StateStore
+            % from earlier constructor writes; preserve that instance.
+            if isempty(app.StateStore) || ~isvalid(app.StateStore)
+                app.StateStore = flightdash.state.DashboardStateStore(numel(app.Models));
+            end
             app.Runtime = flightdash.runtime.DashboardRuntime(app);
             app.Runtime.StateStore = app.StateStore;
             app.Runtime.Session = app.SessionContext;

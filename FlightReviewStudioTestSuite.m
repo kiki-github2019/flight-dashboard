@@ -2721,6 +2721,40 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(app.channel(2).VideoFilePath, 'C.mp4');
         end
 
+        function test_T15_Refactor_R8_VideoStateInverted(testCase)
+            % R8 video group: VideoState flips from app struct-array
+            % storage to VideoSessionState. The constructor's early
+            % `app.VideoState = struct(...)` write must survive the
+            % explicit StateStore init at line ~876 thanks to the
+            % idempotent guard added in this commit.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Constructor write must survive to StateStore.Video.
+            testCase.verifyEqual(numel(app.VideoState), 2, ...
+                'VideoState must remain a 1x2 struct array post-construction.');
+            testCase.verifyTrue(isfield(app.VideoState, 'videoReader'));
+            testCase.verifyEqual(app.VideoState(1).videoStartTime, 0);
+            testCase.verifyTrue(isequal(app.VideoState, app.StateStore.Video.VideoState), ...
+                'app.VideoState must alias StateStore.Video.VideoState.');
+
+            % Subscript-assign pattern (used by FlightDataDashboard internals).
+            app.VideoState(1).videoStartTime = 12.5;
+            testCase.verifyEqual(app.StateStore.Video.VideoState(1).videoStartTime, 12.5);
+            testCase.verifyEqual(app.VideoState(2).videoStartTime, 0, ...
+                'Subscript-assign on channel 1 must not touch channel 2.');
+
+            % Reverse direction.
+            app.StateStore.Video.VideoState(2).videoStartTime = 7.0;
+            testCase.verifyEqual(app.VideoState(2).videoStartTime, 7.0);
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

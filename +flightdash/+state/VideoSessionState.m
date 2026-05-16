@@ -9,7 +9,13 @@ classdef VideoSessionState < handle
     %   Owner: DashboardStateStore.
 
     properties (Access = public)
-        VideoState      struct = struct()
+        % R8 storage. The legacy app properties are Dependent forwards
+        % (declared on FlightDataDashboard) so subscript-assign
+        % patterns like app.VideoState(fIdx).videoReader = X keep
+        % working through MATLAB's get-modify-set chain.
+        VideoState      struct = struct('videoReader',     {[], []}, ...
+                                        'videoStartTime',  {0,  0}, ...
+                                        'vidImageHandle',  {[], []})
         VideoSyncState  struct = struct()
         SyncState       struct = struct('IsSynced', false, ...
                                         'SyncT1', 0, ...
