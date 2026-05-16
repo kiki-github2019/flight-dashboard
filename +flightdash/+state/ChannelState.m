@@ -53,9 +53,46 @@ classdef ChannelState < handle
         end
     end
 
-    methods (Static)
-        function obj = fromStruct(channelIdx, s)
-            obj = flightdash.state.ChannelState(channelIdx);
+    methods
+        function syncFromApp(obj, app, fIdx)
+            % R2 mirror entry point. Pulls the legacy app.Models(fIdx)
+            % struct + cell-array file-path fields into this handle so
+            % callers using app.channel(fIdx) read fresh data. Cheap:
+            % the struct copy is shallow; the rawData table is copied
+            % by reference (MATLAB tables are value types but copy-on-
+            % write so unmodified shares the same memory).
+            %
+            % Tolerant: any missing field is left at its current value
+            % so a partially-constructed app (constructor in progress)
+            % still returns a usable ChannelState.
+            if nargin < 3 || isempty(fIdx), return; end
+            try
+                if ~isnumeric(fIdx), return; end
+                fIdx = double(fIdx);
+                if fIdx < 1, return; end
+                if isprop(app, 'Models') && numel(app.Models) >= fIdx
+                    s = app.Models(fIdx);
+                    if isstruct(s)
+                        obj.copyFromStruct(s);
+                    end
+                end
+                if isprop(app, 'FlightFilePath') && iscell(app.FlightFilePath) ...
+                        && numel(app.FlightFilePath) >= fIdx
+                    obj.FlightFilePath = char(app.FlightFilePath{fIdx});
+                end
+                if isprop(app, 'VideoFilePath') && iscell(app.VideoFilePath) ...
+                        && numel(app.VideoFilePath) >= fIdx
+                    obj.VideoFilePath = char(app.VideoFilePath{fIdx});
+                end
+                obj.ChannelIndex = fIdx;
+            catch
+                % Lazy-mirror is best-effort by design. A broken sync
+                % must never break legacy reads — callers can fall back
+                % to app.Models(fIdx) directly during the migration.
+            end
+        end
+
+        function copyFromStruct(obj, s)
             if ~isstruct(s), return; end
             f = fieldnames(s);
             if any(strcmp(f, 'rawData')),      obj.RawData      = s.rawData;      end
@@ -66,6 +103,13 @@ classdef ChannelState < handle
             if any(strcmp(f, 'currentIndex')), obj.CurrentIndex = s.currentIndex; end
             if any(strcmp(f, 'selectedRow')),  obj.SelectedRow  = s.selectedRow;  end
             if any(strcmp(f, 'isMockData')),   obj.IsMockData   = s.isMockData;   end
+        end
+    end
+
+    methods (Static)
+        function obj = fromStruct(channelIdx, s)
+            obj = flightdash.state.ChannelState(channelIdx);
+            obj.copyFromStruct(s);
         end
     end
 end

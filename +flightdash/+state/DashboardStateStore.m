@@ -38,5 +38,37 @@ classdef DashboardStateStore < handle
             if fIdx < 1 || fIdx > numel(obj.Channels), return; end
             ch = obj.Channels(fIdx);
         end
+
+        function syncFromApp(obj, app, fIdx)
+            % R2 mirror: refresh either a single channel or all channels
+            % from the legacy app.Models / FlightFilePath / VideoFilePath
+            % properties. Called from app.channel(fIdx) right before the
+            % handle is returned to a caller.
+            if nargin < 3 || isempty(fIdx)
+                for k = 1:numel(obj.Channels)
+                    obj.Channels(k).syncFromApp(app, k);
+                end
+                return;
+            end
+            ch = obj.channel(fIdx);
+            if ~isempty(ch)
+                ch.syncFromApp(app, fIdx);
+            end
+        end
+
+        function syncVideoFromApp(obj, app)
+            % R2 mirror for the video aggregate. Tolerant of partial
+            % construction (VideoState may not exist yet on a freshly
+            % built app).
+            if isempty(obj.Video), return; end
+            try
+                if isprop(app, 'VideoState'),     obj.Video.VideoState     = app.VideoState;     end
+                if isprop(app, 'VideoSyncState'), obj.Video.VideoSyncState = app.VideoSyncState; end
+                if isprop(app, 'SyncState') && isstruct(app.SyncState)
+                    obj.Video.SyncState = app.SyncState;
+                end
+            catch
+            end
+        end
     end
 end

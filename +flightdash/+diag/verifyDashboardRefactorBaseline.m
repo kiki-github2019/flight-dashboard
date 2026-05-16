@@ -45,6 +45,9 @@ steps = appendStep(steps, 'embedded_delete_keeps_host_figure', ...
 steps = appendStep(steps, 'no_new_errorlog_entries', ...
     @() doNoNewErrorLogEntries());
 
+steps = appendStep(steps, 'r2_channel_accessor_mirrors_models', ...
+    @() doR2ChannelMirror());
+
 if includeClearProbe
     steps = appendStep(steps, 'clear_classes_rehash_compat', ...
         @() doClearClassesProbe());
@@ -146,6 +149,46 @@ function doNoNewErrorLogEntries()
     if delta > 0
         error('Diag:ErrorLogGrew', ...
             'ErrorLog grew by %d entries during clean launch.', delta);
+    end
+end
+
+function doR2ChannelMirror()
+    % R2: app.channel(fIdx) must reflect post-construction writes to
+    % app.Models(fIdx) and app.FlightFilePath without any explicit
+    % sync call from the caller.
+    app = flightdash.FlightDataDashboard();
+    cleanup = onCleanup(@() safeDelete(app)); %#ok<NASGU>
+    % Mutate the legacy struct directly (closest to how loader / option
+    % editor write into the app today).
+    app.Models(1).selectedRow = 7;
+    app.Models(1).currentIndex = 42;
+    app.FlightFilePath{1} = 'C:\diag\flight1.csv';
+    ch = app.channel(1);
+    assertHandleValid(ch, 'app.channel(1) returned empty handle');
+    if ch.SelectedRow ~= 7
+        error('Diag:ChannelMirror', ...
+            'ChannelState.SelectedRow must mirror app.Models(1).selectedRow (got %g).', ...
+            ch.SelectedRow);
+    end
+    if ch.CurrentIndex ~= 42
+        error('Diag:ChannelMirror', ...
+            'ChannelState.CurrentIndex mirror broken (got %g).', ch.CurrentIndex);
+    end
+    if ~strcmp(ch.FlightFilePath, 'C:\diag\flight1.csv')
+        error('Diag:ChannelMirror', ...
+            'ChannelState.FlightFilePath mirror broken (got "%s").', ...
+            ch.FlightFilePath);
+    end
+    if ~isequal(ch.ChannelIndex, 1)
+        error('Diag:ChannelMirror', ...
+            'ChannelState.ChannelIndex must equal 1 after syncFromApp.');
+    end
+    % StateStore aggregate accessor must also work and route through Runtime.
+    store = app.getStateStore();
+    assertHandleValid(store, 'app.getStateStore() returned empty handle');
+    if ~isequal(store, app.Runtime.StateStore)
+        error('Diag:RuntimeStateStoreDrift', ...
+            'Runtime.StateStore must reference the same handle as app.StateStore.');
     end
 end
 

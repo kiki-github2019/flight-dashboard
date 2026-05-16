@@ -152,6 +152,15 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % until R5 inverts ownership.
         SessionContext   flightdash.runtime.SessionContext = ...
             flightdash.runtime.SessionContext.empty
+        % [REFACTOR R2] Aggregate handle for the per-channel + video
+        % state. app.channel(fIdx) lazy-syncs from app.Models(fIdx) and
+        % returns the matching ChannelState. New code is expected to
+        % prefer app.channel(fIdx); legacy reads of app.Models(fIdx)
+        % keep working unchanged.
+        StateStore       flightdash.state.DashboardStateStore = ...
+            flightdash.state.DashboardStateStore.empty
+        Runtime          flightdash.runtime.DashboardRuntime = ...
+            flightdash.runtime.DashboardRuntime.empty
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
 
@@ -221,6 +230,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % handle. The facade reads the app's session properties
             % live via Dependent getters — no state has been moved.
             app.SessionContext = flightdash.runtime.SessionContext(app);
+            % [REFACTOR R2] Build the StateStore aggregate (one channel
+            % entry per existing Models slot) and the Runtime aggregate.
+            % StateStore.Channels mirror app.Models on demand via
+            % app.channel(fIdx); legacy reads remain untouched.
+            app.StateStore = flightdash.state.DashboardStateStore(numel(app.Models));
+            app.Runtime = flightdash.runtime.DashboardRuntime(app);
+            app.Runtime.StateStore = app.StateStore;
+            app.Runtime.Session = app.SessionContext;
 
             if isfile('option_flight_area.dat')
                 try
@@ -735,6 +752,45 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.SessionContext = flightdash.runtime.SessionContext(app);
             end
             ctx = app.SessionContext;
+        end
+
+        function ch = channel(app, fIdx)
+            % [REFACTOR R2] Lazy-mirror accessor: pulls app.Models(fIdx)
+            % + FlightFilePath{fIdx} + VideoFilePath{fIdx} into the
+            % matching ChannelState handle and returns it. New code is
+            % expected to prefer this accessor; legacy reads of
+            % app.Models(fIdx) keep working unchanged because the mirror
+            % is one-way (Store <- Models) and the StateStore never
+            % writes back to the legacy struct in R2.
+            ch = flightdash.state.ChannelState.empty;
+            if isempty(app.StateStore) || ~isvalid(app.StateStore)
+                app.StateStore = flightdash.state.DashboardStateStore(numel(app.Models));
+            end
+            if nargin < 2 || isempty(fIdx), return; end
+            try
+                app.StateStore.syncFromApp(app, fIdx);
+                app.StateStore.syncVideoFromApp(app);
+                ch = app.StateStore.channel(fIdx);
+            catch ME
+                % Logging: routing through logCaught when available.
+                try, app.logCaught(ME, 'Dashboard:channel'); catch, end
+            end
+        end
+
+        function store = getStateStore(app)
+            % [REFACTOR R2] Accessor for the full aggregate. Refreshes
+            % every channel + video block before returning so callers
+            % iterating over Channels see consistent snapshots.
+            if isempty(app.StateStore) || ~isvalid(app.StateStore)
+                app.StateStore = flightdash.state.DashboardStateStore(numel(app.Models));
+            end
+            try
+                app.StateStore.syncFromApp(app, []);
+                app.StateStore.syncVideoFromApp(app);
+            catch ME
+                try, app.logCaught(ME, 'Dashboard:getStateStore'); catch, end
+            end
+            store = app.StateStore;
         end
     end
 

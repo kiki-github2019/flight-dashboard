@@ -1741,6 +1741,54 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'SessionContext must reflect post-construction writes.');
         end
 
+        function test_T15_Refactor_ChannelAccessorMirrorsModels(testCase)
+            % R2: app.channel(fIdx) must lazy-sync app.Models(fIdx) +
+            % FlightFilePath{fIdx} into the StateStore so new code can
+            % use the focused handle. Legacy app.Models reads stay
+            % unchanged.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Dashboard cannot be constructed headlessly: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            app.Models(2).selectedRow = 11;
+            app.Models(2).currentIndex = 99;
+            app.FlightFilePath{2} = 'C:\test\f2.csv';
+            ch = app.channel(2);
+            testCase.verifyClass(ch, 'flightdash.state.ChannelState');
+            testCase.verifyEqual(ch.SelectedRow, 11);
+            testCase.verifyEqual(ch.CurrentIndex, 99);
+            testCase.verifyEqual(ch.FlightFilePath, 'C:\test\f2.csv');
+            testCase.verifyEqual(ch.ChannelIndex, 2);
+            % StateStore reference must be the same handle on Runtime.
+            store = app.getStateStore();
+            testCase.verifyTrue(isequal(store, app.Runtime.StateStore), ...
+                'Runtime.StateStore must alias app.StateStore.');
+        end
+
+        function test_T15_Refactor_ChannelAccessorOutOfRangeSafe(testCase)
+            % R2 contract: out-of-range fIdx returns ChannelState.empty
+            % instead of erroring so callers can guard with isempty().
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            chHigh = app.channel(99);
+            testCase.verifyTrue(isempty(chHigh), ...
+                'Out-of-range channel index must return empty.');
+            chZero = app.channel(0);
+            testCase.verifyTrue(isempty(chZero), ...
+                'Zero channel index must return empty.');
+        end
+
         function test_T15_Refactor_BaselineDiagnostic(testCase)
             % R1: run the refactor baseline harness end-to-end. Each
             % step is internally guarded so headless backends produce
