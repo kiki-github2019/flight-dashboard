@@ -390,28 +390,23 @@ classdef FlightDataLoader < handle
             mappedCols = struct();
             for i = 1:numel(reqKeys), mappedCols.(reqKeys{i}) = ''; end
 
-            % Apply option-file block-1 mappings if file is supplied.
+            % Pre-PFE-2: delegate option-file block-1 parsing to the
+            % shared OptionFileParser so the editor and the wizard share
+            % a single source of truth. Fall back to no-op when the file
+            % is absent or the parser throws — alias inference below
+            % still fills the gaps.
             if nargin >= 3 && ~isempty(optionPath) && isfile(optionPath)
                 try
-                    lines = readlines(optionPath, 'EmptyLineRule', 'skip');
-                    section = 0;
-                    for i = 1:length(lines)
-                        lineStr = strtrim(lines(i));
-                        if startsWith(lineStr, '#'), section = section + 1; continue; end
-                        if section == 1
-                            parts = split(lineStr, ':');
-                            if length(parts) >= 2
-                                k = char(strtrim(parts(1)));
-                                v = char(strtrim(parts(2)));
-                                if isfield(mappedCols, k)
-                                    if ismember(v, csvHeaders)
-                                        mappedCols.(k) = v;
-                                    else
-                                        resolved = obj.inferRequiredColumn(k, csvHeaders, v);
-                                        if ~isempty(resolved), mappedCols.(k) = resolved; end
-                                    end
-                                end
-                            end
+                    optModel = flightdash.project.OptionFileParser.read(optionPath);
+                    for i = 1:height(optModel.Mapping)
+                        k = char(optModel.Mapping.Key(i));
+                        v = char(optModel.Mapping.MappedField(i));
+                        if ~isfield(mappedCols, k) || isempty(v), continue; end
+                        if ismember(v, csvHeaders)
+                            mappedCols.(k) = v;
+                        else
+                            resolved = obj.inferRequiredColumn(k, csvHeaders, v);
+                            if ~isempty(resolved), mappedCols.(k) = resolved; end
                         end
                     end
                 catch

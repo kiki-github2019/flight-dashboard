@@ -1406,6 +1406,81 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Removed display row still present after round-trip.');
         end
 
+        function test_T15_PreviewMapping_UsesOptionFileParser(testCase)
+            % Pre-PFE-2: previewMapping must produce the same MappedCols
+            % output that OptionFileParser would feed if called manually.
+            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
+            % Build a CSV with the exact columns option1.dat targets.
+            tmpCsv = FlightReviewStudioTestSuite.writeSyntheticCsv( ...
+                {'time','Flight_LAT','Flight_LON','Flight_ALT', ...
+                 'Flight_HEADING','Flight_PITCH','Flight_ROLL'});
+            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
+
+            loader = flightdash.model.FlightDataLoader();
+            preview = loader.previewMapping(tmpCsv, sampleOpt);
+
+            % Compare to the parser model's mappings.
+            optModel = flightdash.project.OptionFileParser.read(sampleOpt);
+            for k = 1:height(optModel.Mapping)
+                key = char(optModel.Mapping.Key(k));
+                mapped = char(optModel.Mapping.MappedField(k));
+                if ~isfield(preview.MappedCols, key) || isempty(mapped)
+                    continue;
+                end
+                testCase.verifyEqual(preview.MappedCols.(key), mapped, ...
+                    sprintf('preview.MappedCols.%s should equal parser mapping', key));
+            end
+        end
+
+        function test_T15_PreviewMapping_OutputShapeUnchanged(testCase)
+            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
+            tmpCsv = FlightReviewStudioTestSuite.writeSyntheticCsv( ...
+                {'time','Flight_LAT','Flight_LON','Flight_ALT', ...
+                 'Flight_HEADING','Flight_PITCH','Flight_ROLL'});
+            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
+            loader = flightdash.model.FlightDataLoader();
+            preview = loader.previewMapping(tmpCsv, sampleOpt);
+            for fn = {'Rows','HeadPreview','MappedCols','HasCriticalMissing','HasOptionalMissing'}
+                testCase.verifyTrue(isfield(preview, fn{1}), ...
+                    sprintf('preview is missing field "%s"', fn{1}));
+            end
+            testCase.verifyClass(preview.Rows, 'cell');
+            testCase.verifyClass(preview.HeadPreview, 'table');
+            testCase.verifyClass(preview.MappedCols, 'struct');
+            testCase.verifyClass(preview.HasCriticalMissing, 'logical');
+            testCase.verifyClass(preview.HasOptionalMissing, 'logical');
+        end
+
+        function test_T15_PreviewMapping_MissingOptionalStillWarning(testCase)
+            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
+            % CSV lacks Roll/Pitch/Heading columns.
+            tmpCsv = FlightReviewStudioTestSuite.writeSyntheticCsv( ...
+                {'time','Flight_LAT','Flight_LON','Flight_ALT'});
+            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
+            loader = flightdash.model.FlightDataLoader();
+            preview = loader.previewMapping(tmpCsv, sampleOpt);
+            testCase.verifyFalse(preview.HasCriticalMissing, ...
+                'Critical mapping should still succeed.');
+            testCase.verifyTrue(preview.HasOptionalMissing, ...
+                'Missing optional Roll/Pitch/Heading must surface as optional missing.');
+        end
+
+        function test_T15_PreviewMapping_MissingCriticalStillError(testCase)
+            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
+            % CSV lacks Lat / Lon — both critical.
+            tmpCsv = FlightReviewStudioTestSuite.writeSyntheticCsv( ...
+                {'time','Flight_ALT','Flight_HEADING','Flight_PITCH','Flight_ROLL'});
+            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
+            loader = flightdash.model.FlightDataLoader();
+            preview = loader.previewMapping(tmpCsv, sampleOpt);
+            testCase.verifyTrue(preview.HasCriticalMissing, ...
+                'Missing critical Lat/Lon must surface as critical missing.');
+        end
+
         function test_T15_OptionFileModel_DuplicateDisplayFieldRejected(testCase)
             model = flightdash.project.OptionFileModel(1);
             model.addDisplayRow('Flight_LAT', 'deg', '%.6f', 1, 1);
@@ -1433,6 +1508,25 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
 
         function safeRmdir(path)
             try, if isfolder(path), rmdir(path, 's'); end, catch, end
+        end
+
+        function csvPath = writeSyntheticCsv(headers)
+            % Build a tiny CSV with the given header list + 3 rows of
+            % synthetic numeric data so detectImportOptions has enough
+            % material to infer the schema.
+            csvPath = fullfile(tempdir, sprintf('flightdash_csv_%s.csv', ...
+                datestr(now, 'yyyymmddHHMMSSFFF')));
+            fid = fopen(csvPath, 'w', 'n', 'UTF-8');
+            if fid == -1
+                error('writeSyntheticCsv:OpenFailed', '%s', csvPath);
+            end
+            fprintf(fid, '%s\n', strjoin(headers, ','));
+            for r = 1:3
+                vals = arrayfun(@(k) sprintf('%.3f', r + k*0.1), ...
+                    1:numel(headers), 'UniformOutput', false);
+                fprintf(fid, '%s\n', strjoin(vals, ','));
+            end
+            fclose(fid);
         end
 
         function names = collectTimerNames(timers)
