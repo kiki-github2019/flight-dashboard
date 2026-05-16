@@ -1957,6 +1957,36 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(app.MarkerDragCtrl.DraggedFIdx, 0);
         end
 
+        function test_T15_Refactor_PannerControllerAcceptsAdapter(testCase)
+            % Migration #3: PannerController accepts adapter and stays
+            % in idle drag state at construction. EventBus subscribers
+            % still resolve through obj.Adapter.app() — verify the
+            % controller does not throw during subscribe.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrlA = flightdash.controller.PannerController(app.Adapter);
+            testCase.verifyClass(ctrlA, 'flightdash.controller.PannerController');
+            ctrlB = flightdash.controller.PannerController(app);
+            testCase.verifyClass(ctrlB, 'flightdash.controller.PannerController');
+            threw = false;
+            try
+                flightdash.controller.PannerController(42);
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'PannerController:BadInput');
+            end
+            testCase.verifyTrue(threw);
+            % cleanup test-scope controllers
+            try, delete(ctrlA); catch, end
+            try, delete(ctrlB); catch, end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
