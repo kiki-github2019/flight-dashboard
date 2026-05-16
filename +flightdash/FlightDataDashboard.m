@@ -168,6 +168,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % live app state when bound.
         AsyncDecode      flightdash.state.AsyncDecodeState = ...
             flightdash.state.AsyncDecodeState.empty
+        % [REFACTOR R4] App-bound DashboardLayoutState facade. The 11
+        % layout properties (LayoutProfile, LastLayoutSize, ...,
+        % NormalFigurePosition) remain the source of truth; this handle
+        % lazy-mirrors them so new code can read through a focused
+        % view via app.getLayoutState().
+        LayoutState      flightdash.state.DashboardLayoutState = ...
+            flightdash.state.DashboardLayoutState.empty
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
     end
 
@@ -251,6 +258,11 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % replacements for the existing inline cleanup pattern.
             app.AsyncDecode = flightdash.state.AsyncDecodeState(app);
             app.Runtime.AsyncDecode = app.AsyncDecode;
+            % [REFACTOR R4] App-bound DashboardLayoutState. The legacy
+            % LayoutProfile / LastLayoutSize / ... properties remain the
+            % source of truth; new code reads via getLayoutState().
+            app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            app.Runtime.Layout = app.LayoutState;
 
             if isfile('option_flight_area.dat')
                 try
@@ -824,6 +836,23 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 try, app.logCaught(ME, 'Dashboard:getAsyncDecode'); catch, end
             end
             ad = app.AsyncDecode;
+        end
+
+        function ls = getLayoutState(app)
+            % [REFACTOR R4] App-bound DashboardLayoutState accessor.
+            % Lazy-creates the facade and pulls the 11 layout
+            % properties into it before returning. Reading via the
+            % handle is functionally identical to reading the legacy
+            % app.LayoutProfile / LastLayoutSize / ... fields.
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            try
+                app.LayoutState.syncFromApp();
+            catch ME
+                try, app.logCaught(ME, 'Dashboard:getLayoutState'); catch, end
+            end
+            ls = app.LayoutState;
         end
     end
 

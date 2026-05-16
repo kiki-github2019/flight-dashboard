@@ -1849,6 +1849,46 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             ad.cancelAll();        % iterates without binding
         end
 
+        function test_T15_Refactor_LayoutStateMirror(testCase)
+            % R4: getLayoutState() must reflect direct writes to the
+            % legacy app fields, and setLayoutProfile must write through.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            app.LayoutProfile = 'medium';
+            app.LastLayoutSize = [900 600];
+            app.NormalFigurePosition = [10 20 800 600];
+            ls = app.getLayoutState();
+            testCase.verifyClass(ls, 'flightdash.state.DashboardLayoutState');
+            testCase.verifyEqual(char(ls.LayoutProfile), 'medium');
+            testCase.verifyEqual(ls.LastLayoutSize, [900 600]);
+            testCase.verifyEqual(ls.NormalFigurePosition, [10 20 800 600]);
+            testCase.verifyTrue(isequal(ls, app.Runtime.Layout), ...
+                'Runtime.Layout must alias app.LayoutState.');
+            ls.setLayoutProfile('wide');
+            testCase.verifyEqual(char(app.LayoutProfile), 'wide', ...
+                'setLayoutProfile must write through to app.LayoutProfile.');
+            ls.setLastLayoutSize([1024 768]);
+            testCase.verifyEqual(app.LastLayoutSize, [1024 768], ...
+                'setLastLayoutSize must write through to app.LastLayoutSize.');
+        end
+
+        function test_T15_Refactor_LayoutStateUnbound(testCase)
+            % R4: an unbound DashboardLayoutState must accept writes
+            % locally and never throw.
+            ls = flightdash.state.DashboardLayoutState();
+            ls.setLayoutProfile('compact');
+            testCase.verifyEqual(char(ls.LayoutProfile), 'compact');
+            ls.setLastLayoutSize([320 200]);
+            testCase.verifyEqual(ls.LastLayoutSize, [320 200]);
+            ls.syncFromApp();  % no-op when unbound — must not throw
+        end
+
         function test_T15_Refactor_BaselineDiagnostic(testCase)
             % R1: run the refactor baseline harness end-to-end. Each
             % step is internally guarded so headless backends produce

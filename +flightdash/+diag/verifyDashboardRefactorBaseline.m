@@ -51,6 +51,9 @@ steps = appendStep(steps, 'r2_channel_accessor_mirrors_models', ...
 steps = appendStep(steps, 'r3_async_decode_helpers', ...
     @() doR3AsyncDecodeHelpers());
 
+steps = appendStep(steps, 'r4_layout_state_mirror', ...
+    @() doR4LayoutStateMirror());
+
 if includeClearProbe
     steps = appendStep(steps, 'clear_classes_rehash_compat', ...
         @() doClearClassesProbe());
@@ -250,6 +253,50 @@ function doR3AsyncDecodeHelpers()
     if ~isnan(app.AsyncTargetFrame(1))
         error('Diag:CancelChannel', ...
             'cancelChannel(1) must NaN-clear AsyncTargetFrame(1).');
+    end
+end
+
+function doR4LayoutStateMirror()
+    % R4: getLayoutState() must lazy-mirror the 11 layout properties.
+    % setLayoutProfile writes through to the live app field.
+    app = flightdash.FlightDataDashboard();
+    cleanup = onCleanup(@() safeDelete(app)); %#ok<NASGU>
+    % Seed direct legacy writes.
+    app.LayoutProfile         = 'compact';
+    app.LastLayoutSize        = [1280, 720];
+    app.PreferredVideoWidth   = [600, 320];
+    app.PanelSplitterFIdx     = 1;
+    app.PanelSplitterKind     = 'info-plot';
+    app.IsDraggingPanelSplitter = true;
+
+    ls = app.getLayoutState();
+    assertHandleValid(ls, 'getLayoutState() returned empty');
+    if ~isequal(ls, app.Runtime.Layout)
+        error('Diag:LayoutRuntimeDrift', ...
+            'Runtime.Layout must reference the same handle as app.LayoutState.');
+    end
+    if ~strcmp(char(ls.LayoutProfile), 'compact')
+        error('Diag:LayoutMirror', ...
+            'LayoutProfile mirror broken (got "%s").', char(ls.LayoutProfile));
+    end
+    if ~isequal(ls.LastLayoutSize, [1280, 720])
+        error('Diag:LayoutMirror', 'LastLayoutSize mirror broken.');
+    end
+    if ~isequal(ls.PreferredVideoWidth, [600, 320])
+        error('Diag:LayoutMirror', 'PreferredVideoWidth mirror broken.');
+    end
+    if ls.PanelSplitterFIdx ~= 1 || ~strcmp(char(ls.PanelSplitterKind), 'info-plot')
+        error('Diag:LayoutMirror', 'PanelSplitter mirror broken.');
+    end
+    if ~ls.IsDraggingPanelSplitter
+        error('Diag:LayoutMirror', 'IsDraggingPanelSplitter mirror broken.');
+    end
+    % Convenience writer: setLayoutProfile must update the live app.
+    ls.setLayoutProfile('narrow');
+    if ~strcmp(char(app.LayoutProfile), 'narrow')
+        error('Diag:LayoutWrite', ...
+            'setLayoutProfile must write through to app.LayoutProfile (got "%s").', ...
+            char(app.LayoutProfile));
     end
 end
 
