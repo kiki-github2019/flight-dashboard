@@ -120,11 +120,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         PreferredVideoWidth = [NaN, NaN]      % [RESPONSIVE] video aspect preferred width in px
         ManualVideoWidth    = [NaN, NaN]      % [RESPONSIVE] splitter-requested video width in px
         ManualPanelWidths   = {struct(), struct()} % splitter-requested non-video panel widths
-        PanelSplitterFIdx   = 0               % non-video splitter drag channel
-        PanelSplitterKind   = ''              % att-map|map-info|info-plot
-        IsDraggingPanelSplitter = false       % non-video splitter drag state
+        % [REFACTOR R6] PanelSplitterFIdx / PanelSplitterKind /
+        % IsDraggingPanelSplitter / NormalFigurePosition: ownership
+        % inverted — DashboardLayoutState now owns the storage. The
+        % app keeps these names as Dependent forwards (declared below)
+        % so every legacy reader/writer keeps compiling. LayoutHandles
+        % stays as a regular property until its external read count
+        % drops to zero.
         LayoutHandles       = struct()        % [RESPONSIVE] shell/header/body layout handles
-        NormalFigurePosition = [NaN, NaN, NaN, NaN] % [RESPONSIVE] restore target after app-level maximize
         FlightFilePath      = {'', ''}        % session config: loaded flight data paths
         InfoFormatModes     = {struct(), struct()} % per-channel value display modes keyed by normalized header
         ChannelViewMode     = 'both'          % both|flight1|flight2
@@ -182,6 +185,92 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         Adapter          flightdash.runtime.DashboardAppAdapter = ...
             flightdash.runtime.DashboardAppAdapter.empty
         % - 기존 ErrorLog/ErrorLogCapacity 속성은 더 이상 사용하지 않으나 호환을 위해 유지하지 않고 제거
+    end
+
+    % =========================================================================
+    % [REFACTOR R6] Ownership-inverted layout properties. The storage
+    % lives on app.LayoutState (a DashboardLayoutState handle); these
+    % Dependent forwards keep every legacy app.PanelSplitterFIdx /
+    % app.PanelSplitterKind / app.IsDraggingPanelSplitter /
+    % app.NormalFigurePosition read + write working unchanged. Because
+    % LayoutState is constructed before the constructor returns, the
+    % first reader after construction always sees the new storage.
+    % Before LayoutState exists (the brief window during construction
+    % when the legacy `app.NormalFigurePosition = app.UIFigure.Position`
+    % assignment runs), the getter returns the same defaults the
+    % property had before inversion so initialization order is safe.
+    % =========================================================================
+    properties (Dependent, Access = public)
+        PanelSplitterFIdx       % proxies app.LayoutState.PanelSplitterFIdx
+        PanelSplitterKind       % proxies app.LayoutState.PanelSplitterKind
+        IsDraggingPanelSplitter % proxies app.LayoutState.IsDraggingPanelSplitter
+        NormalFigurePosition    % proxies app.LayoutState.NormalFigurePosition
+    end
+
+    methods
+        function v = get.PanelSplitterFIdx(app)
+            v = 0;
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.PanelSplitterFIdx;
+                end
+            catch
+            end
+        end
+        function set.PanelSplitterFIdx(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.PanelSplitterFIdx = value;
+        end
+
+        function v = get.PanelSplitterKind(app)
+            v = '';
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.PanelSplitterKind;
+                end
+            catch
+            end
+        end
+        function set.PanelSplitterKind(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.PanelSplitterKind = char(value);
+        end
+
+        function v = get.IsDraggingPanelSplitter(app)
+            v = false;
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.IsDraggingPanelSplitter;
+                end
+            catch
+            end
+        end
+        function set.IsDraggingPanelSplitter(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.IsDraggingPanelSplitter = logical(value);
+        end
+
+        function v = get.NormalFigurePosition(app)
+            v = [NaN, NaN, NaN, NaN];
+            try
+                if ~isempty(app.LayoutState) && isvalid(app.LayoutState)
+                    v = app.LayoutState.NormalFigurePosition;
+                end
+            catch
+            end
+        end
+        function set.NormalFigurePosition(app, value)
+            if isempty(app.LayoutState) || ~isvalid(app.LayoutState)
+                app.LayoutState = flightdash.state.DashboardLayoutState(app);
+            end
+            app.LayoutState.NormalFigurePosition = value;
+        end
     end
 
     methods (Access = public)

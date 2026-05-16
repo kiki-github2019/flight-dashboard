@@ -2254,6 +2254,53 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'isActiveSession() must return false post-delete.');
         end
 
+        function test_T15_Refactor_R6_LayoutOwnershipInverted(testCase)
+            % R6: PanelSplitterFIdx / PanelSplitterKind /
+            % IsDraggingPanelSplitter / NormalFigurePosition are
+            % Dependent forwards on the app — the storage lives on
+            % LayoutState. Verifies both directions reach the same
+            % cell (write via app, read via LayoutState and vice versa).
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Write via app, read via LayoutState.
+            app.PanelSplitterFIdx = 7;
+            app.PanelSplitterKind = 'att-map';
+            app.IsDraggingPanelSplitter = true;
+            app.NormalFigurePosition = [11 22 333 444];
+            testCase.verifyEqual(app.LayoutState.PanelSplitterFIdx, 7);
+            testCase.verifyEqual(char(app.LayoutState.PanelSplitterKind), 'att-map');
+            testCase.verifyTrue(app.LayoutState.IsDraggingPanelSplitter);
+            testCase.verifyEqual(app.LayoutState.NormalFigurePosition, [11 22 333 444]);
+
+            % Write via LayoutState, read via app.
+            app.LayoutState.PanelSplitterFIdx = 1;
+            app.LayoutState.PanelSplitterKind = 'map-info';
+            app.LayoutState.IsDraggingPanelSplitter = false;
+            app.LayoutState.NormalFigurePosition = [1 2 3 4];
+            testCase.verifyEqual(app.PanelSplitterFIdx, 1);
+            testCase.verifyEqual(char(app.PanelSplitterKind), 'map-info');
+            testCase.verifyFalse(app.IsDraggingPanelSplitter);
+            testCase.verifyEqual(app.NormalFigurePosition, [1 2 3 4]);
+
+            % The Dependent property must report itself as a property
+            % to anything inspecting metaclass(app) — Phase-10 diag
+            % relies on this.
+            mc = metaclass(app);
+            names = arrayfun(@(p) string(p.Name), mc.PropertyList);
+            for inverted = ["PanelSplitterFIdx","PanelSplitterKind", ...
+                            "IsDraggingPanelSplitter","NormalFigurePosition"]
+                testCase.verifyTrue(any(names == inverted), ...
+                    sprintf('metaclass must still list %s.', inverted));
+            end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.

@@ -45,9 +45,13 @@ classdef DashboardLayoutState < handle
         end
 
         function syncFromApp(obj)
-            % R4 lazy mirror — pull all 11 layout properties from the
-            % bound app. Tolerant of partial construction so a sync
-            % during the legacy constructor never errors.
+            % R4 lazy mirror for properties the app still owns. R6
+            % inverted four of the original 11 layout properties
+            % (PanelSplitterFIdx / PanelSplitterKind /
+            % IsDraggingPanelSplitter / NormalFigurePosition) so they
+            % are NOT synced here — their storage IS this handle.
+            % Tolerant of partial construction so a sync during the
+            % legacy constructor never errors.
             if ~obj.isBound(), return; end
             a = obj.AppRef;
             try
@@ -57,11 +61,7 @@ classdef DashboardLayoutState < handle
                 if isprop(a, 'PreferredVideoWidth'),     obj.PreferredVideoWidth     = a.PreferredVideoWidth;     end
                 if isprop(a, 'ManualVideoWidth'),        obj.ManualVideoWidth        = a.ManualVideoWidth;        end
                 if isprop(a, 'ManualPanelWidths'),       obj.ManualPanelWidths       = a.ManualPanelWidths;       end
-                if isprop(a, 'PanelSplitterFIdx'),       obj.PanelSplitterFIdx       = a.PanelSplitterFIdx;       end
-                if isprop(a, 'PanelSplitterKind'),       obj.PanelSplitterKind       = char(a.PanelSplitterKind); end
-                if isprop(a, 'IsDraggingPanelSplitter'), obj.IsDraggingPanelSplitter = logical(a.IsDraggingPanelSplitter); end
                 if isprop(a, 'LayoutHandles'),           obj.LayoutHandles           = a.LayoutHandles;           end
-                if isprop(a, 'NormalFigurePosition'),    obj.NormalFigurePosition    = a.NormalFigurePosition;    end
             catch
                 % Best-effort: a broken sync must never break legacy
                 % layout reads. Callers can fall back to app.* directly
