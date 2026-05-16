@@ -2876,6 +2876,43 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             app.SliderTimerActive = false;
         end
 
+        function previewSyncedMarkersOnly(app, fIdx, frameNo)
+            % Task 1: lightweight marker update during slider scrub.
+            % Bails out if sync is off / Time column unmapped / no data,
+            % so unsynced video drag remains video-only. NEVER calls
+            % full updateDashboard / axis tight / zoom reset. The 1/30
+            % scrub timer Period + BusyMode='drop' coalescing already
+            % rate-limits this path; no extra throttle added.
+            try
+                if isempty(app.VideoSyncState) || fIdx < 1 ...
+                        || fIdx > numel(app.VideoSyncState)
+                    return;
+                end
+                if ~app.VideoSyncState(fIdx).IsSynced, return; end
+                if isempty(app.Models) || fIdx > numel(app.Models), return; end
+                if isempty(app.Models(fIdx).rawData), return; end
+                if ~app.mappedColAvailable(fIdx, 'Time'), return; end
+
+                targetTime = app.frameToTime(fIdx, frameNo);
+                timeCol = app.Models(fIdx).mappedCols.Time;
+                times = app.Models(fIdx).rawData.(timeCol);
+                if isempty(times), return; end
+                targetTime = max(times(1), min(targetTime, times(end)));
+                idx = app.findClosestIndexByTime(times, targetTime);
+
+                % Marker-only path (existing lightweight method).
+                app.updateMarkersOnly(fIdx, idx);
+
+                % Cheap attitude-gauge update when the helper exists.
+                if ismethod(app, 'updateAttitudeGauges') ...
+                        && app.mappedColAvailable(fIdx, 'Time')
+                    try, app.updateAttitudeGauges(fIdx, idx); catch, end
+                end
+            catch ME
+                try, app.logCaught(ME, 'SliderPreview:markers'); catch, end
+            end
+        end
+
         function scrubTick(app)
             % Timer drain: render the latest pending frame for each
             % channel. BusyMode='drop' means an overlapping tick is
@@ -2901,16 +2938,27 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     try
                         totalF = app.VideoSyncState(fIdx).TotalFrames;
                         clamped = max(1, min(round(target), max(1, totalF)));
+                        rendered = false;
                         cached = app.cacheGetFrame(fIdx, clamped);
                         if ~isempty(cached)
                             app.displayFrame(fIdx, clamped, cached, true);
+                            rendered = true;
                         else
                             img = app.decodeFrameSync(fIdx, clamped);
                             if ~isempty(img)
                                 app.displayFrame(fIdx, clamped, img, false);
+                                rendered = true;
                             end
                         end
                         app.SliderLastRendered(fIdx) = target;
+
+                        % Task 1: marker-only preview when sync is active.
+                        % Runs ONLY after a video frame was actually
+                        % displayed so the cost is bounded by the timer's
+                        % 1/30 Period + BusyMode='drop' coalescing.
+                        if rendered
+                            app.previewSyncedMarkersOnly(fIdx, clamped);
+                        end
                     catch
                     end
                 end
