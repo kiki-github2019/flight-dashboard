@@ -78,6 +78,7 @@ classdef MenuManager < handle
             obj.addLeaf(obj.Roots.Project, 'Delete Session',     'Project:DeleteSession');
             obj.addSeparator(obj.Roots.Project, 'Find in Project', 'Project:Find');
             obj.addLeaf(obj.Roots.Project, 'Project Properties', 'Project:Properties');
+            obj.addLeaf(obj.Roots.Project, 'Edit Project Details…',    'Project:EditDetails');
             obj.addLeaf(obj.Roots.Project, 'Cleanup Project Cache', 'Project:CleanupCache');
             obj.addSeparator(obj.Roots.Project, 'Project Health Check…', 'Project:HealthCheck');
             obj.addLeaf(obj.Roots.Project, 'Repair Missing Files…',     'Project:RepairLinks');

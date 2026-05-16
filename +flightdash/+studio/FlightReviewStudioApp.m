@@ -66,6 +66,11 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         SavedRightDockWidthPx double  = NaN
         IsExplorerCollapsed   logical = false
         IsRightDockCollapsed  logical = false
+
+        % Pre-PFE-4: single-instance slot for the future
+        % ProjectFileEditorDialog. Stays empty until the dialog is
+        % implemented in PFE-1+.
+        ProjectEditor                  = []
     end
 
     properties (Dependent)
@@ -925,6 +930,42 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 end
             catch ME
                 try, app.logCaught(ME, 'Studio:toggleRightDock'); catch, end
+            end
+        end
+
+        function openProjectFileEditor(app)
+            % Pre-PFE-4 stub. Single command entry point for the future
+            % Project File Editor dialog. UI implementation lands in
+            % PFE-1+; until then we surface a status message + uialert
+            % so users hit the menu entry and understand the feature
+            % is in progress.
+            try
+                msg = ['Project File Editor foundation installed; ' ...
+                       'UI implementation follows in Phase PFE-1+.'];
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(msg);
+                end
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    uialert(app.UIFigure, msg, 'Project File Editor', ...
+                        'Icon', 'info');
+                end
+            catch
+            end
+        end
+
+        function tf = confirmProjectEditorClose(app)
+            % Pre-PFE-4 stub. Until the dialog exists, app close
+            % cannot be blocked by editor state. Returns true so the
+            % normal close path proceeds. PFE-3 replaces this with a
+            % 3-way Save All / Discard / Cancel prompt.
+            tf = true;
+            try
+                if ~isempty(app.ProjectEditor) && isa(app.ProjectEditor, 'handle') ...
+                        && isvalid(app.ProjectEditor) && ismethod(app.ProjectEditor, 'confirmClose')
+                    tf = app.ProjectEditor.confirmClose();
+                end
+            catch
+                tf = true;
             end
         end
 

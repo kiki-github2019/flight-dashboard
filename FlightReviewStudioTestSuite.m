@@ -1481,6 +1481,77 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Missing critical Lat/Lon must surface as critical missing.');
         end
 
+        function test_T15_ProjectEditDetails_CommandRegistered(testCase)
+            % Pre-PFE-4: verify the command is registered as a global
+            % command + the MenuManager entry exists.
+            app = testCase.launchStudio();
+            testCase.assumeTrue(~isempty(app) && isvalid(app), ...
+                'Studio could not launch — skipping.');
+            % CommandRouter scope query.
+            scope = '';
+            try
+                scope = app.CommandRouter.commandScope('Project:EditDetails');
+            catch
+                testCase.assumeFail('CommandRouter.commandScope unavailable.');
+            end
+            testCase.verifyEqual(scope, 'global', ...
+                'Project:EditDetails must be a global command.');
+            % Menu hit-test via findall over uimenu Text labels.
+            found = false;
+            try
+                menus = findall(app.UIFigure, 'Type', 'uimenu');
+                for k = 1:numel(menus)
+                    try
+                        if contains(string(menus(k).Text), 'Edit Project Details')
+                            found = true; break;
+                        end
+                    catch
+                    end
+                end
+            catch
+            end
+            testCase.verifyTrue(found, ...
+                'Menu entry "Edit Project Details…" not found.');
+        end
+
+        function test_T15_ProjectEditDetails_AppStubNoCrash(testCase)
+            % Pre-PFE-4: invoking the dispatch path must not throw
+            % (the stub method surfaces a status message + uialert).
+            app = testCase.launchStudio();
+            testCase.assumeTrue(ismethod(app, 'openProjectFileEditor'), ...
+                'openProjectFileEditor stub missing — skipping.');
+            crashFlag = false;
+            try
+                app.dispatchCommand('Project:EditDetails', 'Test');
+            catch ME
+                crashFlag = true;
+                testCase.verifyFail(sprintf( ...
+                    'Project:EditDetails dispatch threw: %s', ME.message));
+            end
+            testCase.verifyFalse(crashFlag);
+            % confirmProjectEditorClose stub must return true when no
+            % editor exists.
+            try
+                tf = app.confirmProjectEditorClose();
+            catch ME
+                testCase.verifyFail(sprintf( ...
+                    'confirmProjectEditorClose threw: %s', ME.message));
+                return;
+            end
+            testCase.verifyTrue(tf, ...
+                'confirmProjectEditorClose stub must return true.');
+            % Dismiss any uialert the stub raised so trackedApps cleanup
+            % is not blocked.
+            try
+                alerts = findall(app.UIFigure, 'Type', 'figure');
+                for k = 1:numel(alerts)
+                    if ~isequal(alerts(k), app.UIFigure)
+                        try, delete(alerts(k)); catch, end
+                    end
+                end
+            catch, end
+        end
+
         function test_T15_DashboardReadOnlyWrappers_NoCrash(testCase)
             % Pre-PFE-3: smoke test the three read-only wrappers via a
             % launched Studio app + active dashboard. Verifies the
