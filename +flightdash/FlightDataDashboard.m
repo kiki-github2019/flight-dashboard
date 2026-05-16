@@ -1784,9 +1784,48 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         || fIdx < 1 || fIdx > numel(sess.OptionFilePath)
                     return;
                 end
-                optionPath = char(sess.OptionFilePath{fIdx});
+                optionPath = app.resolveProjectLinkedPath(char(sess.OptionFilePath{fIdx}));
             catch
                 optionPath = '';
+            end
+        end
+
+        function resolvedPath = resolveProjectLinkedPath(app, linkedPath)
+            resolvedPath = char(linkedPath);
+            try
+                if isempty(resolvedPath) || app.isAbsolutePath(resolvedPath)
+                    return;
+                end
+                studio = app.lookupStudioApp();
+                root = '';
+                if ~isempty(studio) && isvalid(studio) && ~isempty(studio.Project)
+                    root = char(studio.Project.ProjectFolderPath);
+                    if isempty(root) && ~isempty(studio.Project.ProjectFilePath)
+                        root = fileparts(char(studio.Project.ProjectFilePath));
+                    end
+                end
+                if ~isempty(root)
+                    resolvedPath = fullfile(root, resolvedPath);
+                end
+            catch
+                resolvedPath = char(linkedPath);
+            end
+        end
+
+        function tf = isAbsolutePath(~, pathValue)
+            tf = false;
+            try
+                p = char(pathValue);
+                if isempty(p), return; end
+                tf = logical(java.io.File(p).isAbsolute());
+            catch
+                try
+                    p = char(pathValue);
+                    tf = startsWith(p, filesep) || startsWith(p, '\\') || ...
+                        ~isempty(regexp(p, '^[A-Za-z]:[\\/]', 'once'));
+                catch
+                    tf = false;
+                end
             end
         end
 
@@ -2447,21 +2486,23 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             if nargin < 4, quiet = false; end
             ok = false;
             try
-                if ~isfile(fullpath)
+                requestedPath = char(fullpath);
+                resolvedPath = app.resolveProjectLinkedPath(requestedPath);
+                if ~isfile(resolvedPath)
                     error('flightdash:Config:MissingFlightFile', 'Flight data file does not exist: %s', fullpath);
                 end
                 if app.VideoSyncState(fIdx).IsSynced
                     app.resetVideoSync(fIdx);
                 end
 
-                app.parseFlightData(fIdx, fullpath);
-                app.FlightFilePath{fIdx} = fullpath;
+                app.parseFlightData(fIdx, resolvedPath);
+                app.FlightFilePath{fIdx} = resolvedPath;
 
                 timeCol = app.Models(fIdx).mappedCols.Time;
                 times = app.Models(fIdx).rawData.(timeCol);
                 if ~issorted(times, 'strictascend')
                     error('flightdash:Config:TimeNotSorted', ...
-                        'Time data must be strictly increasing: %s', fullpath);
+                        'Time data must be strictly increasing: %s', resolvedPath);
                 end
 
                 app.updateDataFpsFromLoadedData(fIdx, times);
@@ -2471,7 +2512,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.setupDataUI(fIdx);
                 app.recomputeVideoFpsFromLoadedData(fIdx, times);
 
-                [~, fname, ext] = fileparts(fullpath);
+                [~, fname, ext] = fileparts(resolvedPath);
                 app.UI(fIdx).fileNameLabel.Text = [fname ext];
                 ok = true;
             catch ME
@@ -2485,7 +2526,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function ok = loadAviFromPathForConfig(app, fIdx, fullPath)
             ok = false;
             try
-                if ~isfile(fullPath)
+                requestedPath = char(fullPath);
+                resolvedPath = app.resolveProjectLinkedPath(requestedPath);
+                if ~isfile(resolvedPath)
                     error('flightdash:Config:MissingVideoFile', 'Video file does not exist: %s', fullPath);
                 end
                 if app.VideoSyncState(fIdx).IsSynced
@@ -2495,8 +2538,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 startTime = app.computeStartTimeFromFlightData(fIdx);
                 app.cleanupVideoResources(fIdx);
 
-                [~, fname, ext] = fileparts(fullPath);
-                vr = app.openVideoReader(fIdx, fullPath, [fname ext]);
+                [~, fname, ext] = fileparts(resolvedPath);
+                vr = app.openVideoReader(fIdx, resolvedPath, [fname ext]);
                 if isempty(vr), return; end
                 app.VideoState(fIdx).videoStartTime = startTime;
                 app.VideoState(fIdx).videoReader.CurrentTime = 0;
@@ -6047,7 +6090,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
     % =========================================================================
     methods (Access = public)
         function parseFlightData(app, fIdx, filepath)
-            modelState = app.DataLoader.parseFlightData(fIdx, filepath);
+            optionFilePath = app.optionFilePathForSession(fIdx);
+            modelState = app.DataLoader.parseFlightData(fIdx, filepath, optionFilePath);
             app.applyFlightDataState(fIdx, modelState);
         end
 

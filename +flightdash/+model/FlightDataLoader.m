@@ -4,7 +4,8 @@ classdef FlightDataLoader < handle
     % of mutating FlightDataDashboard directly.
 
     methods
-        function modelState = parseFlightData(obj, fIdx, filepath)
+        function modelState = parseFlightData(obj, fIdx, filepath, optionFilePath)
+            if nargin < 4, optionFilePath = ''; end
             opts = detectImportOptions(filepath);
             opts.DataLines = [2 Inf];
             opts.VariableNamingRule = 'preserve';
@@ -22,7 +23,8 @@ classdef FlightDataLoader < handle
             end
 
             dataTbl = readtable(filepath, opts);
-            modelState = obj.applyOptionFile(fIdx, dataTbl, false);
+            optionFilePath = obj.resolveOptionFilePath(fIdx, filepath, optionFilePath);
+            modelState = obj.applyOptionFile(fIdx, dataTbl, false, optionFilePath);
 
             if any(ismissing(modelState.rawData), 'all')
                 modelState.rawData = fillmissing(modelState.rawData, 'linear', 'DataVariables', @isnumeric);
@@ -30,10 +32,14 @@ classdef FlightDataLoader < handle
             modelState.rawData = obj.markInvalidGpsAsNaN(modelState.rawData, modelState.mappedCols);
         end
 
-        function modelState = applyOptionFile(obj, fIdx, dataTbl, isMock)
+        function modelState = applyOptionFile(obj, fIdx, dataTbl, isMock, optionFilePath)
+            if nargin < 5, optionFilePath = ''; end
             csvHeaders = dataTbl.Properties.VariableNames;
             numHeaders = length(csvHeaders);
-            optFileName = sprintf('option%d.dat', fIdx);
+            optFileName = char(optionFilePath);
+            if isempty(optFileName)
+                optFileName = sprintf('option%d.dat', fIdx);
+            end
 
             reqKeys = flightdash.util.AppConstants.REQ_KEYS;
             mappedCols = struct();
@@ -289,6 +295,36 @@ classdef FlightDataLoader < handle
             mockTbl = table(time_s, roll_deg, pitch_deg, hdg_deg, alt_ft, lat_deg, lon_deg, ...
                 'VariableNames', varNames);
             modelState = obj.applyOptionFile(fIdx, mockTbl, true);
+        end
+
+        function optFileName = resolveOptionFilePath(~, fIdx, dataPath, optionFilePath)
+            optFileName = '';
+            try
+                candidates = {};
+                if nargin >= 4 && ~isempty(optionFilePath)
+                    candidates{end+1} = char(optionFilePath); %#ok<AGROW>
+                end
+                try
+                    dataDir = fileparts(char(dataPath));
+                    if ~isempty(dataDir)
+                        candidates{end+1} = fullfile(dataDir, sprintf('option%d.dat', fIdx)); %#ok<AGROW>
+                    end
+                catch
+                end
+                candidates{end+1} = sprintf('option%d.dat', fIdx);
+                for k = 1:numel(candidates)
+                    candidate = char(candidates{k});
+                    if ~isempty(candidate) && isfile(candidate)
+                        optFileName = candidate;
+                        return;
+                    end
+                end
+                if ~isempty(candidates)
+                    optFileName = char(candidates{1});
+                end
+            catch
+                optFileName = sprintf('option%d.dat', fIdx);
+            end
         end
 
         function [bounds, altBounds] = calculateBounds(~, rawData, mappedCols, coastlineData, fixedAreaBounds, currentBounds, currentAltBounds)
