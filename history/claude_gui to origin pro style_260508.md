@@ -3362,3 +3362,379 @@ dex-codex-260511
 스마트폰이나 PC 브라우저에서 👉 https://github.com/settings/tokens 에 접속합니다.
 
 다음의 검토결과를 claude code에서 검토하기 적합한 영문 보고서로 변경해서 md 파일로 출력요청합니다.
+
+
+
+
+===============================================
+공유 디코드 서비스는 아직 “프로토타입” 성격입니다.
+
+SharedDecodeService는 priority queue, active session 우선순위, 세션 cancel, stale discard, cache-hit 처리 등을 갖춘 좋은 프로토타입입니다. 하지만 default decoder가 실제 영상 디코딩이 아니라 4x4 dummy frame을 만드는 구조입니다. README에도 Phase 10은 shared service prototype이고, 기존 dashboard decode 경로를 대체하지 않는 opt-in 단계라고 명시되어 있습니다.
+
+권장: 현재 단계에서는 “공유 디코드 서비스 구현 완료”라고 판단하면 안 됩니다. 실제 VideoReader 기반 디코더 연결, async/parfeval 통합, cancellation test, 대용량 AVI 테스트가 필요합니다.
+===============================================
+
+You are working on the MATLAB repository:
+
+https://github.com/kiki-github2019/flight-dashboard
+
+Task:
+Fix the OptionFilePath object-safe check in:
+
++flightdash/+project/ProjectSerializer.m
+
+Background:
+ProjectSerializer.collectExternalLinks(project) was recently updated to include OptionFilePath entries in external_links.json with kind='option_file'. However, the current implementation uses:
+
+    if isfield(s, 'OptionFilePath') && iscell(s.OptionFilePath)
+
+where s is obtained from:
+
+    s = project.Sessions(k);
+
+This can be unsafe if project.Sessions(k) is a MATLAB class object rather than a struct, because isfield() is for structs. For MATLAB class objects, isprop() should be used.
+
+Goal:
+Make collectExternalLinks() robust for both struct-based and class-object session models.
+
+Required behavior:
+1. Continue collecting FlightFilePath entries with kind='flight_data'.
+2. Continue collecting VideoFilePath entries with kind='video'.
+3. Continue collecting OptionFilePath entries with kind='option_file'.
+4. Do not break existing .frsproj save/load behavior.
+5. Preserve MATLAB R2025a/R2026a and MATLAB Online compatibility.
+6. Keep the change minimal and localized to ProjectSerializer.collectExternalLinks() unless tests require a small helper function.
+7. Preserve existing Korean or English comments unless editing the exact related block.
+
+Recommended implementation:
+Replace the current OptionFilePath condition:
+
+    if isfield(s, 'OptionFilePath') && iscell(s.OptionFilePath)
+
+with an object-safe guard such as:
+
+    hasOptionFilePath = ...
+        (isstruct(s) && isfield(s, 'OptionFilePath')) || ...
+        (isobject(s) && isprop(s, 'OptionFilePath'));
+
+    if hasOptionFilePath && iscell(s.OptionFilePath)
+        ...
+    end
+
+Even better, if appropriate, add a small private static helper in ProjectSerializer:
+
+    function tf = hasFieldOrProp(obj, name)
+        tf = (isstruct(obj) && isfield(obj, name)) || ...
+             (isobject(obj) && isprop(obj, name));
+    end
+
+Then use:
+
+    if flightdash.project.ProjectSerializer.hasFieldOrProp(s, 'OptionFilePath') ...
+            && iscell(s.OptionFilePath)
+
+Testing requirements:
+After the change, run or add tests that verify:
+
+1. ProjectSerializer.save() creates external_links.json.
+2. external_links.json includes OptionFilePath entries.
+3. The option-file entries use:
+
+       kind = 'option_file'
+
+4. The test works when the session is a flightdash.project.SessionModel object.
+5. Existing Phase 9 serializer tests still pass:
+
+       results9 = flightdash.studio.diag.verifyPhase9();
+
+6. If available, run the risk regression test:
+
+       risk = flightdash.studio.diag.verifyRiskRegressionTests();
+
+Expected result:
+- RISK-1 OptionFilePath external link test should PASS.
+- verifyPhase9 should not regress.
+- No new .frsproj.zip residue should be produced.
+- No changes should be made outside ProjectSerializer unless necessary for tests.
+
+Deliverables:
+1. A concise summary of the code change.
+2. Exact files modified.
+3. Test results.
+4. Any remaining risks or limitations.
+
+===============================================
+===============================================
+아래 prompt를 ChatGPT Cowork / Codex / Claude Code에 그대로 입력하면 됩니다.
+
+```text id="2yr6xi"
+You are working on the MATLAB repository:
+
+https://github.com/kiki-github2019/flight-dashboard
+
+Task:
+Improve and harden the Phase 10 SharedDecodeService implementation based on code review findings.
+
+Background:
+The current Phase 10 shared decode/cache implementation has improved compared with the earlier prototype:
+- SharedDecodeService supports queueing, cache-hit handling, active-session priority, scrub coalescing, cancelSession(), stale generation discard, runNext(), runRequest(), and runAll().
+- FlightDataDashboard now has opt-in shared decode hooks:
+  - UseSharedDecodeService
+  - setSharedDecodeEnabled()
+  - shouldUseSharedDecode()
+  - decodeFrameViaSharedService()
+  - decodeFrameSyncLocal()
+- decodeFrameViaSharedService() can inject a real VideoReader-based local decoder via:
+      decoder = @(req) app.decodeFrameSyncLocal(fIdx, req.FrameNo);
+
+However, the implementation is still prototype-level:
+1. SharedDecodeService.defaultDecoder still returns a dummy 4x4 uint8 frame.
+2. Shared decode remains opt-in only and legacy decode is still the default.
+3. SharedDecodeService.runRequest() executes synchronously on the caller path.
+4. There is no real parfeval/background shared decode scheduler yet.
+5. Current Phase 10 tests mostly verify queue/cache/priority/cancel behavior with dummy frames.
+6. There is no VideoReader smoke test or large AVI stress test for shared decode.
+7. README still correctly describes Phase 10 as prototype / opt-in.
+
+Goal:
+Do NOT replace the legacy decode path yet. Instead, make Phase 10 safer, clearer, and better tested.
+
+Primary requirements:
+1. Keep shared decode opt-in only.
+2. Do not change default user-visible behavior.
+3. Do not break standalone FlightDataDashboard().
+4. Do not break embedded FlightReviewStudio sessions.
+5. Preserve MATLAB R2025a/R2026a and MATLAB Online compatibility.
+6. Avoid large rewrites.
+7. Preserve existing Korean comments unless editing the exact related block.
+8. Keep legacy decode fallback intact.
+
+Recommended changes:
+
+A. Rename or clarify the dummy decoder
+-------------------------------------
+In:
+  +flightdash/+services/SharedDecodeService.m
+
+The current defaultDecoder() returns a mock 4x4 frame. This can be misleading.
+
+Option 1, minimal:
+- Keep defaultDecoder for backward compatibility.
+- Add comments that clearly state it is a mock/test fallback only.
+- Add a new static alias:
+      mockDecoder(req)
+  and have defaultDecoder call mockDecoder(req).
+
+Example:
+
+    methods (Static)
+        function frame = defaultDecoder(req)
+            %DEFAULTDECODER Backward-compatible mock decoder.
+            % This is intentionally NOT a production VideoReader decoder.
+            % Production callers should inject a decoder function handle.
+            frame = flightdash.services.SharedDecodeService.mockDecoder(req);
+        end
+
+        function frame = mockDecoder(req)
+            seed = mod(round(req.FrameNo) + numel(req.SessionId) + req.ChannelIdx, 255);
+            frame = uint8(seed) * ones(4, 4, 3, 'uint8');
+        end
+    end
+
+Option 2, stricter:
+- Make production decode require an explicit decoder function.
+- Keep defaultDecoder only for tests.
+- Do not choose this option if it would break existing tests.
+
+B. Add execution mode metadata
+------------------------------
+Add a lightweight property to SharedDecodeService:
+
+    ExecutionMode char = 'sync'
+
+Allowed values for now:
+- 'sync'
+- 'mock'
+
+Do not implement parfeval yet unless it can be done safely.
+
+The purpose is to make it explicit that current SharedDecodeService is not a background worker scheduler.
+
+Optional:
+- Add a method:
+      setExecutionMode(mode)
+  with validation.
+
+C. Improve stats()
+------------------
+Extend stats() to include:
+- ExecutionMode
+- IsPrototype or PrototypeMode flag
+- LastError
+- Queued
+- Completed
+- Discarded
+- Cancelled
+- Cache stats
+
+Example:
+
+    s = struct( ...
+        'ExecutionMode', obj.ExecutionMode, ...
+        'IsPrototype', true, ...
+        'Queued', numel(obj.Queue), ...
+        ...);
+
+D. Harden FlightDataDashboard shared decode path
+------------------------------------------------
+In:
+  +flightdash/FlightDataDashboard.m
+
+Review:
+- shouldUseSharedDecode()
+- decodeFrameViaSharedService()
+- decodeFrameSyncLocal()
+- decodeFrameSync()
+
+Keep the current opt-in behavior:
+    UseSharedDecodeService = false
+
+Requirements:
+1. If shared decode fails, local legacy decode must still run.
+2. If shared service returns error / stale-discard / missing / idle, decodeFrameViaSharedService() should return [] and log a meaningful tag.
+3. decodeFrameViaSharedService() should not permanently corrupt the VideoReader state.
+4. decodeFrameSyncLocal() should remain the real VideoReader decoder used by the injected decoder handle.
+5. Avoid recursion: decodeFrameViaSharedService() must call decodeFrameSyncLocal(), not decodeFrameSync().
+
+Recommended logging tags:
+- 'decodeShared:error'
+- 'decodeShared:stale'
+- 'decodeShared:missing'
+- 'decodeShared:idle'
+- 'decodeShared:unexpectedStatus'
+- 'decodeShared:fallback'
+
+E. Add a VideoReader smoke test
+-------------------------------
+Add a new diagnostic function:
+
+  +flightdash/+studio/+diag/verifyPhase10VideoReaderSmoke.m
+
+Purpose:
+Verify that the shared decode path can decode real frames via a VideoReader-based injected decoder.
+
+Important:
+- Do not require a large external video file.
+- Prefer generating a tiny temporary AVI using VideoWriter if available.
+- If VideoWriter or VideoReader is unavailable, return SKIP rather than FAIL.
+- The test should be safe for MATLAB Online.
+
+Suggested checks:
+1. Create a temporary small AVI:
+   - 5 frames
+   - small resolution, e.g. 16x16 or 32x32
+   - uint8 frames with known values
+2. Open it with VideoReader.
+3. Create SharedCacheService and SharedDecodeService.
+4. Request a frame with decoder handle that uses VideoReader.
+5. Verify:
+   - requestFrame returns queued
+   - runRequest returns completed
+   - decoded frame is non-empty
+   - cache has the frame
+   - second request returns cache-hit
+6. Clean up temp files.
+
+Pseudo-code:
+
+    function results = verifyPhase10VideoReaderSmoke()
+        tests = {
+            'P10VR-1', @checkVideoReaderSharedDecodeSmoke
+            'P10VR-2', @checkSharedDecodeCacheHitWithVideoReader
+        };
+        ...
+    end
+
+The decoder should look like:
+
+    decoder = @(req) readVideoFrameForTest(videoPath, req.FrameNo);
+
+Where readVideoFrameForTest creates a VideoReader internally or uses a local reader carefully.
+
+F. Add a large-video stress test skeleton, but make it optional
+--------------------------------------------------------------
+Add:
+
+  +flightdash/+studio/+diag/verifyPhase10LargeVideoStress.m
+
+This should not require a file to exist. It should accept an optional video path:
+
+    results = flightdash.studio.diag.verifyPhase10LargeVideoStress(videoPath)
+
+Behavior:
+- If no videoPath is given or file does not exist, return SKIP.
+- If a file exists, run a bounded stress test:
+  - sample N frames across the duration, e.g. N=100
+  - request frames through SharedDecodeService
+  - verify cache behavior
+  - measure elapsed time
+  - report stats
+- Do not start parpool automatically.
+- Do not change app state.
+- Do not fail just because performance is slow; report WARN if thresholds are exceeded.
+
+G. Update verifyPhase10.m
+------------------------
+In:
+  +flightdash/+studio/+diag/verifyPhase10.m
+
+Keep current prototype tests.
+
+Add checks for:
+1. mock/default decoder naming or comment behavior.
+2. stats() includes ExecutionMode / IsPrototype.
+3. dashboard opt-in hooks still exist.
+4. maybe call verifyPhase10VideoReaderSmoke() if available, but do not make Phase 10 fail hard if VideoWriter/VideoReader is unavailable.
+
+Recommended:
+- Keep VideoReader smoke as separate diagnostic to avoid making baseline Phase 10 fragile.
+- In verifyPhase10, add a check that the smoke diagnostic exists.
+
+H. Update README wording
+------------------------
+In README.md, keep Phase 10 described as prototype / opt-in.
+
+Add a short clarification:
+- SharedDecodeService has a mock default decoder for service-level tests.
+- Real VideoReader decoding is available only through an injected decoder path from FlightDataDashboard when shared decode is explicitly enabled.
+- Legacy decode remains default.
+- parfeval/background shared scheduling is still future work.
+
+Testing commands:
+Run:
+
+    clear classes
+    rehash toolboxcache
+
+    results10 = flightdash.studio.diag.verifyPhase10();
+    vrSmoke   = flightdash.studio.diag.verifyPhase10VideoReaderSmoke();
+
+Also run existing stabilization checks if practical:
+
+    results9 = flightdash.studio.diag.verifyPhase9();
+    multi    = flightdash.studio.diag.runMultiInstanceTests();
+
+Expected outcomes:
+- verifyPhase10 should still pass.
+- verifyPhase10VideoReaderSmoke should PASS or SKIP if VideoWriter/VideoReader is unavailable.
+- SharedDecodeService.defaultDecoder should no longer be mistaken for production decode.
+- No default behavior change: shared decode remains opt-in only.
+- Legacy decode fallback remains intact.
+
+Deliverables:
+1. List of modified files.
+2. Summary of changes.
+3. Test results.
+4. Explicit statement that shared decode is still opt-in and not a full replacement.
+5. Any remaining risks, especially around parfeval/background scheduling and large AVI performance.
+```
