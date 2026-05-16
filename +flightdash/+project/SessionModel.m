@@ -16,6 +16,11 @@ classdef SessionModel
         % Per-channel paths (cell{1,2})
         FlightFilePath      cell     = {'', ''}
         VideoFilePath       cell     = {'', ''}
+        % Phase A: option*.dat is now a first-class per-channel asset
+        % (column-mapping config). Tracked alongside flight/video paths
+        % so Health Check, Pack Project, and Support Bundle workflows
+        % treat option files as core project assets.
+        OptionFilePath      cell     = {'', ''}
 
         % Sync state snapshots (struct mirrors of app.SyncState etc.)
         FlightSyncState     struct   = struct('IsSynced', false, 'SyncT1', 0, 'SyncT2', 0)

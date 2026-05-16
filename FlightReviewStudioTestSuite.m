@@ -1108,6 +1108,28 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Plot Patch face colors changed after theme toggle.');
         end
 
+        function test_T11_SessionModel_OptionFilePath_RoundTrip(testCase)
+            % Phase A: SessionModel.OptionFilePath must round-trip
+            % through ProjectSerializer and fall back to {'',''} when a
+            % legacy archive omits the field.
+            try
+                sess = flightdash.project.SessionModel('T11 OptPath');
+            catch ME
+                testCase.assumeFail(sprintf('SessionModel ctor failed: %s', ME.message));
+            end
+            sess.OptionFilePath = {'C:/opts/option1.dat', 'C:/opts/option2.dat'};
+            s = flightdash.project.ProjectSerializer.sessionToStruct(sess);
+            testCase.verifyTrue(isfield(s, 'OptionFilePath'), ...
+                'sessionToStruct must include OptionFilePath.');
+            sess2 = flightdash.project.ProjectSerializer.structToSession(s);
+            testCase.verifyEqual(sess2.OptionFilePath, sess.OptionFilePath, ...
+                'OptionFilePath did not round-trip.');
+            sLegacy = rmfield(s, 'OptionFilePath');
+            sessLegacy = flightdash.project.ProjectSerializer.structToSession(sLegacy);
+            testCase.verifyEqual(sessLegacy.OptionFilePath, {'', ''}, ...
+                'Legacy struct lacking OptionFilePath should default to two empty entries.');
+        end
+
         function test_T11_GuiTheme_RoundTrip_PersistsAcrossSaveLoad(testCase)
             % Cycle C: pure model/serializer round-trip — no figure.
             % Verifies Project.GuiTheme survives projectToStruct ->
