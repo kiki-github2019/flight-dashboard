@@ -83,6 +83,7 @@ classdef MenuManager < handle
             obj.addLeaf(obj.Roots.Project, 'Repair Missing Files…',     'Project:RepairLinks');
 
             obj.Roots.Data = obj.makeRoot(fig, 'Data');
+            obj.addLeaf(obj.Roots.Data, 'Import Flight Data Wizard…', 'Data:ImportWizard');
             obj.addLeaf(obj.Roots.Data, 'Load Flight 1 Data', 'Data:LoadFlight1');
             obj.addLeaf(obj.Roots.Data, 'Load Flight 2 Data', 'Data:LoadFlight2');
             obj.addLeaf(obj.Roots.Data, 'Load Coastline...',  'Data:LoadCoast');

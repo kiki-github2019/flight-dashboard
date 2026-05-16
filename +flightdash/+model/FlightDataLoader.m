@@ -362,6 +362,103 @@ classdef FlightDataLoader < handle
                 altBounds.maxAlt = maxAlt + altPad;
             end
         end
+
+        function preview = previewMapping(obj, csvPath, optionPath)
+            % Phase E-1: dry-run mapping preview for the Import Wizard.
+            % Reads the CSV headers (no full table load if unnecessary),
+            % attempts to resolve each REQ_KEY through option-file
+            % block-1 mapping + alias inference, and returns a struct
+            % suitable for direct uitable display:
+            %   preview.Rows : cell array (Required / Mapped / Status)
+            %   preview.HeadPreview : first 20 rows of the CSV table
+            %   preview.HasCritical / HasOptional missing flags
+            %   preview.MappedCols : the resolved struct
+            preview = struct('Rows', {{}}, 'HeadPreview', table(), ...
+                'MappedCols', struct(), ...
+                'HasCriticalMissing', false, 'HasOptionalMissing', false);
+            try
+                opts = detectImportOptions(csvPath);
+                opts.DataLines = [2 Inf];
+                opts.VariableNamingRule = 'preserve';
+                dataTbl = readtable(csvPath, opts);
+            catch ME
+                preview.Rows = {{'(error)', char(ME.message), 'CSV read failed'}};
+                return;
+            end
+            csvHeaders = dataTbl.Properties.VariableNames;
+            reqKeys = flightdash.util.AppConstants.REQ_KEYS;
+            mappedCols = struct();
+            for i = 1:numel(reqKeys), mappedCols.(reqKeys{i}) = ''; end
+
+            % Apply option-file block-1 mappings if file is supplied.
+            if nargin >= 3 && ~isempty(optionPath) && isfile(optionPath)
+                try
+                    lines = readlines(optionPath, 'EmptyLineRule', 'skip');
+                    section = 0;
+                    for i = 1:length(lines)
+                        lineStr = strtrim(lines(i));
+                        if startsWith(lineStr, '#'), section = section + 1; continue; end
+                        if section == 1
+                            parts = split(lineStr, ':');
+                            if length(parts) >= 2
+                                k = char(strtrim(parts(1)));
+                                v = char(strtrim(parts(2)));
+                                if isfield(mappedCols, k)
+                                    if ismember(v, csvHeaders)
+                                        mappedCols.(k) = v;
+                                    else
+                                        resolved = obj.inferRequiredColumn(k, csvHeaders, v);
+                                        if ~isempty(resolved), mappedCols.(k) = resolved; end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                catch
+                end
+            end
+            % Fall back to alias inference for any still-empty keys.
+            for i = 1:numel(reqKeys)
+                k = reqKeys{i};
+                if isempty(mappedCols.(k))
+                    inferred = obj.inferRequiredColumn(k, csvHeaders);
+                    if ~isempty(inferred), mappedCols.(k) = inferred; end
+                end
+            end
+
+            % Build row data for the wizard's uitable.
+            critical = flightdash.util.AppConstants.REQ_KEYS_CRITICAL;
+            rows = cell(numel(reqKeys), 3);
+            for i = 1:numel(reqKeys)
+                k = reqKeys{i};
+                mapped = mappedCols.(k);
+                isCrit = ismember(k, critical);
+                if isempty(mapped)
+                    status = 'Optional missing';
+                    if isCrit
+                        status = 'ERROR (critical missing)';
+                        preview.HasCriticalMissing = true;
+                    else
+                        preview.HasOptionalMissing = true;
+                    end
+                    rows{i, 2} = 'N/A';
+                else
+                    status = 'OK';
+                    rows{i, 2} = mapped;
+                end
+                rows{i, 1} = k;
+                rows{i, 3} = status;
+            end
+
+            % First 20 rows for preview.
+            try
+                nHead = min(20, height(dataTbl));
+                preview.HeadPreview = dataTbl(1:nHead, :);
+            catch
+            end
+            preview.Rows = rows;
+            preview.MappedCols = mappedCols;
+        end
     end
 
     methods (Access = private)

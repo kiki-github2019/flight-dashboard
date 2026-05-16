@@ -225,6 +225,9 @@ classdef CommandRouter < handle
                     obj.confirmAndDelete(sessionId);
                 case {'Toolbar:LoadData', 'Data:LoadFlight1'}
                     dashboard.handleFlightFile(1);
+                case 'Data:ImportWizard'
+                    wiz = flightdash.ui.ImportFlightDataWizard(app);
+                    wiz.show();
                 case 'Data:LoadFlight2'
                     dashboard.handleFlightFile(2);
                 case 'Data:LoadCoast'
