@@ -1552,6 +1552,170 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             catch, end
         end
 
+        function test_T15_ProjectFileEditor_ShellCreateDelete(testCase)
+            % PFE-1: openProjectFileEditor() instantiates the dialog and
+            % stores it on app.ProjectEditor; closing the dialog clears
+            % the back-reference.
+            app = testCase.launchStudio();
+            testCase.assumeTrue(ismethod(app, 'openProjectFileEditor'), ...
+                'openProjectFileEditor missing — skipping.');
+            try
+                app.openProjectFileEditor();
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Editor cannot be launched headlessly: %s', ME.message));
+                return;
+            end
+            ed = app.ProjectEditor;
+            testCase.assumeTrue(~isempty(ed) && isa(ed, 'handle') && isvalid(ed), ...
+                'Editor not created (headless uifigure unavailable).');
+            testCase.verifyClass(ed, 'flightdash.studio.ProjectFileEditorDialog');
+            delete(ed);
+            testCase.verifyTrue(isempty(app.ProjectEditor), ...
+                'ProjectEditor back-ref must clear after delete().');
+        end
+
+        function test_T15_ProjectFileEditor_SingleInstance(testCase)
+            % PFE-1: a second openProjectFileEditor() must reuse the
+            % existing dialog, not spawn a duplicate.
+            app = testCase.launchStudio();
+            testCase.assumeTrue(ismethod(app, 'openProjectFileEditor'), ...
+                'openProjectFileEditor missing — skipping.');
+            try
+                app.openProjectFileEditor();
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Editor cannot be launched headlessly: %s', ME.message));
+                return;
+            end
+            ed1 = app.ProjectEditor;
+            testCase.assumeTrue(~isempty(ed1) && isvalid(ed1), ...
+                'First editor instance unavailable.');
+            try, app.openProjectFileEditor(); catch, end
+            ed2 = app.ProjectEditor;
+            testCase.verifyTrue(isequal(ed1, ed2), ...
+                'Second openProjectFileEditor() must reuse the existing dialog.');
+            delete(ed1);
+        end
+
+        function test_T15_ProjectFileEditor_LoadOptionTables(testCase)
+            % PFE-1: dialog initializes Option1Model + Option2Model with
+            % the canonical 7-key mapping (Time/Lat/Lon/Alt/Roll/Pitch/Heading).
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            keys = sort(cellstr(ed.Option1Model.Mapping.Key));
+            expected = sort([ed.Option1Model.CriticalKeys, ed.Option1Model.OptionalKeys]);
+            testCase.verifyEqual(keys, sort(expected(:))', ...
+                'Option1Model mapping must pre-fill the canonical 7 keys.');
+            keys2 = sort(cellstr(ed.Option2Model.Mapping.Key));
+            testCase.verifyEqual(keys2, sort(expected(:))', ...
+                'Option2Model mapping must pre-fill the canonical 7 keys.');
+            delete(ed);
+        end
+
+        function test_T15_ProjectFileEditor_AddDisplayRowMarksDirty(testCase)
+            % PFE-1: addDisplayRow appends a row + flips Option1Dirty +
+            % DashboardDirty.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            before = height(ed.Option1Model.Display);
+            ed.addDisplayRow(1);
+            after = height(ed.Option1Model.Display);
+            testCase.verifyEqual(after, before + 1, ...
+                'addDisplayRow must append exactly one row.');
+            testCase.verifyTrue(ed.Option1Dirty, ...
+                'Option1Dirty must be set after addDisplayRow.');
+            testCase.verifyTrue(ed.DashboardDirty, ...
+                'DashboardDirty must be set after addDisplayRow.');
+            % Second call must auto-uniquify FieldName.
+            ed.addDisplayRow(1);
+            names = cellstr(ed.Option1Model.Display.FieldName);
+            testCase.verifyEqual(numel(unique(names)), numel(names), ...
+                'addDisplayRow must produce unique FieldName values.');
+            delete(ed);
+        end
+
+        function test_T15_ProjectFileEditor_DeleteDisplayRowMarksDirty(testCase)
+            % PFE-1: deleteDisplayRow drops the row, flips Option2Dirty.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            ed.addDisplayRow(2);
+            ed.addDisplayRow(2);
+            ed.Option2Dirty = false; ed.DashboardDirty = false;
+            n = height(ed.Option2Model.Display);
+            ok = ed.deleteDisplayRow(2, n, true);  % force=true skips confirm
+            testCase.verifyTrue(ok, 'deleteDisplayRow must return true.');
+            testCase.verifyEqual(height(ed.Option2Model.Display), n - 1);
+            testCase.verifyTrue(ed.Option2Dirty, ...
+                'Option2Dirty must be set after deleteDisplayRow.');
+            delete(ed);
+        end
+
+        function test_T15_ProjectFileEditor_SaveOptionAfterDisplayRowEdit(testCase)
+            % PFE-1: saveOption writes the option file via OptionFileParser
+            % and clears the dirty flag.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            tmpFile = [tempname '_option1.dat'];
+            ed.Option1Model.FilePath = tmpFile;
+            ed.addDisplayRow(1);
+            testCase.verifyTrue(ed.Option1Dirty);
+            ok = ed.saveOption(1);
+            testCase.verifyTrue(ok, 'saveOption(1) must succeed.');
+            testCase.verifyTrue(isfile(tmpFile), ...
+                'saveOption must write the option file to disk.');
+            testCase.verifyFalse(ed.Option1Dirty, ...
+                'Option1Dirty must clear after successful save.');
+            try, delete(tmpFile); catch, end
+            % Clean up any *.bak rotation droppings.
+            try
+                listing = dir([tmpFile '.bak_*']);
+                for k = 1:numel(listing)
+                    try, delete(fullfile(listing(k).folder, listing(k).name)); catch, end
+                end
+            catch, end
+            delete(ed);
+        end
+
+        function test_T15_ProjectFileEditor_DeleteCriticalMappedDisplayRowBlocked(testCase)
+            % PFE-1: a display row referenced by a critical mapping key
+            % (Time/Lat/Lon/Alt) must NOT be deletable, and Option1Dirty
+            % must NOT flip.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            ed.Option1Model.addDisplayRow('time', 's', '%.3f', 1, 1, true);
+            ed.Option1Model.setMapping('Time', 'time');
+            ed.Option1Dirty = false; ed.DashboardDirty = false;
+            rowIdx = find(string(ed.Option1Model.Display.FieldName) == "time", 1);
+            testCase.verifyNotEmpty(rowIdx, 'Setup: time row must exist.');
+            ok = ed.deleteDisplayRow(1, rowIdx, true);  % force=true bypasses confirm but NOT critical check
+            testCase.verifyFalse(ok, ...
+                'deleteDisplayRow must refuse critical-mapped rows.');
+            testCase.verifyTrue(ed.Option1Model.hasDisplayField('time'), ...
+                'time row must still exist after blocked delete.');
+            testCase.verifyFalse(ed.Option1Dirty, ...
+                'Option1Dirty must stay clean on blocked delete.');
+            delete(ed);
+        end
+
+        function test_T15_ProjectFileEditor_ClosePromptDirtySafe(testCase)
+            % PFE-1: when no dirty flags are set, confirmClose() returns
+            % true with no prompt — exercises the headless-safe path.
+            app = testCase.launchStudio();
+            ed = testCase.createEditorOrSkip(app);
+            ed.Option1Dirty = false; ed.Option2Dirty = false;
+            ed.ProjectDirty = false; ed.DashboardDirty = false;
+            tf = ed.confirmClose();
+            testCase.verifyTrue(tf, ...
+                'confirmClose must return true when not dirty.');
+            % After confirmClose with no dirty, ProjectEditor back-ref
+            % must be cleared.
+            testCase.verifyTrue(isempty(app.ProjectEditor), ...
+                'cleanup() must clear app.ProjectEditor on confirmClose.');
+            % delete(ed) tolerated even when ed.Figure already cleared.
+            try, delete(ed); catch, end
+        end
+
         function test_T15_ProjectEditorClose_NoEditorSafe(testCase)
             % Pre-PFE-5: confirmProjectEditorClose() must return true
             % when no editor has ever been opened so app close never
@@ -1781,6 +1945,29 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 exist('flightdash.project.ProjectSerializer', 'class'), ...
                 8, ...
                 'ProjectSerializer class was not found.');
+        end
+
+        function ed = createEditorOrSkip(testCase, app)
+            % PFE-1 helper: try to instantiate the dialog; assumeFail when
+            % uifigure creation is unavailable (CI without display).
+            ed = [];
+            if ~ismethod(app, 'openProjectFileEditor')
+                testCase.assumeFail('openProjectFileEditor missing — skipping.');
+                return;
+            end
+            try
+                app.openProjectFileEditor();
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Editor cannot be launched headlessly: %s', ME.message));
+                return;
+            end
+            ed = app.ProjectEditor;
+            if isempty(ed) || ~isa(ed, 'handle') || ~isvalid(ed)
+                testCase.assumeFail('Editor instance unavailable (headless).');
+                ed = [];
+                return;
+            end
         end
 
         function app = launchStudio(testCase)

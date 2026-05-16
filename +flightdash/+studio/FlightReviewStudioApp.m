@@ -934,22 +934,30 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function openProjectFileEditor(app)
-            % Pre-PFE-4 stub. Single command entry point for the future
-            % Project File Editor dialog. UI implementation lands in
-            % PFE-1+; until then we surface a status message + uialert
-            % so users hit the menu entry and understand the feature
-            % is in progress.
+            % PFE-1: open the modeless ProjectFileEditorDialog. Single
+            % instance per Studio app — a second click focuses the
+            % existing window instead of opening a duplicate. The dialog
+            % owns its own uifigure so it survives Studio tab churn.
             try
-                msg = ['Project File Editor foundation installed; ' ...
-                       'UI implementation follows in Phase PFE-1+.'];
-                if ~isempty(app.StatusBar)
-                    app.StatusBar.setMessage(msg);
+                if ~isempty(app.ProjectEditor) && isa(app.ProjectEditor, 'handle') ...
+                        && isvalid(app.ProjectEditor)
+                    try, app.ProjectEditor.focus(); catch, end
+                    return;
                 end
-                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                    uialert(app.UIFigure, msg, 'Project File Editor', ...
-                        'Icon', 'info');
+                app.ProjectEditor = flightdash.studio.ProjectFileEditorDialog(app);
+                if ~isempty(app.StatusBar) && isvalid(app.StatusBar)
+                    try, app.StatusBar.setMessage('Project File Editor opened.'); catch, end
                 end
-            catch
+            catch ME
+                try, app.logCaught(ME, 'Studio:openProjectFileEditor'); catch, end
+                try
+                    if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                        uialert(app.UIFigure, ...
+                            sprintf('Failed to open editor: %s', ME.message), ...
+                            'Project File Editor', 'Icon', 'error');
+                    end
+                catch
+                end
             end
         end
 
