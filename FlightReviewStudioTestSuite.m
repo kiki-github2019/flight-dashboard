@@ -2077,6 +2077,34 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             try, delete(ctrlB); catch, end
         end
 
+        function test_T15_Refactor_VideoSyncControllerAcceptsAdapter(testCase)
+            % Migration #7: VideoSyncController accepts adapter +
+            % rejects bad input. EventBus subscription must complete
+            % at construction without throwing.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrlA = flightdash.controller.VideoSyncController(app.Adapter);
+            testCase.verifyClass(ctrlA, 'flightdash.controller.VideoSyncController');
+            ctrlB = flightdash.controller.VideoSyncController(app);
+            testCase.verifyClass(ctrlB, 'flightdash.controller.VideoSyncController');
+            threw = false;
+            try
+                flightdash.controller.VideoSyncController('hi');
+            catch ME
+                threw = true;
+                testCase.verifyEqual(ME.identifier, 'VideoSyncController:BadInput');
+            end
+            testCase.verifyTrue(threw);
+            try, delete(ctrlA); catch, end
+            try, delete(ctrlB); catch, end
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
