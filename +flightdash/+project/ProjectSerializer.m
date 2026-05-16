@@ -214,6 +214,7 @@ classdef ProjectSerializer
                 'CreatedAt',         char(p.CreatedAt), ...
                 'ModifiedAt',        char(p.ModifiedAt), ...
                 'GuiMode',           char(p.GuiMode), ...
+                'GuiTheme',          char(p.GuiTheme), ...
                 'AutoUpdateMode',    char(p.AutoUpdateMode));
         end
 
@@ -226,6 +227,9 @@ classdef ProjectSerializer
             p.CreatedAt         = flightdash.project.ProjectSerializer.fieldChar(s, 'CreatedAt',         p.CreatedAt);
             p.ModifiedAt        = flightdash.project.ProjectSerializer.fieldChar(s, 'ModifiedAt',        p.ModifiedAt);
             p.GuiMode           = flightdash.project.ProjectSerializer.fieldChar(s, 'GuiMode',           'Review');
+            % Patch 4 medium-term: GuiTheme persistence. Older .frsproj
+            % archives lacking this field fall back to 'Light'.
+            p.GuiTheme          = flightdash.project.ProjectSerializer.fieldChar(s, 'GuiTheme',          'Light');
             p.AutoUpdateMode    = flightdash.project.ProjectSerializer.fieldChar(s, 'AutoUpdateMode',    'Manual');
         end
 

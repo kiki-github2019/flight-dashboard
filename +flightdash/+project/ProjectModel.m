@@ -29,6 +29,7 @@ classdef ProjectModel
 
         % Global preferences (Phase 6 wiring)
         GuiMode             char     = 'Studio'      % Studio|Classic|Review|Analysis|Plot|Report|Compact|DockedFigure
+        GuiTheme            char     = 'Light'      % Light|Dark — persisted across save/load
         AutoUpdateMode      char     = 'Manual'      % Manual|Auto|Frozen
 
         DirtyFlag           logical  = false

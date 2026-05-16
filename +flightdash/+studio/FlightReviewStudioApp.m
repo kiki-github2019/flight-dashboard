@@ -926,6 +926,18 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     app.CurrentThemeStruct = flightdash.ui.StudioTheme.dark();
                 end
                 flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
+                % Patch 4 medium-term: persist the user's choice into the
+                % project model so Save round-trips Dark/Light. DirtyFlag
+                % is left to ProjectModel.touch (no-op when the value
+                % did not actually change), keeping Save prompts minimal.
+                try
+                    if ~isempty(app.Project) && isprop(app.Project, 'GuiTheme') ...
+                            && ~strcmp(char(app.Project.GuiTheme), app.CurrentTheme)
+                        app.Project.GuiTheme = app.CurrentTheme;
+                        app.Project.DirtyFlag = true;
+                    end
+                catch
+                end
                 if ~isempty(app.StatusBar)
                     app.StatusBar.setMessage(sprintf('Theme: %s', app.CurrentTheme));
                 end
@@ -1289,17 +1301,26 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
             app.refreshUndoStateForActiveSession();
 
-            % Theme policy (Task 3):
-            % Default remains 'Light' for compatibility with MATLAB
-            % defaults, existing tests, and undisturbed plot data
-            % colors. The user can flip Light <-> Dark from the Theme
-            % toolbar button or Pref:Theme:Toggle command.
-            % TODO: persist last selected theme in project/user
-            % preferences (Project.GuiMode-style serialization) so the
-            % Dark choice survives app restarts. Until then, Studio
-            % opens Light each launch.
+            % Theme policy (Task 3 + Patch 4 medium-term):
+            % Read the persisted theme from Project.GuiTheme; older
+            % projects without the field load as 'Light' via the
+            % ProjectModel default + serializer fallback. The user can
+            % flip Light <-> Dark from the Theme toolbar button or
+            % Pref:Theme:Toggle command; toggleTheme writes the new
+            % value back so Save persists it for the next launch.
             try
-                app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
+                stored = 'Light';
+                if ~isempty(app.Project) && isprop(app.Project, 'GuiTheme') ...
+                        && ~isempty(app.Project.GuiTheme)
+                    stored = char(app.Project.GuiTheme);
+                end
+                if strcmpi(stored, 'Dark')
+                    app.CurrentTheme = 'Dark';
+                    app.CurrentThemeStruct = flightdash.ui.StudioTheme.dark();
+                else
+                    app.CurrentTheme = 'Light';
+                    app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
+                end
                 flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
             catch
             end

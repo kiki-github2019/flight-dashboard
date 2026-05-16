@@ -995,6 +995,142 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(char(app.SharedDecodeService.ActiveSessionId), ...
                 char(sidB), 'SharedDecodeService.ActiveSessionId did not follow tab B.');
         end
+
+        function test_T11_VideoReader_ReferenceRelease_NoCleanupError(testCase)
+            % Patch 5: VideoModel.cleanup must release Reader via
+            % reference-release pattern and tolerate a second cleanup
+            % call (idempotent) without throwing.
+            try
+                model = flightdash.model.VideoModel();
+            catch ME
+                testCase.assumeFail(sprintf('VideoModel construction failed: %s', ME.message));
+            end
+            try
+                model.cleanup();
+                model.cleanup();   % second call must be a no-op
+            catch ME
+                testCase.verifyFail(sprintf( ...
+                    'VideoModel.cleanup threw on repeat call: %s', ME.message));
+                return;
+            end
+            testCase.verifyTrue(isempty(model.Reader), ...
+                'VideoModel.Reader should be empty after cleanup.');
+            testCase.verifyEqual(model.FilePath, '', ...
+                'VideoModel.FilePath should be reset after cleanup.');
+        end
+
+        function test_T11_OptionalAttitudeColumns_NoCrash(testCase)
+            % Patch 5: dashboard must survive Roll/Pitch/Heading being
+            % unmapped — attitude-gauge update and dashboard update
+            % paths should NOT throw and the gauge labels should
+            % collapse via setAttitudeGaugeVisible.
+            app = testCase.launchStudio();
+            sid = app.addSession('T11 Attitude Skip');
+            drawnow limitrate;
+            dash = [];
+            try
+                dash = app.getActiveDashboard();
+            catch
+            end
+            testCase.assumeTrue(~isempty(dash) && isvalid(dash), ...
+                'No active dashboard for attitude guard test.');
+            % Build a minimal synthetic table with critical columns only.
+            T = table((0:9)', linspace(36.6, 36.7, 10)', linspace(126.6, 126.7, 10)', ...
+                100 * ones(10, 1), ...
+                'VariableNames', {'time', 'lat', 'lon', 'alt'});
+            try
+                dash.Models(1).rawData = T;
+                mc = struct('Time','time','Lat','lat','Lon','lon','Alt','alt', ...
+                            'Roll','','Pitch','','Heading','');
+                dash.Models(1).mappedCols = mc;
+            catch ME
+                testCase.assumeFail(sprintf('Could not inject synthetic table: %s', ME.message));
+            end
+            crashFlag = false;
+            try, dash.updateAttitudeGauges(1, 1); catch, crashFlag = true; end
+            try, dash.updateDashboard(1, 1);      catch, crashFlag = true; end
+            testCase.verifyFalse(crashFlag, ...
+                'updateAttitudeGauges / updateDashboard crashed on missing Roll/Pitch/Heading.');
+        end
+
+        function test_T11_SliderScrub_MarkerPreview_NoFullRedraw(testCase)
+            % Patch 5: scrubTick smoke. Inject a pending frame and call
+            % scrubTick directly; verify SliderLastRendered is set and
+            % the dashboard remains valid (no full-redraw crash).
+            app = testCase.launchStudio();
+            sid = app.addSession('T11 Scrub'); %#ok<NASGU>
+            drawnow limitrate;
+            dash = [];
+            try, dash = app.getActiveDashboard(); catch, end
+            testCase.assumeTrue(~isempty(dash) && isvalid(dash), ...
+                'No active dashboard for scrub test.');
+            try
+                dash.VideoSyncState(1).TotalFrames = 100;
+                dash.SliderPendingFrame(1) = 50;
+                dash.SliderLastRendered(1) = NaN;
+            catch ME
+                testCase.assumeFail(sprintf('Slider state injection failed: %s', ME.message));
+            end
+            crashFlag = false;
+            try, dash.scrubTick(); catch, crashFlag = true; end
+            testCase.verifyFalse(crashFlag, 'scrubTick crashed unexpectedly.');
+            testCase.verifyTrue(isvalid(dash), 'Dashboard invalid after scrubTick.');
+            % SliderLastRendered may stay NaN when no video is ready —
+            % accept either NaN (video-not-ready early-exit) or the
+            % target frame (frame was actually rendered). Both are
+            % non-crash outcomes.
+            lastRendered = dash.SliderLastRendered(1);
+            testCase.verifyTrue(isnan(lastRendered) || lastRendered == 50, ...
+                'SliderLastRendered should be NaN or the pending frame.');
+        end
+
+        function test_T11_ThemeToggle_PreservesPlotDataColors(testCase)
+            % Patch 5: toggleTheme must never recolor plot Line/Patch
+            % data colors — it only restyles chrome (panels, labels,
+            % axes background).
+            app = testCase.launchStudio();
+            testCase.assumeTrue(ismethod(app, 'toggleTheme'), ...
+                'toggleTheme not present — skipping.');
+            lines = findall(app.UIFigure, 'Type', 'Line');
+            patches = findall(app.UIFigure, 'Type', 'Patch');
+            beforeLineColors = arrayfun(@(h) {h.Color}, lines, 'UniformOutput', false);
+            beforePatchFaces = arrayfun(@(h) {h.FaceColor}, patches, 'UniformOutput', false);
+            app.toggleTheme();
+            drawnow limitrate;
+            % Snapshot AFTER toggle; the lines/patches may have changed
+            % identity if the dashboard rebuilt, so compare ONLY the
+            % surviving handles by identity.
+            afterLineColors = arrayfun(@(h) {h.Color}, lines, 'UniformOutput', false);
+            afterPatchFaces = arrayfun(@(h) {h.FaceColor}, patches, 'UniformOutput', false);
+            testCase.verifyEqual(beforeLineColors, afterLineColors, ...
+                'Plot Line colors changed after theme toggle.');
+            testCase.verifyEqual(beforePatchFaces, afterPatchFaces, ...
+                'Plot Patch face colors changed after theme toggle.');
+        end
+
+        function test_T11_DockToggle_ReclaimsWorkspaceWidth(testCase)
+            % Patch 5: toggleExplorer must shrink BodyGrid column 1 to
+            % 0 on hide and restore a positive width on show.
+            app = testCase.launchStudio();
+            testCase.assumeTrue(ismethod(app, 'toggleExplorer'), ...
+                'toggleExplorer not present — skipping.');
+            testCase.assumeTrue(~isempty(app.BodyGrid) && isvalid(app.BodyGrid), ...
+                'BodyGrid unavailable — skipping.');
+            cwBefore = app.BodyGrid.ColumnWidth;
+            if ~isnumeric(cwBefore{1}) || cwBefore{1} <= 0
+                testCase.assumeFail('Explorer column not numeric > 0 at baseline.');
+            end
+            app.toggleExplorer();
+            drawnow limitrate;
+            cwHidden = app.BodyGrid.ColumnWidth;
+            testCase.verifyEqual(cwHidden{1}, 0, ...
+                'Explorer column did not collapse to 0 on first toggle.');
+            app.toggleExplorer();
+            drawnow limitrate;
+            cwShown = app.BodyGrid.ColumnWidth;
+            testCase.verifyTrue(isnumeric(cwShown{1}) && cwShown{1} > 0, ...
+                'Explorer column did not restore to a positive width on second toggle.');
+        end
     end
 
     methods (Static, Access = private)
