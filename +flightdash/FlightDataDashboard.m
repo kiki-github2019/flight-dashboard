@@ -143,8 +143,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % createLayout 등 향후 Phase 3b에서 RootContainer를 layout parent로 사용
         % RootContainer ownership inverted (R7) — see Dependent block.
         MouseRouter         = []              % [PHASE 3.5] Studio-owned mouse router hook
-        SharedCacheService  = []              % [PHASE 10 prototype] Studio-owned shared cache hook
-        SharedDecodeService = []              % [PHASE 10 prototype] Studio-owned shared decode hook
+        % SharedCacheService / SharedDecodeService ownership inverted (R7).
         UndoService         = []              % Per-session undo/redo service injected by Studio
         % UseSharedDecodeService ownership inverted (R7) — see Dependent block.
         % [REFACTOR R1] Read-only facade over the 9 session-identity
@@ -225,6 +224,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % R7 session-identity group: storage on SessionContext.
         UseSharedDecodeService  % proxies app.SessionContext.UseSharedDecodeService
         RootContainer           % proxies app.SessionContext.RootContainer
+        SharedCacheService      % proxies app.SessionContext.SharedCacheService
+        SharedDecodeService     % proxies app.SessionContext.SharedDecodeService
     end
 
     methods
@@ -604,6 +605,38 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.SessionContext = flightdash.runtime.SessionContext(app);
             end
             app.SessionContext.RootContainer = value;
+        end
+
+        function v = get.SharedCacheService(app)
+            v = [];
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = app.SessionContext.SharedCacheService;
+                end
+            catch
+            end
+        end
+        function set.SharedCacheService(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.SharedCacheService = value;
+        end
+
+        function v = get.SharedDecodeService(app)
+            v = [];
+            try
+                if ~isempty(app.SessionContext) && isvalid(app.SessionContext)
+                    v = app.SessionContext.SharedDecodeService;
+                end
+            catch
+            end
+        end
+        function set.SharedDecodeService(app, value)
+            if isempty(app.SessionContext) || ~isvalid(app.SessionContext)
+                app.SessionContext = flightdash.runtime.SessionContext(app);
+            end
+            app.SessionContext.SharedDecodeService = value;
         end
     end
 

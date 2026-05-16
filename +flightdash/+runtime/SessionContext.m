@@ -31,6 +31,8 @@ classdef SessionContext < handle
     properties (Access = public)
         UseSharedDecodeService  logical = false
         RootContainer                   = []
+        SharedCacheService              = []
+        SharedDecodeService             = []
     end
 
     properties (Dependent, SetAccess = private)
@@ -38,8 +40,6 @@ classdef SessionContext < handle
         IsEmbedded              logical
         UIFigure
         MouseRouter
-        SharedCacheService
-        SharedDecodeService
         UndoService
     end
 
@@ -91,20 +91,6 @@ classdef SessionContext < handle
             v = [];
             if obj.isValidApp() && isprop(obj.AppRef, 'MouseRouter')
                 v = obj.AppRef.MouseRouter;
-            end
-        end
-
-        function v = get.SharedCacheService(obj)
-            v = [];
-            if obj.isValidApp() && isprop(obj.AppRef, 'SharedCacheService')
-                v = obj.AppRef.SharedCacheService;
-            end
-        end
-
-        function v = get.SharedDecodeService(obj)
-            v = [];
-            if obj.isValidApp() && isprop(obj.AppRef, 'SharedDecodeService')
-                v = obj.AppRef.SharedDecodeService;
             end
         end
 

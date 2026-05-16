@@ -2541,6 +2541,40 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyTrue(any(names == "RootContainer"));
         end
 
+        function test_T15_Refactor_R7_SharedServicesInverted(testCase)
+            % R7 third commit: SharedCacheService + SharedDecodeService
+            % flip to SessionContext storage.
+            app = [];
+            try
+                app = flightdash.FlightDataDashboard();
+            catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+
+            % Defaults match the old storage (empty).
+            testCase.verifyTrue(isempty(app.SharedCacheService));
+            testCase.verifyTrue(isempty(app.SharedDecodeService));
+
+            % Write via app, read via SessionContext.
+            stubCache = struct('placeholder', 'cache');
+            stubDecode = struct('placeholder', 'decode');
+            app.SharedCacheService = stubCache;
+            app.SharedDecodeService = stubDecode;
+            testCase.verifyEqual(app.SessionContext.SharedCacheService, stubCache);
+            testCase.verifyEqual(app.SessionContext.SharedDecodeService, stubDecode);
+
+            % Adapter pass-throughs (R5) must still alias the same storage.
+            ad = app.getAdapter();
+            testCase.verifyEqual(ad.cacheService(), stubCache);
+            testCase.verifyEqual(ad.decodeService(), stubDecode);
+
+            % Reverse direction.
+            app.SessionContext.SharedCacheService = [];
+            testCase.verifyTrue(isempty(app.SharedCacheService));
+        end
+
         function test_T15_Refactor_AdapterRoutesAggregates(testCase)
             % R5: adapter aggregate accessors must alias the direct app
             % getters — adapter is a curated router, not a duplicator.
