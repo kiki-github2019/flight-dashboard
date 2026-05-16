@@ -154,9 +154,7 @@ classdef EventBus < handle
                 if isempty(app) || (isa(app, 'handle') && ~isvalid(app))
                     return;
                 end
-                if isstruct(app)
-                    if ~isfield(app, 'ActiveSessionId'), return; end
-                elseif ~isprop(app, 'ActiveSessionId')
+                if ~flightdash.util.EventBus.hasReadableMember(app, 'ActiveSessionId')
                     return;
                 end
                 candidate = char(app.ActiveSessionId);
@@ -230,6 +228,19 @@ classdef EventBus < handle
         function tf = isKnownEvent(eventName)
             mc = ?flightdash.util.EventBus;
             tf = any(strcmp(eventName, {mc.EventList.Name}));
+        end
+
+        function tf = hasReadableMember(value, name)
+            tf = false;
+            try
+                if isstruct(value)
+                    tf = isfield(value, name);
+                elseif ~isempty(value) && (~isa(value, 'handle') || isvalid(value))
+                    tf = isprop(value, name);
+                end
+            catch
+                tf = false;
+            end
         end
     end
 end

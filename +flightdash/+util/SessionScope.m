@@ -65,16 +65,10 @@ classdef SessionScope
                 active = flightdash.util.SessionScope.getActive();
                 appId = '';
                 isEmbedded = false;
-                if isstruct(app) && isfield(app, 'ActiveSessionId')
-                    appId = char(app.ActiveSessionId);
-                    if isfield(app, 'IsEmbedded')
-                        isEmbedded = logical(app.IsEmbedded);
-                    end
-                elseif ~isempty(app) && (~isa(app, 'handle') || isvalid(app)) ...
-                        && isprop(app, 'ActiveSessionId')
-                    appId = char(app.ActiveSessionId);
-                    if isprop(app, 'IsEmbedded')
-                        isEmbedded = logical(app.IsEmbedded);
+                if flightdash.util.SessionScope.hasReadableMember(app, 'ActiveSessionId')
+                    appId = char(flightdash.util.SessionScope.readMember(app, 'ActiveSessionId', ''));
+                    if flightdash.util.SessionScope.hasReadableMember(app, 'IsEmbedded')
+                        isEmbedded = logical(flightdash.util.SessionScope.readMember(app, 'IsEmbedded', false));
                     end
                 end
                 if isEmbedded
@@ -91,10 +85,37 @@ classdef SessionScope
                 tf = strcmp(appId, active);
             catch
                 try
-                    tf = ~(~isempty(app) && isprop(app, 'IsEmbedded') && logical(app.IsEmbedded));
+                    tf = ~(flightdash.util.SessionScope.hasReadableMember(app, 'IsEmbedded') && ...
+                        logical(flightdash.util.SessionScope.readMember(app, 'IsEmbedded', false)));
                 catch
                     tf = true;
                 end
+            end
+        end
+    end
+
+    methods (Static, Access = private)
+        function tf = hasReadableMember(value, name)
+            tf = false;
+            try
+                if isstruct(value)
+                    tf = isfield(value, name);
+                elseif ~isempty(value) && (~isa(value, 'handle') || isvalid(value))
+                    tf = isprop(value, name);
+                end
+            catch
+                tf = false;
+            end
+        end
+
+        function out = readMember(value, name, fallback)
+            out = fallback;
+            try
+                if flightdash.util.SessionScope.hasReadableMember(value, name)
+                    out = value.(name);
+                end
+            catch
+                out = fallback;
             end
         end
     end

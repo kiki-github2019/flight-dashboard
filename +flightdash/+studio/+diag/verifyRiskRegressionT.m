@@ -11,6 +11,7 @@ function results = verifyRiskRegressionTests()
 %   RISK-6  embedded session deletion must not delete existing parpool
 %   RISK-7  option*.dat parser section handling
 %   RISK-8  Pack Project duplicate filename / relative path handling
+%   RISK-9  static guard for isfield(app, ...) class-object misuse
 %
 % Usage:
 %   clear classes
@@ -29,6 +30,7 @@ function results = verifyRiskRegressionTests()
         'RISK-6', @checkEmbeddedDeleteKeepsParpool
         'RISK-7', @checkOptionFileParserSections
         'RISK-8', @checkPackProjectCollisionAndRelativeLinks
+        'RISK-9', @checkNoAppIsfieldClassMisuse
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -750,6 +752,67 @@ function [status, msg] = checkPackProjectCollisionAndRelativeLinks()
 
     status = 'PASS';
     msg = 'Pack Project keeps duplicate basenames unique and uses relative paths.';
+end
+
+% =========================================================================
+% RISK-9
+% =========================================================================
+function [status, msg] = checkNoAppIsfieldClassMisuse()
+% Guard against treating class app handles as structs.
+
+    root = repoRootFromKnownFile();
+    if isempty(root) || ~isfolder(root)
+        status = 'SKIP';
+        msg = 'Could not determine repository root for isfield(app, ...) scan.';
+        return;
+    end
+
+    patterns = {
+        'isfield\s*\(\s*app\s*,'
+        'isfield\s*\(\s*obj\.App\s*,'
+    };
+    files = dir(fullfile(root, '**', '*.m'));
+    suspicious = {};
+
+    for i = 1:numel(files)
+        fpath = fullfile(files(i).folder, files(i).name);
+        if endsWith(fpath, 'verifyRiskRegressionT.m')
+            continue;
+        end
+        try
+            lines = splitlines(string(fileread(fpath)));
+        catch
+            continue;
+        end
+        for ln = 1:numel(lines)
+            text = strtrim(lines(ln));
+            if text == "" || startsWith(text, "%")
+                continue;
+            end
+            for p = 1:numel(patterns)
+                if ~isempty(regexp(char(text), patterns{p}, 'once'))
+                    suspicious{end+1} = formatFinding(root, fpath, ln, ...
+                        'isfield(app, ...) class-object misuse'); %#ok<AGROW>
+                    break;
+                end
+            end
+            if numel(suspicious) >= 10
+                break;
+            end
+        end
+        if numel(suspicious) >= 10
+            break;
+        end
+    end
+
+    if isempty(suspicious)
+        status = 'PASS';
+        msg = 'No raw isfield(app, ...) or isfield(obj.App, ...) misuse patterns found.';
+    else
+        status = 'FAIL';
+        msg = sprintf('Found %d app isfield misuse pattern(s): %s', ...
+            numel(suspicious), strjoin(suspicious, ' | '));
+    end
 end
 
 % =========================================================================
