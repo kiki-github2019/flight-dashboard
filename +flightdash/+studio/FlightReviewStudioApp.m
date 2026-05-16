@@ -1289,7 +1289,15 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
             app.refreshUndoStateForActiveSession();
 
-            % Apply the default Light theme to the freshly built shell.
+            % Theme policy (Task 3):
+            % Default remains 'Light' for compatibility with MATLAB
+            % defaults, existing tests, and undisturbed plot data
+            % colors. The user can flip Light <-> Dark from the Theme
+            % toolbar button or Pref:Theme:Toggle command.
+            % TODO: persist last selected theme in project/user
+            % preferences (Project.GuiMode-style serialization) so the
+            % Dark choice survives app restarts. Until then, Studio
+            % opens Light each launch.
             try
                 app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
                 flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
