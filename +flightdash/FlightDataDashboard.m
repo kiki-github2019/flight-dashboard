@@ -2926,6 +2926,8 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % self-throttles instead of blocking the UI thread queue.
             try
                 if app.IsDeleting, return; end
+                bench = app.DebugMode; % single capture per tick
+                if bench, flightdash.util.ScrubBench.tick('Ticks'); end
                 anyPending = false;
                 n = min(numel(app.SliderPendingFrame), numel(app.SliderLastRendered));
                 for fIdx = 1:n
@@ -2933,10 +2935,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     if isnan(target), continue; end
                     if ~isnan(app.SliderLastRendered(fIdx)) ...
                             && target == app.SliderLastRendered(fIdx)
+                        if bench, flightdash.util.ScrubBench.tick('SkipsNoFrame'); end
                         continue;
                     end
                     anyPending = true;
-                    if ~app.isVideoReady(fIdx), continue; end
+                    if ~app.isVideoReady(fIdx)
+                        if bench, flightdash.util.ScrubBench.tick('SkipsNotReady'); end
+                        continue;
+                    end
                     % Route through the existing decode pipeline. In drag
                     % mode requestFrame is non-blocking; here we want the
                     % decode to actually happen so the timer DOES wait,
@@ -2949,11 +2955,13 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         if ~isempty(cached)
                             app.displayFrame(fIdx, clamped, cached, true);
                             rendered = true;
+                            if bench, flightdash.util.ScrubBench.tick('CacheHits'); end
                         else
                             img = app.decodeFrameSync(fIdx, clamped);
                             if ~isempty(img)
                                 app.displayFrame(fIdx, clamped, img, false);
                                 rendered = true;
+                                if bench, flightdash.util.ScrubBench.tick('SyncDecodes'); end
                             end
                         end
                         app.SliderLastRendered(fIdx) = target;
@@ -2964,6 +2972,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                         % 1/30 Period + BusyMode='drop' coalescing.
                         if rendered
                             app.previewSyncedMarkersOnly(fIdx, clamped);
+                            if bench, flightdash.util.ScrubBench.tick('Previews'); end
                         end
                     catch
                     end

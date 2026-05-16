@@ -182,3 +182,45 @@ FlightReviewStudioTestSuite.m
 - Manager / Detail / ROI / Analyzer popup figure redesign — only
   Analyzer has a Phase 7 home in the RightDock Analysis tab; ROI
   and Detail dialogs are still standalone figures.
+
+## Scrub hot-path rules (slider drag)
+
+The `SliderScrubTimer` callback `scrubTick` and its helpers run at
+~30 Hz while the user drags the video slider. The cost ceiling per
+tick is real-time-tight; anything inside this path must stay
+trivially cheap.
+
+**Allowed inside `scrubTick` / `previewSyncedMarkersOnly` /
+`updateAttitudeNeedlesOnly`:**
+
+- `set(hgtransform, 'Matrix', ...)` — pure matrix swap, no children.
+- `set(line, 'XData', ..., 'YData', ...)` for existing markers.
+- Numeric scalar / vector reads from `Models(fIdx).rawData` via
+  `mappedColAvailable`-guarded paths.
+- One outer `drawnow limitrate nocallbacks` per `scrubTick` (already
+  in place).
+
+**NOT allowed inside the scrub hot path:**
+
+- `sprintf` / `compose` for any label refresh. Labels update on the
+  final-commit path (`onVdubSliderChanged` → `goToFrame('final')` →
+  `updateDashboard` → full `updateAttitudeGauges`).
+- `axes` reconstruction, `cla`, `axis tight`, `zoom reset`, `xlim`
+  / `ylim` mutation.
+- Layout refresh, `LayoutMgr.applyLayout`, `uigridlayout` width
+  changes.
+- Full `updateDashboard`, `updateCurrentInfoTable`, plot panel
+  rebuild.
+- Any `notify(...)` on EventBus from inside the helper — the final
+  commit publishes.
+- `drawnow` (the unbounded form) — only `drawnow limitrate
+  nocallbacks` at the outer timer callback boundary.
+
+**Benchmarking:** `flightdash.util.ScrubBench` ticks counters when
+`FlightDataDashboard.DebugMode = true`. Call
+`flightdash.util.ScrubBench.snapshot()` after a representative drag
+to print `Ticks / CacheHits / SyncDecodes / Previews / SkipsNoFrame
+/ SkipsNotReady` and clear the accumulator. The
+`BusyMode='drop'` timer setting means dropped ticks never appear in
+the counters, so the gap between expected (~30 Hz × seconds) and
+`Ticks` shows how much the timer is over budget.

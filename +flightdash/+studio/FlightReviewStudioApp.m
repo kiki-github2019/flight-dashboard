@@ -930,8 +930,11 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 % project model so Save round-trips Dark/Light. DirtyFlag
                 % is left to ProjectModel.touch (no-op when the value
                 % did not actually change), keeping Save prompts minimal.
+                % Cycle C: guard against unexpected CurrentTheme values
+                % before writing — never serialize garbage.
                 try
-                    if ~isempty(app.Project) && isprop(app.Project, 'GuiTheme') ...
+                    if ismember(app.CurrentTheme, {'Light', 'Dark'}) ...
+                            && ~isempty(app.Project) && isprop(app.Project, 'GuiTheme') ...
                             && ~strcmp(char(app.Project.GuiTheme), app.CurrentTheme)
                         app.Project.GuiTheme = app.CurrentTheme;
                         app.Project.DirtyFlag = true;
@@ -1314,7 +1317,17 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                         && ~isempty(app.Project.GuiTheme)
                     stored = char(app.Project.GuiTheme);
                 end
-                if strcmpi(stored, 'Dark')
+                % Cycle C — explicit normalize. Anything outside the
+                % known set falls back to Light and is logged so
+                % unexpected values surface during debugging instead
+                % of silently degrading.
+                normalized = lower(strtrim(stored));
+                if ~ismember(normalized, {'light', 'dark'})
+                    warning('FlightReviewStudio:UnknownTheme', ...
+                        'Unknown GuiTheme "%s" — defaulting to Light.', stored);
+                    normalized = 'light';
+                end
+                if strcmp(normalized, 'dark')
                     app.CurrentTheme = 'Dark';
                     app.CurrentThemeStruct = flightdash.ui.StudioTheme.dark();
                 else

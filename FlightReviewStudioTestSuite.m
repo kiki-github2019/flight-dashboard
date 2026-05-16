@@ -1108,6 +1108,49 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Plot Patch face colors changed after theme toggle.');
         end
 
+        function test_T11_GuiTheme_RoundTrip_PersistsAcrossSaveLoad(testCase)
+            % Cycle C: pure model/serializer round-trip — no figure.
+            % Verifies Project.GuiTheme survives projectToStruct ->
+            % structToProject and that an old archive missing the
+            % field falls back to 'Light'.
+            try
+                p = flightdash.project.ProjectModel('T11 Theme RT');
+            catch ME
+                testCase.assumeFail(sprintf('ProjectModel ctor failed: %s', ME.message));
+            end
+            p.GuiTheme = 'Dark';
+            try
+                s = flightdash.project.ProjectSerializer.projectToStruct(p);
+            catch ME
+                testCase.verifyFail(sprintf('projectToStruct threw: %s', ME.message));
+                return;
+            end
+            testCase.verifyTrue(isfield(s, 'GuiTheme'), ...
+                'Serialized struct must include GuiTheme.');
+            testCase.verifyEqual(char(s.GuiTheme), 'Dark', ...
+                'GuiTheme not serialized correctly.');
+            try
+                p2 = flightdash.project.ProjectSerializer.structToProject(s);
+            catch ME
+                testCase.verifyFail(sprintf('structToProject threw: %s', ME.message));
+                return;
+            end
+            testCase.verifyEqual(char(p2.GuiTheme), 'Dark', ...
+                'GuiTheme not deserialized correctly.');
+
+            % Backward-compat: a legacy struct lacking GuiTheme must
+            % load with the default 'Light'.
+            sLegacy = rmfield(s, 'GuiTheme');
+            try
+                pLegacy = flightdash.project.ProjectSerializer.structToProject(sLegacy);
+            catch ME
+                testCase.verifyFail(sprintf('legacy structToProject threw: %s', ME.message));
+                return;
+            end
+            testCase.verifyEqual(char(pLegacy.GuiTheme), 'Light', ...
+                'Missing GuiTheme should fall back to Light.');
+        end
+
         function test_T11_DockToggle_ReclaimsWorkspaceWidth(testCase)
             % Patch 5: toggleExplorer must shrink BodyGrid column 1 to
             % 0 on hide and restore a positive width on show.
