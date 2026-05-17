@@ -8,6 +8,7 @@ classdef ControllerBase < handle
 
     properties
         Dashboard = []
+        Adapter   = []   % flightdash.runtime.DashboardAppAdapter (R5+ controllers)
         Router = []
         SessionId char = ''
         IsDragging logical = false
@@ -22,22 +23,97 @@ classdef ControllerBase < handle
     end
 
     methods
-        function obj = ControllerBase(dashboard)
-            if nargin < 1
-                dashboard = [];
-            end
-            obj.Dashboard = dashboard;
-            try
-                if ~isempty(dashboard) && isprop(dashboard, 'ActiveSessionId')
-                    obj.SessionId = char(dashboard.ActiveSessionId);
+        function obj = ControllerBase(input)
+            % Accept a Dashboard (legacy), DashboardAppAdapter (R5+),
+            % or FlightDataDashboard (auto-resolves to adapter). Sets
+            % both .Dashboard and .Adapter when resolvable so the
+            % helper methods route through whichever surface the
+            % subclass uses.
+            if nargin < 1, input = []; end
+            if isa(input, 'flightdash.runtime.DashboardAppAdapter')
+                obj.Adapter = input;
+                try
+                    appHandle = input.app();
+                    if isa(appHandle, 'flightdash.FlightDataDashboard')
+                        obj.Dashboard = appHandle;
+                    end
+                catch
                 end
-                if ~isempty(dashboard) && isprop(dashboard, 'UIFigure') && ...
-                        ~isempty(dashboard.UIFigure) && isvalid(dashboard.UIFigure) && ...
-                        isappdata(dashboard.UIFigure, 'StudioMouseRouter')
-                    obj.Router = getappdata(dashboard.UIFigure, 'StudioMouseRouter');
+            elseif isa(input, 'flightdash.FlightDataDashboard')
+                obj.Dashboard = input;
+                try
+                    if ismethod(input, 'getAdapter')
+                        obj.Adapter = input.getAdapter();
+                    end
+                catch
+                end
+            elseif ~isempty(input)
+                % Unknown / future input shape — store as Adapter if it
+                % quacks like one (has dispatchCommand), else Dashboard.
+                if isstruct(input) && isfield(input, 'dispatchCommand')
+                    obj.Adapter = input;
+                else
+                    obj.Dashboard = input;
+                end
+            end
+            try
+                if ~isempty(obj.Adapter) && ismethod(obj.Adapter, 'activeSessionId')
+                    obj.SessionId = char(obj.Adapter.activeSessionId());
+                elseif ~isempty(obj.Dashboard) && isprop(obj.Dashboard, 'ActiveSessionId')
+                    obj.SessionId = char(obj.Dashboard.ActiveSessionId);
+                end
+                fig = obj.uiFigure();
+                if ~isempty(fig) && isvalid(fig) && isappdata(fig, 'StudioMouseRouter')
+                    obj.Router = getappdata(fig, 'StudioMouseRouter');
                 end
             catch ME
                 obj.logCaught(ME, 'ControllerBase:ctor');
+            end
+        end
+
+        function appHandle = app(obj)
+            % Returns the underlying FlightDataDashboard (or empty).
+            appHandle = [];
+            if ~isempty(obj.Adapter)
+                try
+                    if isa(obj.Adapter, 'flightdash.runtime.DashboardAppAdapter')
+                        appHandle = obj.Adapter.app();
+                    elseif isstruct(obj.Adapter) && isfield(obj.Adapter, 'app')
+                        appHandle = obj.Adapter.app();
+                    end
+                catch
+                end
+            end
+            if isempty(appHandle), appHandle = obj.Dashboard; end
+        end
+
+        function fig = uiFigure(obj)
+            fig = [];
+            try
+                if ~isempty(obj.Adapter) && ismethod(obj.Adapter, 'uiFigure')
+                    fig = obj.Adapter.uiFigure();
+                end
+                if isempty(fig) && ~isempty(obj.Dashboard) && isvalid(obj.Dashboard) ...
+                        && isprop(obj.Dashboard, 'UIFigure')
+                    fig = obj.Dashboard.UIFigure;
+                end
+            catch
+            end
+        end
+
+        function dispatchCommand(obj, cmdId, source)
+            if nargin < 3, source = 'Controller'; end
+            try
+                if ~isempty(obj.Adapter) && ismethod(obj.Adapter, 'dispatchCommand')
+                    obj.Adapter.dispatchCommand(char(cmdId), char(source));
+                    return;
+                end
+                appHandle = obj.app();
+                if ~isempty(appHandle) && ismethod(appHandle, 'dispatchCommand')
+                    appHandle.dispatchCommand(char(cmdId), char(source));
+                end
+            catch ME
+                obj.logCaught(ME, 'ControllerBase:dispatchCommand');
             end
         end
 
@@ -76,15 +152,19 @@ classdef ControllerBase < handle
             obj.IsDragging = false;
         end
 
-        function tf = isActiveSession(obj)
+        function tf = isActiveSession(obj, varargin)
             tf = true;
             try
+                if ~isempty(obj.Adapter) && ismethod(obj.Adapter, 'isActiveSession')
+                    tf = obj.Adapter.isActiveSession(varargin{:});
+                    return;
+                end
                 if isempty(obj.Dashboard) || ~isvalid(obj.Dashboard)
                     tf = false;
                     return;
                 end
                 if ismethod(obj.Dashboard, 'isActiveSession')
-                    tf = obj.Dashboard.isActiveSession();
+                    tf = obj.Dashboard.isActiveSession(varargin{:});
                 end
             catch
                 tf = false;
@@ -283,6 +363,10 @@ classdef ControllerBase < handle
 
         function logCaught(obj, ME, tag)
             try
+                if ~isempty(obj.Adapter) && ismethod(obj.Adapter, 'logCaught')
+                    obj.Adapter.logCaught(ME, tag);
+                    return;
+                end
                 if ~isempty(obj.Dashboard) && isvalid(obj.Dashboard) && ismethod(obj.Dashboard, 'logCaught')
                     obj.Dashboard.logCaught(ME, tag);
                 else

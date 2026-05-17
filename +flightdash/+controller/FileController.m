@@ -1,78 +1,74 @@
-classdef FileController < handle
+classdef FileController < flightdash.controller.ControllerBase
     % flightdash.controller.FileController
     % - 파일 로드 이벤트 구독: FlightFileRequested, AviFileRequested, CoastFileRequested
     %
-    % [REFACTOR R5+6] Migrated to DashboardAppAdapter. Pure event-relay
-    % controller — every callback forwards to an app verb
-    % (handleFlightFile / loadAviFile / handleCoastFile /
-    % exportConfigInteractive / importConfigInteractive) that has no
-    % adapter API yet. Bodies uniformly escape-hatch via
-    % obj.Adapter.app().
-
-    properties (Access = private)
-        Adapter  % flightdash.runtime.DashboardAppAdapter
-        Listeners cell = {}
-    end
+    % [Phase 4 stabilization] Inherits from ControllerBase so listener
+    % tracking + cleanup use the shared `trackListener` / `cleanup`
+    % surface. EventBus subscriptions are tracked so dashboard
+    % teardown reliably deletes them.
 
     methods
         function obj = FileController(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
-                obj.Adapter = adapterOrApp;
-            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                obj.Adapter = adapterOrApp.getAdapter();
+            obj@flightdash.controller.ControllerBase( ...
+                flightdash.controller.FileController.normalizeInput(adapterOrApp));
+            obj.subscribeEvents();
+        end
+
+        function subscribeEvents(obj)
+            appHandle = obj.app();
+            if isempty(appHandle), return; end
+            EB = @(eventName, callback) ...
+                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
+            obj.trackListener(EB('FlightFileRequested',   @(~,d) obj.onFlightFile(d)));
+            obj.trackListener(EB('AviFileRequested',      @(~,d) obj.onAviFile(d)));
+            obj.trackListener(EB('CoastFileRequested',    @(~,~) obj.onCoastFile()));
+            obj.trackListener(EB('ConfigExportRequested', @(~,~) obj.onConfigExport()));
+            obj.trackListener(EB('ConfigImportRequested', @(~,~) obj.onConfigImport()));
+        end
+
+        function onFlightFile(obj, d)
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(d), return; end
+            app.handleFlightFile(d.ChannelIdx);
+        end
+        function onAviFile(obj, d)
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(d), return; end
+            app.loadAviFile(d.ChannelIdx);
+        end
+        function onCoastFile(obj)
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(), return; end
+            app.handleCoastFile();
+        end
+        function onConfigExport(obj)
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(), return; end
+            app.exportConfigInteractive();
+        end
+        function onConfigImport(obj)
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(), return; end
+            app.importConfigInteractive();
+        end
+
+        % 호환 wrapper (기존 직접 호출 호환)
+        function loadAvi(obj, fIdx),    appHandle = obj.app(); if ~isempty(appHandle), appHandle.loadAviFile(fIdx); end, end
+        function loadFlight(obj, fIdx), appHandle = obj.app(); if ~isempty(appHandle), appHandle.handleFlightFile(fIdx); end, end
+    end
+
+    methods (Static, Access = private)
+        function input = normalizeInput(adapterOrApp)
+            % Validate constructor input and pass through. Preserves the
+            % FileController:BadInput identifier callers rely on.
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
             else
                 error('FileController:BadInput', ...
                     'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
                     class(adapterOrApp));
             end
-            obj.subscribeEvents();
-        end
-
-        function subscribeEvents(obj)
-            app = obj.Adapter.app();
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
-            obj.Listeners{end+1} = EB('FlightFileRequested',   @(~,d) obj.onFlightFile(d));
-            obj.Listeners{end+1} = EB('AviFileRequested',      @(~,d) obj.onAviFile(d));
-            obj.Listeners{end+1} = EB('CoastFileRequested',    @(~,~) obj.onCoastFile());
-            obj.Listeners{end+1} = EB('ConfigExportRequested', @(~,~) obj.onConfigExport());
-            obj.Listeners{end+1} = EB('ConfigImportRequested', @(~,~) obj.onConfigImport());
-        end
-
-        function onFlightFile(obj, d)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(d), return; end
-            app.handleFlightFile(d.ChannelIdx);
-        end
-        function onAviFile(obj, d)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(d), return; end
-            app.loadAviFile(d.ChannelIdx);
-        end
-        function onCoastFile(obj)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(), return; end
-            app.handleCoastFile();
-        end
-        function onConfigExport(obj)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(), return; end
-            app.exportConfigInteractive();
-        end
-        function onConfigImport(obj)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(), return; end
-            app.importConfigInteractive();
-        end
-
-        % 호환 wrapper (기존 직접 호출 호환)
-        function loadAvi(obj, fIdx),    obj.Adapter.app().loadAviFile(fIdx); end
-        function loadFlight(obj, fIdx), obj.Adapter.app().handleFlightFile(fIdx); end
-
-        function delete(obj)
-            for k = 1:numel(obj.Listeners)
-                try, if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end, catch, end
-            end
-            obj.Listeners = {};
         end
     end
 end

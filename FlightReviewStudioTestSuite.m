@@ -3030,6 +3030,55 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyTrue(any(strcmp(known, 'Pref:Experimental:SharedDecode')));
         end
 
+        function test_T15_ControllerBase_FourMigratedInheritBase(testCase)
+            % Phase 4 stabilization: FileController / VideoSyncController
+            % / PanelToggleController / PlotController must inherit
+            % from ControllerBase; cleanup deletes their listeners
+            % through the shared path so dashboard teardown is leak-
+            % free.
+            classes = {'flightdash.controller.FileController', ...
+                       'flightdash.controller.VideoSyncController', ...
+                       'flightdash.controller.PanelToggleController', ...
+                       'flightdash.controller.PlotController'};
+            for k = 1:numel(classes)
+                mc = meta.class.fromName(classes{k});
+                testCase.verifyNotEmpty(mc, sprintf('%s missing', classes{k}));
+                supers = arrayfun(@(s) string(s.Name), mc.SuperclassList);
+                testCase.verifyTrue(any(supers == "flightdash.controller.ControllerBase"), ...
+                    sprintf('%s must inherit ControllerBase.', classes{k}));
+            end
+            % Round-trip with adapter to confirm trackListener pipeline.
+            app = [];
+            try, app = flightdash.FlightDataDashboard(); catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            ctrl = flightdash.controller.FileController(app.Adapter);
+            testCase.verifyGreaterThanOrEqual(numel(ctrl.Listeners), 5, ...
+                'FileController must have registered 5 EventBus listeners.');
+            % After explicit cleanup the Listeners cell must be empty.
+            ctrl.cleanup();
+            testCase.verifyEmpty(ctrl.Listeners);
+        end
+
+        function test_T15_Diag_CallbackSafetyRuns(testCase)
+            % Diagnostic must run, return a report struct, and report
+            % WarnCount >= 0 / ErrCount >= 0 without throwing.
+            try
+                report = flightdash.studio.diag.verifyCallbackSafety();
+            catch ME
+                testCase.verifyFail(sprintf( ...
+                    'verifyCallbackSafety threw: %s', ME.message));
+                return;
+            end
+            testCase.verifyTrue(isstruct(report));
+            for fld = {'Findings','Summary','Runtime'}
+                testCase.verifyTrue(isfield(report, fld{1}));
+            end
+            testCase.verifyGreaterThan(report.Summary.ScannedFiles, 0);
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole

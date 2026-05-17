@@ -1,78 +1,71 @@
-classdef PanelToggleController < handle
+classdef PanelToggleController < flightdash.controller.ControllerBase
     % flightdash.controller.PanelToggleController
     % - 패널 토글 + DebugMode + SyncToggle 이벤트 구독
     %
-    % [REFACTOR R5+5] Migrated to DashboardAppAdapter. Pure event-relay
-    % controller — every callback ends in an app verb (togglePanel /
-    % toggleDebugMode / toggleSync / toggleWindowMaximized /
-    % setChannelViewMode) that has no adapter API yet, so the body
-    % uniformly escape-hatches via obj.Adapter.app().
-
-    properties (Access = private)
-        Adapter  % flightdash.runtime.DashboardAppAdapter
-        Listeners cell = {}
-    end
+    % [Phase 4 stabilization] Inherits from ControllerBase; listener
+    % tracking + cleanup centralised.
 
     methods
         function obj = PanelToggleController(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
-                obj.Adapter = adapterOrApp;
-            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                obj.Adapter = adapterOrApp.getAdapter();
-            else
-                error('PanelToggleController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
+            obj@flightdash.controller.ControllerBase( ...
+                flightdash.controller.PanelToggleController.normalizeInput(adapterOrApp));
             obj.subscribeEvents();
         end
 
         function subscribeEvents(obj)
-            app = obj.Adapter.app();
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
-            obj.Listeners{end+1} = EB('PanelToggled',       @(~,d) obj.onPanelToggled(d));
-            obj.Listeners{end+1} = EB('DebugModeToggled',   @(~,d) obj.onDebugToggled(d));
-            obj.Listeners{end+1} = EB('SyncToggled',        @(~,~) obj.onSyncToggled());
-            obj.Listeners{end+1} = EB('LayoutFitRequested', @(~,~) obj.onLayoutFitRequested());
-            obj.Listeners{end+1} = EB('ChannelViewChanged', @(~,d) obj.onChannelViewChanged(d));
+            appHandle = obj.app();
+            if isempty(appHandle), return; end
+            EB = @(eventName, callback) ...
+                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
+            obj.trackListener(EB('PanelToggled',       @(~,d) obj.onPanelToggled(d)));
+            obj.trackListener(EB('DebugModeToggled',   @(~,d) obj.onDebugToggled(d)));
+            obj.trackListener(EB('SyncToggled',        @(~,~) obj.onSyncToggled()));
+            obj.trackListener(EB('LayoutFitRequested', @(~,~) obj.onLayoutFitRequested()));
+            obj.trackListener(EB('ChannelViewChanged', @(~,d) obj.onChannelViewChanged(d)));
         end
 
         function onPanelToggled(obj, d)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(d), return; end
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(d), return; end
             app.togglePanel(d.ChannelIdx, d.Payload);
         end
         function onDebugToggled(obj, d)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(d), return; end
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(d), return; end
             app.toggleDebugMode(d.Payload);
         end
         function onSyncToggled(obj)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(), return; end
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(), return; end
             app.toggleSync();
         end
         function onLayoutFitRequested(obj)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(), return; end
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(), return; end
             app.toggleWindowMaximized();
         end
         function onChannelViewChanged(obj, d)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(d), return; end
+            app = obj.app();
+            if isempty(app) || ~app.isActiveSession(d), return; end
             app.setChannelViewMode(d.Payload);
         end
 
         % 호환 wrapper
         function toggle(obj, fIdx, pnlName)
-            obj.Adapter.app().togglePanel(fIdx, pnlName);
+            a = obj.app(); if ~isempty(a), a.togglePanel(fIdx, pnlName); end
         end
+    end
 
-        function delete(obj)
-            for k = 1:numel(obj.Listeners)
-                try, if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end, catch, end
+    methods (Static, Access = private)
+        function input = normalizeInput(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
+            else
+                error('PanelToggleController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
             end
-            obj.Listeners = {};
         end
     end
 end
