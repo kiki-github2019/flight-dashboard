@@ -3274,6 +3274,63 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 sprintf('P4-13: %s', results(idx).Message));
         end
 
+        function test_T15_CommandRouter_AutoUpdateModeCycles(testCase)
+            % Pref:AutoUpdate must cycle Manual -> Auto -> Frozen ->
+            % Manual on repeated dispatch and persist on app.Project.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            modes = {'Manual','Auto','Frozen'};
+            % Force baseline.
+            tmp = app.Project; tmp.AutoUpdateMode = 'Manual'; app.Project = tmp;
+            for k = 1:6
+                app.dispatchCommand('Pref:AutoUpdate', 'Test');
+                expected = modes{mod(k, numel(modes)) + 1};
+                testCase.verifyEqual(char(app.Project.AutoUpdateMode), expected, ...
+                    sprintf('Cycle step %d expected %s.', k, expected));
+            end
+        end
+
+        function test_T15_CommandRouter_RibbonCommandIdsAreLive(testCase)
+            % Final regression guard: every ribbon-dispatched cmdId
+            % MUST appear in CommandRouter.knownCommands AND every
+            % knownCommands entry must resolve a non-error dispatch
+            % when invoked on a freshly launched app (no exceptions
+            % escape; status messages are tolerated). This catches
+            % "new ribbon button without handler" + "handler removed
+            % without ribbon update" in one pass.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            ribbonIds = app.RibbonBar.allCommandIds();
+            known = flightdash.studio.CommandRouter.knownCommands();
+            % Direction 1: ribbon -> known.
+            unknown = setdiff(ribbonIds, known);
+            testCase.verifyEmpty(unknown, ...
+                sprintf('Ribbon cmdIds missing from knownCommands: %s', ...
+                strjoin(unknown, ', ')));
+            % Direction 2: every known cmdId must dispatch without
+            % throwing. We do NOT verify side effects — only safety.
+            failures = {};
+            for k = 1:numel(known)
+                cid = known{k};
+                if startsWith(cid, 'File:Exit'), continue; end  % closes app
+                try
+                    app.dispatchCommand(cid, 'CoverageTest');
+                catch ME
+                    failures{end+1} = sprintf('%s -> %s', cid, ME.message); %#ok<AGROW>
+                end
+            end
+            testCase.verifyEmpty(failures, ...
+                sprintf('%d known cmdId(s) threw on dispatch: %s', ...
+                numel(failures), strjoin(failures, ' | ')));
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole
