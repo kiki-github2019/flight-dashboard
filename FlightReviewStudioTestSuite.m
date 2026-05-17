@@ -2999,6 +2999,37 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Entry point must emit a soft warning below R2024a / R2025a.');
         end
 
+        function test_T15_SharedDecode_OptInToggle(testCase)
+            % Review priority 5: SharedDecodeService is a prototype.
+            % The Settings menu surfaces it as an experimental opt-in
+            % toggle. Dispatch must flip the per-active-dashboard flag.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            % Need at least one session for the toggle to land.
+            try, app.addSession('SD-Test'); catch, end
+            dash = app.getActiveDashboard();
+            testCase.assumeTrue(~isempty(dash) && isvalid(dash), ...
+                'No active dashboard for shared-decode test.');
+            testCase.assumeTrue(isprop(dash, 'UseSharedDecodeService'));
+            before = logical(dash.UseSharedDecodeService);
+            app.dispatchCommand('Pref:Experimental:SharedDecode', 'Test');
+            testCase.verifyNotEqual(logical(dash.UseSharedDecodeService), before, ...
+                'Dispatch must flip UseSharedDecodeService.');
+            app.dispatchCommand('Pref:Experimental:SharedDecode', 'Test');
+            testCase.verifyEqual(logical(dash.UseSharedDecodeService), before, ...
+                'Second dispatch must flip back.');
+            % Ensure RibbonBar reports the live state.
+            testCase.verifyEqual(app.RibbonBar.isSharedDecodeOn(), ...
+                logical(dash.UseSharedDecodeService));
+            % Command must be in knownCommands so the mapping test
+            % does not regress.
+            known = flightdash.studio.CommandRouter.knownCommands();
+            testCase.verifyTrue(any(strcmp(known, 'Pref:Experimental:SharedDecode')));
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole

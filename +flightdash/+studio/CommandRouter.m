@@ -56,6 +56,7 @@ classdef CommandRouter < handle
                 'Pref:Mode:Report', 'Pref:Mode:Compact', 'Pref:Mode:DockedFigure', ...
                 'Pref:Theme:Toggle', 'Pref:AutoUpdate', ...
                 'Pref:ToolbarCustomize', 'Pref:Shortcuts', ...
+                'Pref:Experimental:SharedDecode', ...
                 'Help:Shortcuts', 'Help:Samples', 'Help:ErrorLog', 'Help:About', ...
                 'Help:QuickStart', 'Help:Troubleshooting', 'Help:License', ...
                 'Help:SupportBundle', 'Project:HealthCheck', 'Project:RepairLinks'};
@@ -132,6 +133,7 @@ classdef CommandRouter < handle
                 'Pref:Mode:Compact','Pref:Mode:DockedFigure', ...
                 'Pref:Theme:Toggle','Pref:AutoUpdate', ...
                 'Pref:ToolbarCustomize','Pref:Shortcuts', ...
+                'Pref:Experimental:SharedDecode', ...
                 'Help:About','Help:License','Help:QuickStart', ...
                 'Help:Troubleshooting','Help:SupportBundle','Help:ErrorLog', ...
                 'Help:Shortcuts','Help:Samples', ...
@@ -258,6 +260,8 @@ classdef CommandRouter < handle
                     obj.setStatus('Toolbar Customize — ribbon is fixed in this build.');
                 case 'Pref:Shortcuts'
                     obj.openHelpDoc('Shortcuts.md');
+                case 'Pref:Experimental:SharedDecode'
+                    obj.toggleSharedDecode();
                 case 'Project:HealthCheck'
                     obj.runProjectHealthCheck(app);
                 case 'Project:RepairLinks'
@@ -546,6 +550,41 @@ classdef CommandRouter < handle
                 end
             catch ME
                 obj.reportException('Command', 'Project:HealthCheck', ME);
+            end
+        end
+
+        function toggleSharedDecode(obj)
+            % Review priority 5: surface the SharedDecodeService
+            % prototype as an explicit opt-in. Toggles the per-active-
+            % dashboard UseSharedDecodeService flag + reports the new
+            % state. When no dashboard is active the toggle is a no-op
+            % with a status message.
+            try
+                [dash, sessionId] = obj.activeDashboard();
+                if isempty(dash) || ~isvalid(dash)
+                    obj.setStatus(['Shared Decode toggle ignored — ' ...
+                        'no active session.']);
+                    return;
+                end
+                current = false;
+                if isprop(dash, 'UseSharedDecodeService')
+                    current = logical(dash.UseSharedDecodeService);
+                end
+                if ismethod(dash, 'setSharedDecodeEnabled')
+                    dash.setSharedDecodeEnabled(~current);
+                elseif isprop(dash, 'UseSharedDecodeService')
+                    dash.UseSharedDecodeService = ~current;
+                end
+                if ~current
+                    obj.setStatus(sprintf( ...
+                        'Experimental Shared Decode enabled for %s (opt-in prototype).', ...
+                        sessionId));
+                else
+                    obj.setStatus(sprintf( ...
+                        'Experimental Shared Decode disabled for %s.', sessionId));
+                end
+            catch ME
+                obj.reportException('Command', 'Pref:Experimental:SharedDecode', ME);
             end
         end
 

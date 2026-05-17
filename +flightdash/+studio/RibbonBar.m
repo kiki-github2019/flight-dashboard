@@ -218,14 +218,33 @@ classdef RibbonBar < handle
         end
 
         function showSettingsMenu(obj, src)
+            % Experimental opt-in row reports its current state so the
+            % user can see whether the shared decode prototype is
+            % active. Label includes the "Experimental" tag so it is
+            % never mistaken for a stable feature.
+            sharedOn = obj.isSharedDecodeOn();
+            if sharedOn, mark = 'ON'; else, mark = 'OFF'; end
+            sharedLabel = sprintf('Experimental: Shared Decode (opt-in) — %s', mark);
             obj.showMenuAt(src, ...
                 {{'Auto Update Mode',  'Pref:AutoUpdate'}, ...
                  {'Toolbar Customize', 'Pref:ToolbarCustomize'}, ...
                  {'Shortcut Settings', 'Pref:Shortcuts'}, ...
+                 {sharedLabel,         'Pref:Experimental:SharedDecode'}, ...
                  {'Project Properties','Project:Properties'}, ...
                  {'Edit Project Details', 'Project:EditDetails'}, ...
                  {'Cleanup Project Cache','Project:CleanupCache'}, ...
                  {'Repair Missing Files', 'Project:RepairLinks'}});
+        end
+
+        function tf = isSharedDecodeOn(obj)
+            tf = false;
+            try
+                dash = obj.activeDashboard();
+                if ~isempty(dash) && isvalid(dash) && isprop(dash, 'UseSharedDecodeService')
+                    tf = logical(dash.UseSharedDecodeService);
+                end
+            catch
+            end
         end
 
         function showHelpMenu(obj, src)
