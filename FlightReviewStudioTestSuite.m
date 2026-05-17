@@ -2864,6 +2864,22 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(tab);
         end
 
+        function test_T15_Ribbon_QuickAccessHasSettingsAndHelp(testCase)
+            % Phase 6: Quick Access must expose Settings (⚙) + Help (?)
+            % buttons alongside Mode dropdown + Theme toggle.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            qa = app.RibbonBar.QuickAccess;
+            for fld = {'Title','ModeDropdown','ThemeBtn','SettingsBtn','HelpBtn'}
+                testCase.verifyTrue(isfield(qa, fld{1}), ...
+                    sprintf('QuickAccess.%s missing.', fld{1}));
+            end
+        end
+
         function test_T15_Ribbon_ReviewAndPlotTabsPresent(testCase)
             % Phase 5: Review + Plot tabs must register; verifies
             % Analyze split button is present in Review tab.
