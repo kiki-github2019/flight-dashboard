@@ -998,7 +998,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % just this dashboard tab). Phase 3b will register a
             % per-tab resize listener via the parent container instead.
             if ~app.IsEmbedded
-                app.UIFigure.CloseRequestFcn = @app.UIFigureCloseRequest;
+                % Wrap as anonymous so the (src,event) MATLAB passes is
+                % explicit. A future refactor that drops the trailing
+                % ~,~ on UIFigureCloseRequest will not silently change
+                % the signature contract. Caught by
+                % flightdash.studio.diag.verifyCallbackSafety.
+                app.UIFigure.CloseRequestFcn = @(s, e) app.UIFigureCloseRequest(s, e);
                 app.UIFigure.SizeChangedFcn = @(~,~) app.onUIFigureResized();
             end
 

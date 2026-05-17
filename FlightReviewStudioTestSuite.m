@@ -3081,6 +3081,29 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'subscriberCount must return to baseline.');
         end
 
+        function test_T15_Diag_NoRawCallbackBindings(testCase)
+            % Regression guard for the static-scan portion of
+            % verifyCallbackSafety. Anything new like
+            %   ButtonPushedFcn = @app.method
+            % must use an anonymous wrapper instead so the signature
+            % contract is explicit.
+            try
+                report = flightdash.studio.diag.verifyCallbackSafety();
+            catch ME
+                testCase.assumeFail(sprintf( ...
+                    'Diagnostic threw: %s', ME.message));
+                return;
+            end
+            rawCount = 0;
+            for k = 1:numel(report.Findings)
+                if contains(report.Findings(k).Pattern, 'raw handle')
+                    rawCount = rawCount + 1;
+                end
+            end
+            testCase.verifyEqual(rawCount, 0, ...
+                sprintf('Found %d raw-handle callback bindings — wrap with @(...).', rawCount));
+        end
+
         function test_T15_Diag_CallbackSafetyRuns(testCase)
             % Diagnostic must run, return a report struct, and report
             % WarnCount >= 0 / ErrCount >= 0 without throwing.
