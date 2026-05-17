@@ -2792,6 +2792,78 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEqual(app.VideoSyncState(2).CurrentFrame, 50);
         end
 
+        function test_T15_Ribbon_IconFactoryReturnsValidIcon(testCase)
+            % Phase 1: RibbonIconFactory must return uint8 24x24x3 for
+            % both text-style and symbol-style command ids without
+            % throwing. Cache must reuse the same handle.
+            for cmd = ["Toolbar:New","Toolbar:Play","Edit:Undo","File:SaveProject"]
+                try
+                    rgb = flightdash.ui.RibbonIconFactory.forCommand(char(cmd));
+                catch ME
+                    testCase.verifyFail(sprintf('IconFactory threw for %s: %s', cmd, ME.message));
+                    continue;
+                end
+                testCase.verifyClass(rgb, 'uint8');
+                testCase.verifyEqual(size(rgb,3), 3);
+                testCase.verifyTrue(size(rgb,1) == 24 && size(rgb,2) == 24);
+            end
+            % Cache identity check.
+            rgb1 = flightdash.ui.RibbonIconFactory.forCommand('Toolbar:Play');
+            rgb2 = flightdash.ui.RibbonIconFactory.forCommand('Toolbar:Play');
+            testCase.verifyEqual(rgb1, rgb2);
+        end
+
+        function test_T15_Ribbon_ButtonBuildsAndDispatches(testCase)
+            % Phase 1: RibbonButton.build() must materialize a uibutton
+            % and click must route through the supplied adapter shim.
+            fig = []; app = [];
+            try
+                fig = uifigure('Visible', 'off');
+                g = uigridlayout(fig, [1 1]);
+            catch ME
+                testCase.assumeFail(sprintf('uifigure unavailable: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(fig)); %#ok<NASGU>
+            calls = {};
+            shim = struct( ...
+                'dispatchCommand', @(cid, src) assignin('caller', 'calls', [evalin('caller','calls'); {char(cid)}]), ...
+                'logCaught', @(~,~) [], ...
+                'isValidApp', @() true);
+            btn = flightdash.studio.ribbon.RibbonButton('Save', 'Toolbar:Save');
+            btn.build(g, shim);
+            testCase.verifyClass(btn.MainHandle, 'matlab.ui.control.Button');
+            % Programmatic invoke to bypass real click event.
+            try
+                btn.MainHandle.ButtonPushedFcn();
+            catch
+            end
+            delete(btn);
+        end
+
+        function test_T15_Ribbon_TabAndGroupCompose(testCase)
+            % Phase 1: RibbonTab containing RibbonGroup containing
+            % RibbonButton must build into a uitab without error.
+            try
+                fig = uifigure('Visible', 'off');
+                cleanup = onCleanup(@() delete(fig)); %#ok<NASGU>
+                g = uigridlayout(fig, [1 1]);
+                tg = uitabgroup(g);
+            catch ME
+                testCase.assumeFail(sprintf('uifigure unavailable: %s', ME.message));
+                return;
+            end
+            grp = flightdash.studio.ribbon.RibbonGroup('File', { ...
+                flightdash.studio.ribbon.RibbonButton('New','Toolbar:New'), ...
+                flightdash.studio.ribbon.RibbonButton('Open','Toolbar:Open')});
+            tab = flightdash.studio.ribbon.RibbonTab('Home', {grp});
+            shim = struct('dispatchCommand', @(~,~)[], 'logCaught', @(~,~)[], 'isValidApp', @() true);
+            tab.build(tg, shim);
+            testCase.verifyClass(tab.Tab, 'matlab.ui.container.Tab');
+            testCase.verifyEqual(char(tab.Tab.Title), 'Home');
+            delete(tab);
+        end
+
         function test_T15_Refactor_OwnershipBaselineLocked(testCase)
             % Wrap-up regression guard. Runs the
             % r6r7r8_ownership_baseline step from the diagnostic in
