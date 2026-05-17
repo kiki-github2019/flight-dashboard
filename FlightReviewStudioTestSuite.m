@@ -2864,6 +2864,23 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(tab);
         end
 
+        function test_T15_Ribbon_DataTabPresent(testCase)
+            % Phase 3: launching the Studio app must register a Data
+            % tab alongside Home; Flight group contains Wizard/F1/F2.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            titles = cellfun(@(t) char(t.Title), app.RibbonBar.Tabs, 'UniformOutput', false);
+            testCase.verifyTrue(any(strcmp(titles, 'Data')), ...
+                sprintf('Data tab missing — got: %s', strjoin(titles, ',')));
+            dataTab = app.RibbonBar.Tabs{find(strcmp(titles,'Data'),1)};
+            testCase.verifyEqual(char(dataTab.Groups{1}.Title), 'Flight');
+            testCase.verifyGreaterThanOrEqual(numel(dataTab.Groups{1}.Buttons), 3);
+        end
+
         function test_T15_Ribbon_HomeTabPresent(testCase)
             % Phase 2: launching the Studio app must populate
             % app.RibbonBar with at least one tab whose Title='Home'.
