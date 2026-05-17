@@ -3239,12 +3239,17 @@ Review requirements:
 - 코드 작업에 토큰사용 최대화
 - 코드 작업 현재 phase 작업 종료시 git push 자동 실행
 
-[Response Rules]
+[conclusion] I request that you organize the tasks into a list and proceed sequentially. Please adhere to the provided code execution rules, and once the work is completed, be sure to perform a git push to ensure the code is organized by task on GitHub. 
+
+[Response Rules] 
 - Do not print the entire code
 - Do not print modified code
 - Do not provide unnecessary explanations (maximum 1 line)
 - Do not repeat existing code
 - Do not print unnecessary steps
+- brief current work with short text
+- after end coding, print what's work done with short text.
+
 
 [Code Work Rules]
 - Prioritize performance improvement
@@ -3363,7 +3368,7 @@ dex-codex-260511
 
 다음의 검토결과를 claude code에서 검토하기 적합한 영문 보고서로 변경해서 md 파일로 출력요청합니다.
 
-
+다음의 리뷰를 신중히, 상세히, 엄격히, 긍정적으로 검토해주세요
 
 
 ===============================================
@@ -3373,6 +3378,8 @@ SharedDecodeService는 priority queue, active session 우선순위, 세션 cance
 
 권장: 현재 단계에서는 “공유 디코드 서비스 구현 완료”라고 판단하면 안 됩니다. 실제 VideoReader 기반 디코더 연결, async/parfeval 통합, cancellation test, 대용량 AVI 테스트가 필요합니다.
 ===============================================
+
+go 소유권 반전 — 어느 속성이 0 레거시 read에 도달하면 getter/setter 방향 뒤집기 (legacy = Dependent forward)
 
 You are working on the MATLAB repository:
 
