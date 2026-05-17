@@ -81,8 +81,14 @@ classdef ErrorLog < handle
                 dbg = logical(debugOverride);
             end
             if ~dbg, return; end
-            if strcmpi(tag, 'silent'), return; end
             fprintf('[%s] %s: %s\n', tag, ME.identifier, ME.message);
+            try
+                if ~isempty(ME.stack)
+                    s = ME.stack(1);
+                    fprintf('  at %s (%s:%d)\n', s.name, s.file, s.line);
+                end
+            catch
+            end
         end
         
         function dump(n, filterTag)

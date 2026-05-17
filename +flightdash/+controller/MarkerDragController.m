@@ -233,6 +233,7 @@ classdef MarkerDragController < flightdash.controller.ControllerBase
         function stopDrag(obj)
             if ~flightdash.controller.MarkerDragController.isUsable(obj), return; end
             app = obj.Adapter.app();
+            cleanupState = onCleanup(@() obj.forceStopDragState()); %#ok<NASGU>
             wasDraggingFIdx = obj.DraggedFIdx;
             draggedMarker = obj.DraggedMarker;
             oldPosition = obj.OriginalMarkerPosition;
@@ -317,6 +318,32 @@ classdef MarkerDragController < flightdash.controller.ControllerBase
 
         function clearDraggedMarker(obj)
             obj.DraggedMarker = [];
+        end
+
+        function forceStopDragState(obj)
+            try
+                fIdx = obj.DraggedFIdx;
+                try
+                    app = obj.Adapter.app();
+                    if ~isempty(app) && isvalid(app)
+                        app.State = 'IDLE';
+                        if fIdx >= 1 && fIdx <= numel(app.Models)
+                            app.setXLimListenersEnabled(fIdx, true);
+                        end
+                    end
+                catch
+                end
+                obj.IsDraggingMarker = false;
+                obj.DraggedMarker = [];
+                obj.DraggedFIdx = 0;
+                obj.DraggedFromVideo = false;
+                obj.OriginalMarkerPosition = [];
+                obj.OriginalMarkerIndex = NaN;
+                obj.VideoThrottleDyn = 0.05;
+                obj.releaseDragLock();
+            catch ME
+                obj.logCaught(ME, 'MarkerDrag:forceStop');
+            end
         end
 
         function pos = readMarkerPosition(~, marker)

@@ -142,9 +142,21 @@ classdef ControllerBase < handle
 
         function releaseDragLock(obj)
             try
-                if ~isempty(obj.Router) && isvalid(obj.Router) && ...
-                        ismethod(obj.Router, 'isLockHeldBy') && obj.Router.isLockHeldBy(obj.SessionId)
-                    obj.Router.releaseDragLock();
+                router = obj.Router;
+                if isempty(router) || ~isvalid(router)
+                    fig = obj.uiFigure();
+                    if ~isempty(fig) && isvalid(fig) && isappdata(fig, 'StudioMouseRouter')
+                        router = getappdata(fig, 'StudioMouseRouter');
+                        obj.Router = router;
+                    end
+                end
+                sessionId = char(obj.SessionId);
+                if isempty(sessionId) && ~isempty(obj.Adapter) && ismethod(obj.Adapter, 'activeSessionId')
+                    sessionId = char(obj.Adapter.activeSessionId());
+                end
+                if ~isempty(router) && isvalid(router) && ~isempty(sessionId) && ...
+                        ismethod(router, 'isLockHeldBy') && router.isLockHeldBy(sessionId)
+                    router.releaseDragLock();
                 end
             catch ME
                 obj.logCaught(ME, 'ControllerBase:releaseDragLock');
@@ -211,12 +223,12 @@ classdef ControllerBase < handle
                 obj.releaseDragLock();
                 return;
             end
+            cleanupLock = onCleanup(@() obj.releaseDragLock()); %#ok<NASGU>
             try
                 obj.doStopDrag();
             catch ME
                 obj.logCaught(ME, 'ControllerBase:stopDrag');
             end
-            obj.releaseDragLock();
         end
 
         function doStopDrag(obj) %#ok<MANU>

@@ -154,6 +154,7 @@ classdef PannerController < flightdash.controller.ControllerBase
         end
 
         function stopHandleDrag(obj)
+            cleanupLock = onCleanup(@() obj.releaseDragLock()); %#ok<NASGU>
             try
                 obj.IsDragging = false;
                 obj.DragFIdx = 0;

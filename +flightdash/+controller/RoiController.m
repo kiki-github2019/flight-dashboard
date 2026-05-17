@@ -399,6 +399,7 @@ classdef RoiController < flightdash.controller.ControllerBase
         end
 
         function stopDrag(obj)
+            cleanupLock = onCleanup(@() obj.releaseDragLock()); %#ok<NASGU>
             try
                 if obj.IsDraggingRoi && ~isempty(obj.CurrentHitInfo) && isstruct(obj.CurrentHitInfo) && ...
                         isfield(obj.CurrentHitInfo, 'ChannelIdx') && isfield(obj.CurrentHitInfo, 'RoiIndex')

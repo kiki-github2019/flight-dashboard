@@ -1585,14 +1585,17 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % cleanup_ 가 IsUpdating=false 보장 후 아래 진행
             clear cleanup_;
 
-            if app.SyncState.IsSynced && fIdx == 1 && ~isempty(app.Models(2).rawData)
+            if app.SyncState.IsSynced && fIdx == 1 && ~app.InCascade && ~isempty(app.Models(2).rawData)
                 targetT2 = app.SyncState.SyncT2 + (currTime - app.SyncState.SyncT1);
 
                 timeCol2 = app.Models(2).mappedCols.Time;
                 idx2 = app.findClosestIndexByTime(app.Models(2).rawData.(timeCol2), targetT2);
 
                 if ~isequal(app.Models(2).currentIndex, idx2)
+                    app.InCascade = true;
+                    cascadeCleanup_ = onCleanup(@() resetInCascade(app)); %#ok<NASGU>
                     app.applyTimeChange(2, idx2);
+                    clear cascadeCleanup_;
                 end
             end
         end
@@ -5009,7 +5012,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             end
 
             % 동기화 모드: 경로 1 드래그 시 경로 2도 경량 업데이트
-            if app.SyncState.IsSynced && fIdx == 1 && ~isempty(app.Models(2).rawData)
+            if app.SyncState.IsSynced && fIdx == 1 && ~app.InCascade && ~isempty(app.Models(2).rawData)
                 targetT2 = app.SyncState.SyncT2 + (currTime - app.SyncState.SyncT1);
                 timeCol2 = app.Models(2).mappedCols.Time;
                 idx2 = app.findClosestIndexByTime(app.Models(2).rawData.(timeCol2), targetT2);
