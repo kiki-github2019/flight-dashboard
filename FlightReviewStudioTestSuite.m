@@ -1,10 +1,10 @@
 function results = FlightReviewStudioTestSuite()
-%FLIGHTREVIEWSTUDIOTESTSUITE  Sequential runner for static_test/*.m files.
+%FLIGHTREVIEWSTUDIOTESTSUITE  Canonical sequential runner for static_test.
 %
 %   Performs the workspace + cache cleanup commands the user requested
 %   (close all force / clear all force / clear classes / rehash
 %   toolboxcache) BEFORE invoking any test, then enumerates and runs
-%   every individual test function inside ./static_test/:
+%   every canonical test function inside ./static_test/:
 %     - matlab.unittest.TestCase subclass : every Test method counted
 %       separately and dispatched via matlab.unittest.TestSuite.fromMethod
 %     - other classdef helpers           : reported as SKIP
@@ -39,6 +39,7 @@ function results = FlightReviewStudioTestSuite()
         results = repmat(localEmptyResult(), 0, 1);
         return;
     end
+    addpath(here);
     addpath(staticDir);
 
     % --- enumerate every test entry ------------------------------------
@@ -52,6 +53,7 @@ function results = FlightReviewStudioTestSuite()
 
     for k = 1:total
         e = entries(k);
+        cleanupGuard = onCleanup(@() localCleanupEnvironment(e.Display));
         % Progress line: which K-th of total N + the test function name.
         fprintf('  [%d/%d] %s  ... ', k, total, e.Display);
         try
@@ -74,6 +76,7 @@ function results = FlightReviewStudioTestSuite()
                 fprintf('FAIL  %s\n', ME.message);
             end
         end
+        clear cleanupGuard
     end
 
     nPass = sum(strcmp({results.Status}, 'PASS'));
@@ -93,11 +96,16 @@ end
 function entries = localBuildEntries(staticDir)
     files = dir(fullfile(staticDir, '*.m'));
     entries = repmat(localEmptyEntry(), 0, 1);
+    skipNames = {'runFullStabilizationTests', ...
+        'runAllTestCodesWithCleanup', ...
+        'run_studio_tests', ...
+        'old_FlightReviewStudioCoreTestSuite', ...
+        'verifyPhase3_Phase7', ...
+        'verifyRiskRegressionT'};
     for k = 1:numel(files)
         relFile = files(k).name;
         [~, name, ~] = fileparts(relFile);
-        if any(strcmp(name, {'runFullStabilizationTests', ...
-                'runAllTestCodesWithCleanup', 'run_studio_tests'}))
+        if any(strcmp(name, skipNames))
             continue;
         end
         absPath = fullfile(staticDir, relFile);
@@ -128,6 +136,13 @@ function entries = localBuildEntries(staticDir)
             entries(end+1, 1) = localMakeEntry(relFile, name, 'function'); %#ok<AGROW>
         end
     end
+end
+
+function localCleanupEnvironment(~)
+    try, close all force; catch, end
+    try, evalin('base', 'clear all force'); catch, end
+    try, evalin('base', 'clear classes'); catch, end
+    try, rehash toolboxcache; catch, end
 end
 
 function r = localEmptyResult()

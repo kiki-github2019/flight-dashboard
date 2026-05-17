@@ -898,7 +898,7 @@
                 flightdash.util.MemoryMonitor.stopMonitoring();
             catch
             end
-            beforeNames = FlightReviewStudioTestSuite.collectTimerNames(timerfindall);
+            beforeNames = old_FlightReviewStudioCoreTestSuite.collectTimerNames(timerfindall);
 
             app = [];
             try
@@ -921,7 +921,7 @@
             drawnow limitrate;
             pause(0.05);
 
-            afterNames = FlightReviewStudioTestSuite.collectTimerNames(timerfindall);
+            afterNames = old_FlightReviewStudioCoreTestSuite.collectTimerNames(timerfindall);
             % Any timer that did NOT exist before construction is a leak
             % candidate; check the names we own.
             newNames = setdiff(afterNames, beforeNames);
@@ -1118,9 +1118,8 @@
             catch ME
                 testCase.assumeFail(sprintf('Model ctor failed: %s', ME.message));
             end
-            here = fileparts(mfilename('fullpath'));
-            srcOpt1 = fullfile(here, 'sample_data', 'option1.dat');
-            srcOpt2 = fullfile(here, 'sample_data', 'option2.dat');
+            srcOpt1 = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(1);
+            srcOpt2 = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(2);
             testCase.assumeTrue(isfile(srcOpt1) && isfile(srcOpt2), ...
                 'sample_data option files unavailable ??skipping.');
             sess.OptionFilePath = {srcOpt1, srcOpt2};
@@ -1253,7 +1252,7 @@
         % =================================================================
 
         function test_T15_OptionFileParser_ReadTwoSections(testCase)
-            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            sampleOpt = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(1);
             testCase.assumeTrue(isfile(sampleOpt), ...
                 'sample_data/option1.dat missing ??skipping.');
             model = flightdash.project.OptionFileParser.read(sampleOpt);
@@ -1267,12 +1266,12 @@
         end
 
         function test_T15_OptionFileParser_WriteReadRoundTrip(testCase)
-            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            sampleOpt = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(1);
             testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
             modelA = flightdash.project.OptionFileParser.read(sampleOpt);
             tmpPath = fullfile(tempdir, sprintf( ...
                 'option1_rt_%s.dat', datestr(now, 'yyyymmddHHMMSSFFF')));
-            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpPath)); %#ok<NASGU>
+            cleanup = onCleanup(@() old_FlightReviewStudioCoreTestSuite.safeDelete(tmpPath)); %#ok<NASGU>
             flightdash.project.OptionFileParser.write(modelA, tmpPath);
             modelB = flightdash.project.OptionFileParser.read(tmpPath);
             testCase.verifyEqual(height(modelB.Display), height(modelA.Display), ...
@@ -1290,12 +1289,12 @@
         end
 
         function test_T15_OptionFileParser_BackupRotation(testCase)
-            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            sampleOpt = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(1);
             testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
             tmpDir = fullfile(tempdir, sprintf('opt_bak_%s', ...
                 datestr(now, 'yyyymmddHHMMSSFFF')));
             mkdir(tmpDir);
-            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeRmdir(tmpDir)); %#ok<NASGU>
+            cleanup = onCleanup(@() old_FlightReviewStudioCoreTestSuite.safeRmdir(tmpDir)); %#ok<NASGU>
             tgt = fullfile(tmpDir, 'option1.dat');
             copyfile(sampleOpt, tgt);
             model = flightdash.project.OptionFileParser.read(tgt);
@@ -1379,12 +1378,12 @@
         end
 
         function test_T15_OptionFileParser_WriteAfterAddDeleteDisplayRows(testCase)
-            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(2);
+            sampleOpt = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(2);
             testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option2.dat missing.');
             tmpDir = fullfile(tempdir, sprintf('opt_addrm_%s', ...
                 datestr(now, 'yyyymmddHHMMSSFFF')));
             mkdir(tmpDir);
-            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeRmdir(tmpDir)); %#ok<NASGU>
+            cleanup = onCleanup(@() old_FlightReviewStudioCoreTestSuite.safeRmdir(tmpDir)); %#ok<NASGU>
             tgt = fullfile(tmpDir, 'option2.dat');
             copyfile(sampleOpt, tgt);
             model = flightdash.project.OptionFileParser.read(tgt);
@@ -1408,13 +1407,13 @@
         function test_T15_PreviewMapping_UsesOptionFileParser(testCase)
             % Pre-PFE-2: previewMapping must produce the same MappedCols
             % output that OptionFileParser would feed if called manually.
-            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            sampleOpt = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(1);
             testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
             % Build a CSV with the exact columns option1.dat targets.
-            tmpCsv = FlightReviewStudioTestSuite.writeSyntheticCsv( ...
+            tmpCsv = old_FlightReviewStudioCoreTestSuite.writeSyntheticCsv( ...
                 {'time','Flight_LAT','Flight_LON','Flight_ALT', ...
                  'Flight_HEADING','Flight_PITCH','Flight_ROLL'});
-            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
+            cleanup = onCleanup(@() old_FlightReviewStudioCoreTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
 
             loader = flightdash.model.FlightDataLoader();
             preview = loader.previewMapping(tmpCsv, sampleOpt);
@@ -1433,12 +1432,12 @@
         end
 
         function test_T15_PreviewMapping_OutputShapeUnchanged(testCase)
-            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            sampleOpt = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(1);
             testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
-            tmpCsv = FlightReviewStudioTestSuite.writeSyntheticCsv( ...
+            tmpCsv = old_FlightReviewStudioCoreTestSuite.writeSyntheticCsv( ...
                 {'time','Flight_LAT','Flight_LON','Flight_ALT', ...
                  'Flight_HEADING','Flight_PITCH','Flight_ROLL'});
-            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
+            cleanup = onCleanup(@() old_FlightReviewStudioCoreTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
             loader = flightdash.model.FlightDataLoader();
             preview = loader.previewMapping(tmpCsv, sampleOpt);
             for fn = {'Rows','HeadPreview','MappedCols','HasCriticalMissing','HasOptionalMissing'}
@@ -1453,12 +1452,12 @@
         end
 
         function test_T15_PreviewMapping_MissingOptionalStillWarning(testCase)
-            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            sampleOpt = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(1);
             testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
             % CSV lacks Roll/Pitch/Heading columns.
-            tmpCsv = FlightReviewStudioTestSuite.writeSyntheticCsv( ...
+            tmpCsv = old_FlightReviewStudioCoreTestSuite.writeSyntheticCsv( ...
                 {'time','Flight_LAT','Flight_LON','Flight_ALT'});
-            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
+            cleanup = onCleanup(@() old_FlightReviewStudioCoreTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
             loader = flightdash.model.FlightDataLoader();
             preview = loader.previewMapping(tmpCsv, sampleOpt);
             testCase.verifyFalse(preview.HasCriticalMissing, ...
@@ -1468,12 +1467,12 @@
         end
 
         function test_T15_PreviewMapping_MissingCriticalStillError(testCase)
-            sampleOpt = FlightReviewStudioTestSuite.sampleOptionPath(1);
+            sampleOpt = old_FlightReviewStudioCoreTestSuite.sampleOptionPath(1);
             testCase.assumeTrue(isfile(sampleOpt), 'sample_data/option1.dat missing.');
             % CSV lacks Lat / Lon ??both critical.
-            tmpCsv = FlightReviewStudioTestSuite.writeSyntheticCsv( ...
+            tmpCsv = old_FlightReviewStudioCoreTestSuite.writeSyntheticCsv( ...
                 {'time','Flight_ALT','Flight_HEADING','Flight_PITCH','Flight_ROLL'});
-            cleanup = onCleanup(@() FlightReviewStudioTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
+            cleanup = onCleanup(@() old_FlightReviewStudioCoreTestSuite.safeDelete(tmpCsv)); %#ok<NASGU>
             loader = flightdash.model.FlightDataLoader();
             preview = loader.previewMapping(tmpCsv, sampleOpt);
             testCase.verifyTrue(preview.HasCriticalMissing, ...
@@ -3941,7 +3940,12 @@
     methods (Static, Access = private)
         function p = sampleOptionPath(channel)
             here = fileparts(mfilename('fullpath'));
-            p = fullfile(here, 'sample_data', sprintf('option%d.dat', channel));
+            repoRoot = here;
+            [~, folderName] = fileparts(repoRoot);
+            if strcmp(folderName, 'static_test')
+                repoRoot = fileparts(repoRoot);
+            end
+            p = fullfile(repoRoot, 'sample_data', sprintf('option%d.dat', channel));
         end
 
         function safeDelete(path)

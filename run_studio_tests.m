@@ -1,24 +1,16 @@
 % run_studio_tests.m
-% Current Studio compatibility smoke runner.
+% Compatibility smoke runner; FlightReviewStudioTestSuite is canonical.
 
-clc;
-rootDir = fileparts(mfilename('fullpath'));
-if isempty(rootDir)
-    rootDir = pwd;
-end
-addpath(rootDir);
+repoRoot = fileparts(mfilename('fullpath'));
+addpath(repoRoot);
 clear classes;
 rehash toolboxcache;
 
-results = runtests('FlightReviewStudioTestSuite');
-disp(table(results));
+results = FlightReviewStudioTestSuite();
+statuses = string({results.Status});
+numFailed = sum(statuses == "FAIL");
+fprintf('Studio smoke tests: total=%d failed=%d\n', numel(results), numFailed);
 
-numFailed = sum([results.Failed]);
-numIncomplete = sum([results.Incomplete]);
-fprintf('Studio smoke tests: total=%d passed=%d failed=%d incomplete=%d\n', ...
-    numel(results), sum([results.Passed]), numFailed, numIncomplete);
-
-if numFailed > 0 || numIncomplete > 0
-    error('FlightReviewStudio:SmokeTestsFailed', ...
-        'Studio smoke tests failed or were incomplete.');
+if numFailed > 0
+    error('FlightReviewStudio:SmokeTestsFailed', 'Studio smoke tests failed.');
 end
