@@ -15,11 +15,27 @@ function app = FlightReviewStudio()
 %   - .frsproj v1 is a linked project format: external flight/video files
 %     are referenced by path and are not packed into the project archive.
 %
-%   Minimum requirement: MATLAB R2021b (uitree multi-select / Icon).
+%   Version policy (see README "MATLAB Compatibility"):
+%     - Minimum runtime : R2021b  (uitree multi-select / uibutton Icon)
+%     - Verified targets: R2025a / R2026a / MATLAB Online
+%   Releases between the minimum and the verified set run but emit a
+%   one-time console warning so the user knows the configuration is
+%   untested rather than silently unsupported.
 
     if verLessThan('matlab', '9.11')
         error('FlightReviewStudio:UnsupportedMatlab', ...
             'FlightReviewStudio requires MATLAB R2021b or newer.');
+    end
+    if verLessThan('matlab', '24.1')  % R2024a == 24.1; R2025a == 24.2
+        try
+            warning('off', 'backtrace');
+            cleanupBacktrace = onCleanup(@() warning('on', 'backtrace')); %#ok<NASGU>
+            warning('FlightReviewStudio:UnverifiedMatlab', ...
+                ['Running on MATLAB %s — the verified targets are ' ...
+                 'R2025a / R2026a. Behavior is best-effort; please ' ...
+                 'report regressions with your MATLAB release.'], version());
+        catch
+        end
     end
 
     studioApp = flightdash.studio.FlightReviewStudioApp();

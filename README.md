@@ -120,11 +120,18 @@ boundary.
 
 ## MATLAB Compatibility
 
-Target compatibility:
+Two-tier version policy:
 
-- MATLAB R2025a / R2026a
-- MATLAB Online
-- Windows paths, including non-ASCII paths, should be verified in MATLAB
+- **Minimum runtime**: MATLAB R2021b (release 9.11). Older releases
+  fail fast with a clear error from `FlightReviewStudio.m` because
+  several UI primitives (uitree multi-select, uibutton `Icon`
+  property, uifigure `uigridlayout` semantics the ribbon relies on)
+  were introduced in R2021b.
+- **Verified targets**: MATLAB R2025a / R2026a, plus MATLAB Online.
+  Releases between R2021b and R2025a may work but receive no
+  regression test coverage; users on those releases see a one-time
+  console warning at launch.
+- Windows paths, including non-ASCII paths, should be verified in MATLAB.
 
 Likely toolbox dependencies:
 

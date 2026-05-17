@@ -2975,6 +2975,30 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 'Failed build must NOT add the tab to obj.Tabs.');
         end
 
+        function test_T15_Version_PolicyTextAligned(testCase)
+            % Review priority 4: README + entry point must reflect the
+            % same two-tier policy (R2021b minimum / R2025a+R2026a
+            % verified). Detect drift between the two documents by
+            % grepping both files.
+            here = fileparts(mfilename('fullpath'));
+            entryPath  = fullfile(here, 'FlightReviewStudio.m');
+            readmePath = fullfile(here, 'README.md');
+            testCase.assumeTrue(isfile(entryPath));
+            testCase.assumeTrue(isfile(readmePath));
+            entryText  = fileread(entryPath);
+            readmeText = fileread(readmePath);
+            for needle = {'R2021b','R2025a','R2026a'}
+                testCase.verifyTrue(contains(entryText,  needle{1}), ...
+                    sprintf('FlightReviewStudio.m must mention %s.', needle{1}));
+                testCase.verifyTrue(contains(readmeText, needle{1}), ...
+                    sprintf('README.md must mention %s.', needle{1}));
+            end
+            % Soft-warn release gate (24.1 == R2024a) must be present
+            % as the boundary between minimum and verified.
+            testCase.verifyTrue(contains(entryText, "verLessThan('matlab', '24.1')"), ...
+                'Entry point must emit a soft warning below R2024a / R2025a.');
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole
