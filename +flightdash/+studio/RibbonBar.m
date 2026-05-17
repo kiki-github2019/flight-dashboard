@@ -45,8 +45,51 @@ classdef RibbonBar < handle
         end
 
         function addTab(obj, tab)
+            % P2-fix: build-before-register so a tab whose build throws
+            % is NOT silently counted in obj.Tabs. Errors are surfaced
+            % through app.logCaught (when available) so the
+            % buildShell-level catch can see and report them.
+            if isempty(tab) || ~isvalid(tab), return; end
+            try
+                tab.build(obj.TabGroup, obj.adapter());
+            catch ME
+                try, obj.App.logCaught(ME, 'Ribbon:tabBuild'); catch, end
+                try, delete(tab); catch, end
+                rethrow(ME);
+            end
             obj.Tabs{end+1} = tab;
-            try, tab.build(obj.TabGroup, obj.adapter()); catch, end
+        end
+
+        function syncMode(obj, modeName)
+            % Called from FlightReviewStudioApp.syncGuiModeMenuState
+            % so the Mode dropdown stays in step with menu/project
+            % state. Tolerates partial construction.
+            try
+                if isempty(obj.QuickAccess) || ~isfield(obj.QuickAccess, 'ModeDropdown')
+                    return;
+                end
+                dd = obj.QuickAccess.ModeDropdown;
+                if isempty(dd) || ~isvalid(dd), return; end
+                mode = char(modeName);
+                if any(strcmp(dd.Items, mode))
+                    dd.Value = mode;
+                end
+            catch
+            end
+        end
+
+        function syncProjectName(obj, name)
+            % Keep the editable project field in step with external
+            % renames (e.g. Open Project flow).
+            try
+                if isempty(obj.QuickAccess) || ~isfield(obj.QuickAccess, 'Title')
+                    return;
+                end
+                ed = obj.QuickAccess.Title;
+                if isempty(ed) || ~isvalid(ed), return; end
+                ed.Value = char(name);
+            catch
+            end
         end
 
         function ad = adapter(obj)
@@ -147,12 +190,17 @@ classdef RibbonBar < handle
             g.Padding       = [6 2 6 2];
             g.BackgroundColor = [0.92 0.92 0.92];
 
-            obj.QuickAccess.Title = uilabel(g, ...
-                'Text', sprintf('Project: %s', char(obj.App.ProjectName)), ...
-                'FontWeight', 'bold');
+            obj.QuickAccess.Title = uieditfield(g, 'text', ...
+                'Value', char(obj.App.ProjectName), ...
+                'FontWeight', 'bold', ...
+                'Tooltip', 'Rename the active project', ...
+                'ValueChangedFcn', @(src,~) obj.onProjectRename(src.Value));
+            modeItems = {'Classic','Studio','Review','Analysis','Plot', ...
+                         'Report','Compact','DockedFigure'};
+            initialMode = obj.resolveInitialMode(modeItems);
             obj.QuickAccess.ModeDropdown = uidropdown(g, ...
-                'Items', {'Classic','Studio','Review','Analysis','Plot','Report','Compact','DockedFigure'}, ...
-                'Value', 'Studio', ...
+                'Items', modeItems, ...
+                'Value', initialMode, ...
                 'ValueChangedFcn', @(src,~) obj.onModeChange(src.Value));
             obj.QuickAccess.ThemeBtn = uibutton(g, 'push', 'Text', 'Theme', ...
                 'ButtonPushedFcn', @(~,~) obj.dispatch('Pref:Theme:Toggle'));
@@ -220,6 +268,50 @@ classdef RibbonBar < handle
 
         function onModeChange(obj, value)
             obj.dispatch(['Pref:Mode:' char(value)]);
+        end
+
+        function onProjectRename(obj, newName)
+            % P2-fix: editable Quick Access project name. Forwards to
+            % the app's rename hook; falls back to a direct value-class
+            % reassign so the rename works even before a dedicated
+            % rename verb is wired.
+            try
+                newName = char(newName);
+                if isempty(strtrim(newName)), newName = 'Untitled'; end
+                if ~isempty(obj.App) && isvalid(obj.App)
+                    if ismethod(obj.App, 'renameProject')
+                        obj.App.renameProject(newName);
+                    elseif isprop(obj.App, 'Project') && ~isempty(obj.App.Project)
+                        tmp = obj.App.Project;
+                        tmp.ProjectName = newName;
+                        obj.App.Project = tmp;
+                        if ismethod(obj.App, 'refreshTitle'), obj.App.refreshTitle(); end
+                    end
+                end
+            catch ME
+                try, obj.App.logCaught(ME, 'Ribbon:projectRename'); catch, end
+            end
+        end
+
+        function mode = resolveInitialMode(obj, fallbackItems)
+            mode = fallbackItems{2}; % 'Studio'
+            try
+                if ~isempty(obj.App) && isvalid(obj.App)
+                    if ismethod(obj.App, 'currentGuiMode')
+                        v = char(obj.App.currentGuiMode());
+                    elseif isprop(obj.App, 'Project') && ~isempty(obj.App.Project) ...
+                            && isprop(obj.App.Project, 'GuiMode')
+                        v = char(obj.App.Project.GuiMode);
+                    else
+                        v = '';
+                    end
+                    if ~isempty(v) && any(strcmpi(fallbackItems, v))
+                        idx = find(strcmpi(fallbackItems, v), 1);
+                        mode = fallbackItems{idx};
+                    end
+                end
+            catch
+            end
         end
 
         function dash = activeDashboard(obj)

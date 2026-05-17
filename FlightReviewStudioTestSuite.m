@@ -2913,6 +2913,68 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
                 strjoin(unknown, ', ')));
         end
 
+        function test_T15_Ribbon_QuickAccessEditableAndModeSynced(testCase)
+            % P2 fix #1: QuickAccess.Title must be an editable
+            % uieditfield reflecting the current project name; Mode
+            % dropdown must initialise from app.Project.GuiMode (not
+            % hardcoded 'Studio'); syncMode + syncProjectName must
+            % propagate later changes.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            qa = app.RibbonBar.QuickAccess;
+            testCase.verifyClass(qa.Title, 'matlab.ui.control.EditField', ...
+                'QuickAccess project name must be an editable field.');
+            % Initial mode must match the project's GuiMode (or default).
+            expectedMode = char(app.currentGuiMode());
+            if ~isempty(expectedMode) && any(strcmpi(qa.ModeDropdown.Items, expectedMode))
+                testCase.verifyEqual(char(qa.ModeDropdown.Value), expectedMode);
+            end
+            % syncMode propagation.
+            app.RibbonBar.syncMode('Review');
+            testCase.verifyEqual(char(qa.ModeDropdown.Value), 'Review');
+            % Editable rename round-trip via the rename callback.
+            app.RibbonBar.onProjectRename('MyRibbonProject');
+            testCase.verifyEqual(char(app.ProjectName), 'MyRibbonProject');
+            testCase.verifyEqual(char(qa.Title.Value), 'MyRibbonProject');
+        end
+
+        function test_T15_Ribbon_AddTabFailureSurfaces(testCase)
+            % P2 fix #2: addTab() must NOT register a tab whose build
+            % throws. The exception must propagate so callers see the
+            % failure instead of trusting numel(Tabs).
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            % Construct a tab that throws on build.
+            badGrp = flightdash.studio.ribbon.RibbonGroup('Bad', { ...
+                flightdash.studio.ribbon.RibbonButton('X', 'Bad:Cmd')});
+            badTab = flightdash.studio.ribbon.RibbonTab('BadTab', {badGrp});
+            % Force build failure: stash an invalid TabGroup into the
+            % RibbonBar so uitab(...) throws.
+            originalTG = app.RibbonBar.TabGroup;
+            app.RibbonBar.TabGroup = matlab.ui.container.TabGroup.empty;
+            countBefore = numel(app.RibbonBar.Tabs);
+            threw = false;
+            try
+                app.RibbonBar.addTab(badTab);
+            catch
+                threw = true;
+            end
+            % Restore so the rest of the suite keeps working.
+            app.RibbonBar.TabGroup = originalTG;
+            testCase.verifyTrue(threw, ...
+                'addTab must rethrow when the underlying build fails.');
+            testCase.verifyEqual(numel(app.RibbonBar.Tabs), countBefore, ...
+                'Failed build must NOT add the tab to obj.Tabs.');
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole

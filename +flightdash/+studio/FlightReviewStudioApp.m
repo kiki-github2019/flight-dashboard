@@ -1148,6 +1148,9 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 if ~isempty(app.MenuMgr) && isvalid(app.MenuMgr) && ismethod(app.MenuMgr, 'syncGuiMode')
                     app.MenuMgr.syncGuiMode(mode);
                 end
+                if ~isempty(app.RibbonBar) && isvalid(app.RibbonBar) && ismethod(app.RibbonBar, 'syncMode')
+                    app.RibbonBar.syncMode(mode);
+                end
             catch ME
                 try, app.logCaught(ME, 'Studio:syncGuiModeMenuState'); catch, end
             end
@@ -1357,6 +1360,12 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 else
                     folder = app.shortenPath(app.ProjectFolder, 60);
                     app.UIFigure.Name = sprintf('FlightDataReviewStudio - %s [%s]', app.ProjectName, folder);
+                end
+                % P2-fix: keep the Quick Access edit field in step with
+                % external rename flows (Open Project / load).
+                if ~isempty(app.RibbonBar) && isvalid(app.RibbonBar) ...
+                        && ismethod(app.RibbonBar, 'syncProjectName')
+                    app.RibbonBar.syncProjectName(app.ProjectName);
                 end
             catch
             end
