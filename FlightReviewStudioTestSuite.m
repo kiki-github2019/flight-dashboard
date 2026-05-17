@@ -96,6 +96,10 @@ function entries = localBuildEntries(staticDir)
     for k = 1:numel(files)
         relFile = files(k).name;
         [~, name, ~] = fileparts(relFile);
+        if any(strcmp(name, {'runFullStabilizationTests', ...
+                'runAllTestCodesWithCleanup', 'run_studio_tests'}))
+            continue;
+        end
         absPath = fullfile(staticDir, relFile);
         txt = fileread(absPath);
         isClass = ~isempty(regexp(txt, '^\s*classdef\b', 'once', 'lineanchors'));
@@ -205,7 +209,24 @@ function detail = localExecuteEntry(e)
         case 'function'
             fnh = str2func(e.Display);
             out = fnh();
-            detail = localSummarize(out);
+            if isa(out, 'matlab.unittest.TestSuite')
+                r = run(out);
+                if isempty(r)
+                    error('FlightReviewStudioTestSuite:NoResult', ...
+                        'function suite returned no result for %s', e.Display);
+                end
+                if all([r.Passed])
+                    detail = sprintf('functiontests OK (%.3fs)', sum([r.Duration]));
+                elseif any([r.Failed])
+                    error('FlightReviewStudioTestSuite:FunctionSuiteFailures', ...
+                        'function suite %s failed', e.Display);
+                else
+                    error('FlightReviewStudioTestSuite:Skip', ...
+                        'function suite incomplete');
+                end
+            else
+                detail = localSummarize(out);
+            end
         case {'skip-helper','skip-empty'}
             error('FlightReviewStudioTestSuite:Skip', '%s', e.Kind);
         otherwise
