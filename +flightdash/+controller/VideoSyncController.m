@@ -15,14 +15,10 @@ classdef VideoSyncController < flightdash.controller.ControllerBase
         end
 
         function subscribeEvents(obj)
-            appHandle = obj.app();
-            if isempty(appHandle), return; end
-            EB = @(eventName, callback) ...
-                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
-            obj.trackListener(EB('VideoSyncRequested', @(~,d) obj.onApplySync(d)));
-            obj.trackListener(EB('HzAdjustRequested',  @(~,d) obj.onHzAdjust(d)));
-            obj.trackListener(EB('HzInputChanged',     @(~,d) obj.onHzChanged(d)));
-            obj.trackListener(EB('CacheBudgetChanged', @(~,d) obj.onCacheBudget(d)));
+            obj.subscribeEvent('VideoSyncRequested', @(~,d) obj.onApplySync(d));
+            obj.subscribeEvent('HzAdjustRequested',  @(~,d) obj.onHzAdjust(d));
+            obj.subscribeEvent('HzInputChanged',     @(~,d) obj.onHzChanged(d));
+            obj.subscribeEvent('CacheBudgetChanged', @(~,d) obj.onCacheBudget(d));
         end
 
         function onApplySync(obj, d)

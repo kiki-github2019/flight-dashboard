@@ -34,17 +34,13 @@ classdef RoiController < flightdash.controller.ControllerBase
         end
 
         function subscribeEvents(obj)
-            appHandle = obj.app();
-            if isempty(appHandle), return; end
-            EB = @(eventName, callback) ...
-                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
             % [PHASE 4] Each handler bails when this controller's app
             % is not the active Studio session.
-            obj.trackListener(EB('RoiAddRequested',            @(~,d) obj.gated(@(d_) obj.addCurrentRoi(d_.ChannelIdx), d)));
-            obj.trackListener(EB('RoiSelectionChanged',        @(~,d) obj.gated(@(d_) obj.onSelectionChanged(d_.ChannelIdx, d_.Payload), d)));
-            obj.trackListener(EB('RoiDeleteSelectedRequested', @(~,d) obj.gated(@(d_) obj.deleteSelectedRoi(d_.ChannelIdx), d)));
-            obj.trackListener(EB('RoiClearRequested',          @(~,d) obj.gated(@(d_) obj.clearRois(d_.ChannelIdx), d)));
-            obj.trackListener(EB('AnalysisComputeRequested',   @(~,d) obj.gated(@(d_) obj.computeAnalysis(d_.ChannelIdx), d)));
+            obj.subscribeEvent('RoiAddRequested',            @(~,d) obj.gated(@(d_) obj.addCurrentRoi(d_.ChannelIdx), d));
+            obj.subscribeEvent('RoiSelectionChanged',        @(~,d) obj.gated(@(d_) obj.onSelectionChanged(d_.ChannelIdx, d_.Payload), d));
+            obj.subscribeEvent('RoiDeleteSelectedRequested', @(~,d) obj.gated(@(d_) obj.deleteSelectedRoi(d_.ChannelIdx), d));
+            obj.subscribeEvent('RoiClearRequested',          @(~,d) obj.gated(@(d_) obj.clearRois(d_.ChannelIdx), d));
+            obj.subscribeEvent('AnalysisComputeRequested',   @(~,d) obj.gated(@(d_) obj.computeAnalysis(d_.ChannelIdx), d));
         end
 
         function onCleanup(obj)

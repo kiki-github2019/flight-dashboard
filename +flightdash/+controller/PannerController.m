@@ -21,15 +21,11 @@ classdef PannerController < flightdash.controller.ControllerBase
         end
 
         function subscribeEvents(obj)
-            appHandle = obj.app();
-            if isempty(appHandle), return; end
-            EB = @(eventName, callback) ...
-                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
             % [PHASE 4] Skip event when this dashboard is not the active Studio session.
-            obj.trackListener(EB('PannerToggled',        @(~,d) obj.gated(@(d_) obj.togglePanner(d_.ChannelIdx), d)));
-            obj.trackListener(EB('PannerClicked',        @(~,d) obj.gated(@(d_) obj.onPannerClicked(d_.ChannelIdx), d)));
-            obj.trackListener(EB('PannerRangeChanged',   @(~,d) obj.gated(@(d_) obj.onRangeChanged(d_.ChannelIdx), d)));
-            obj.trackListener(EB('PannerResetRequested', @(~,d) obj.gated(@(d_) obj.resetRange(d_.ChannelIdx), d)));
+            obj.subscribeEvent('PannerToggled',        @(~,d) obj.gated(@(d_) obj.togglePanner(d_.ChannelIdx), d));
+            obj.subscribeEvent('PannerClicked',        @(~,d) obj.gated(@(d_) obj.onPannerClicked(d_.ChannelIdx), d));
+            obj.subscribeEvent('PannerRangeChanged',   @(~,d) obj.gated(@(d_) obj.onRangeChanged(d_.ChannelIdx), d));
+            obj.subscribeEvent('PannerResetRequested', @(~,d) obj.gated(@(d_) obj.resetRange(d_.ChannelIdx), d));
         end
 
         function onCleanup(obj)

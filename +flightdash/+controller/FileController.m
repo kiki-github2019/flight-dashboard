@@ -16,15 +16,11 @@ classdef FileController < flightdash.controller.ControllerBase
         end
 
         function subscribeEvents(obj)
-            appHandle = obj.app();
-            if isempty(appHandle), return; end
-            EB = @(eventName, callback) ...
-                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
-            obj.trackListener(EB('FlightFileRequested',   @(~,d) obj.onFlightFile(d)));
-            obj.trackListener(EB('AviFileRequested',      @(~,d) obj.onAviFile(d)));
-            obj.trackListener(EB('CoastFileRequested',    @(~,~) obj.onCoastFile()));
-            obj.trackListener(EB('ConfigExportRequested', @(~,~) obj.onConfigExport()));
-            obj.trackListener(EB('ConfigImportRequested', @(~,~) obj.onConfigImport()));
+            obj.subscribeEvent('FlightFileRequested',   @(~,d) obj.onFlightFile(d));
+            obj.subscribeEvent('AviFileRequested',      @(~,d) obj.onAviFile(d));
+            obj.subscribeEvent('CoastFileRequested',    @(~,~) obj.onCoastFile());
+            obj.subscribeEvent('ConfigExportRequested', @(~,~) obj.onConfigExport());
+            obj.subscribeEvent('ConfigImportRequested', @(~,~) obj.onConfigImport());
         end
 
         function onFlightFile(obj, d)

@@ -14,15 +14,11 @@ classdef PanelToggleController < flightdash.controller.ControllerBase
         end
 
         function subscribeEvents(obj)
-            appHandle = obj.app();
-            if isempty(appHandle), return; end
-            EB = @(eventName, callback) ...
-                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
-            obj.trackListener(EB('PanelToggled',       @(~,d) obj.onPanelToggled(d)));
-            obj.trackListener(EB('DebugModeToggled',   @(~,d) obj.onDebugToggled(d)));
-            obj.trackListener(EB('SyncToggled',        @(~,~) obj.onSyncToggled()));
-            obj.trackListener(EB('LayoutFitRequested', @(~,~) obj.onLayoutFitRequested()));
-            obj.trackListener(EB('ChannelViewChanged', @(~,d) obj.onChannelViewChanged(d)));
+            obj.subscribeEvent('PanelToggled',       @(~,d) obj.onPanelToggled(d));
+            obj.subscribeEvent('DebugModeToggled',   @(~,d) obj.onDebugToggled(d));
+            obj.subscribeEvent('SyncToggled',        @(~,~) obj.onSyncToggled());
+            obj.subscribeEvent('LayoutFitRequested', @(~,~) obj.onLayoutFitRequested());
+            obj.subscribeEvent('ChannelViewChanged', @(~,d) obj.onChannelViewChanged(d));
         end
 
         function onPanelToggled(obj, d)

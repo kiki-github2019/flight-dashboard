@@ -21,20 +21,16 @@ classdef PlaybackController < flightdash.controller.ControllerBase
         end
 
         function subscribeEvents(obj)
-            appHandle = obj.app();
-            if isempty(appHandle), return; end
-            EB = @(eventName, callback) ...
-                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
-            obj.trackListener(EB('SliderChanging',            @(~,d) obj.onSliderChanging(d)));
-            obj.trackListener(EB('SliderChanged',             @(~,d) obj.onSliderChanged(d)));
-            obj.trackListener(EB('NavActionRequested',        @(~,d) obj.onNav(d)));
-            obj.trackListener(EB('SpinnerChanged',            @(~,d) obj.onSpinner(d)));
-            obj.trackListener(EB('TableRowSelected',          @(~,d) obj.onTableSelect(d)));
-            obj.trackListener(EB('InfoFormatRequested',       @(~,d) obj.onInfoFormat(d)));
-            obj.trackListener(EB('InfoOrderMoveRequested',    @(~,d) obj.onInfoOrderMove(d)));
-            obj.trackListener(EB('FlightPlayRequested',       @(~,d) obj.onFlightPlay(d)));
-            obj.trackListener(EB('FlightStopRequested',       @(~,d) obj.onFlightStop(d)));
-            obj.trackListener(EB('FlightPlayIntervalChanged', @(~,d) obj.onFlightPlayInterval(d)));
+            obj.subscribeEvent('SliderChanging',            @(~,d) obj.onSliderChanging(d));
+            obj.subscribeEvent('SliderChanged',             @(~,d) obj.onSliderChanged(d));
+            obj.subscribeEvent('NavActionRequested',        @(~,d) obj.onNav(d));
+            obj.subscribeEvent('SpinnerChanged',            @(~,d) obj.onSpinner(d));
+            obj.subscribeEvent('TableRowSelected',          @(~,d) obj.onTableSelect(d));
+            obj.subscribeEvent('InfoFormatRequested',       @(~,d) obj.onInfoFormat(d));
+            obj.subscribeEvent('InfoOrderMoveRequested',    @(~,d) obj.onInfoOrderMove(d));
+            obj.subscribeEvent('FlightPlayRequested',       @(~,d) obj.onFlightPlay(d));
+            obj.subscribeEvent('FlightStopRequested',       @(~,d) obj.onFlightStop(d));
+            obj.subscribeEvent('FlightPlayIntervalChanged', @(~,d) obj.onFlightPlayInterval(d));
         end
 
         function onCleanup(obj)

@@ -20,12 +20,8 @@ classdef DragController < flightdash.controller.ControllerBase
         end
 
         function subscribeEvents(obj)
-            appHandle = obj.app();
-            if isempty(appHandle), return; end
-            EB = @(eventName, callback) ...
-                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
-            obj.trackListener(EB('PanelSplitterDragStarted', @(~,d) obj.onPanelSplitterStart(d)));
-            obj.trackListener(EB('SplitterDragStarted',     @(~,d) obj.onSplitterStart(d)));
+            obj.subscribeEvent('PanelSplitterDragStarted', @(~,d) obj.onPanelSplitterStart(d));
+            obj.subscribeEvent('SplitterDragStarted',     @(~,d) obj.onSplitterStart(d));
         end
 
         function onPanelSplitterStart(obj, d)

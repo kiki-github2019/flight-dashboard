@@ -14,20 +14,16 @@ classdef PlotController < flightdash.controller.ControllerBase
         end
 
         function subscribeEvents(obj)
-            appHandle = obj.app();
-            if isempty(appHandle), return; end
-            EB = @(eventName, callback) ...
-                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
-            obj.trackListener(EB('PlotSelected',          @(~,d) obj.onPlotSelected(d)));
-            obj.trackListener(EB('PlotTabAddRequested',   @(~,d) obj.onAddTab(d)));
-            obj.trackListener(EB('PlotTabClearRequested', @(~,d) obj.onClearTab(d)));
-            obj.trackListener(EB('TabChanged',            @(~,d) obj.onTabChanged(d)));
-            obj.trackListener(EB('PlotVisibilityChanged', @(~,d) obj.onPlotVisibility(d)));
-            obj.trackListener(EB('PlotManagerSelected',   @(~,d) obj.onPlotManagerSelected(d)));
-            obj.trackListener(EB('PlotDetailChanged',     @(~,d) obj.onPlotDetailChanged(d)));
-            obj.trackListener(EB('PlotAxisChanged',       @(~,d) obj.onPlotAxisChanged(d)));
-            obj.trackListener(EB('PlotManagerToggled',    @(~,d) obj.onPlotManagerToggled(d)));
-            obj.trackListener(EB('PlotDetailsToggled',    @(~,d) obj.onPlotDetailsToggled(d)));
+            obj.subscribeEvent('PlotSelected',          @(~,d) obj.onPlotSelected(d));
+            obj.subscribeEvent('PlotTabAddRequested',   @(~,d) obj.onAddTab(d));
+            obj.subscribeEvent('PlotTabClearRequested', @(~,d) obj.onClearTab(d));
+            obj.subscribeEvent('TabChanged',            @(~,d) obj.onTabChanged(d));
+            obj.subscribeEvent('PlotVisibilityChanged', @(~,d) obj.onPlotVisibility(d));
+            obj.subscribeEvent('PlotManagerSelected',   @(~,d) obj.onPlotManagerSelected(d));
+            obj.subscribeEvent('PlotDetailChanged',     @(~,d) obj.onPlotDetailChanged(d));
+            obj.subscribeEvent('PlotAxisChanged',       @(~,d) obj.onPlotAxisChanged(d));
+            obj.subscribeEvent('PlotManagerToggled',    @(~,d) obj.onPlotManagerToggled(d));
+            obj.subscribeEvent('PlotDetailsToggled',    @(~,d) obj.onPlotDetailsToggled(d));
         end
 
         function onPlotSelected(obj, d)
