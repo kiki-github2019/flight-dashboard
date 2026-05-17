@@ -255,9 +255,9 @@ classdef CommandRouter < handle
                 case 'Help:Samples'
                     obj.openHelpDoc('LearningSamples.md');
                 case 'Pref:AutoUpdate'
-                    obj.setStatus('Auto Update Mode — preferences dialog pending.');
+                    obj.cycleAutoUpdateMode(app);
                 case 'Pref:ToolbarCustomize'
-                    obj.setStatus('Toolbar Customize — ribbon is fixed in this build.');
+                    obj.showToolbarCustomizeInfo(app);
                 case 'Pref:Shortcuts'
                     obj.openHelpDoc('Shortcuts.md');
                 case 'Pref:Experimental:SharedDecode'
@@ -550,6 +550,50 @@ classdef CommandRouter < handle
                 end
             catch ME
                 obj.reportException('Command', 'Project:HealthCheck', ME);
+            end
+        end
+
+        function cycleAutoUpdateMode(obj, app)
+            % Cycles ProjectModel.AutoUpdateMode through Manual ->
+            % Auto -> Frozen. Status bar shows the new mode. Project
+            % is a value class so we reassign through the app handle.
+            try
+                if isempty(app) || ~isvalid(app) || ~isprop(app, 'Project') || isempty(app.Project)
+                    obj.setStatus('Auto Update Mode unavailable — no active project.');
+                    return;
+                end
+                modes = {'Manual', 'Auto', 'Frozen'};
+                current = char(app.Project.AutoUpdateMode);
+                idx = find(strcmpi(modes, current), 1);
+                if isempty(idx), idx = 1; end
+                next = modes{mod(idx, numel(modes)) + 1};
+                tmp = app.Project;
+                tmp.AutoUpdateMode = next;
+                app.Project = tmp;
+                obj.setStatus(sprintf('Auto Update Mode: %s', next));
+            catch ME
+                obj.reportException('Command', 'Pref:AutoUpdate', ME);
+            end
+        end
+
+        function showToolbarCustomizeInfo(obj, app)
+            % The ribbon layout is generated from
+            % flightdash.studio.+ribbon.+tabs.* and is intentionally
+            % fixed in this build (see CHANGELOG: Ribbon UI 전면 교체).
+            % Surface that contract clearly rather than emitting a
+            % status-bar shrug.
+            try
+                msg = ['Ribbon layout is fixed in this build. ' newline ...
+                    'Edit +flightdash/+studio/+ribbon/+tabs/*.m to change ' ...
+                    'tab structure; QuickAccess slots live in RibbonBar.m.'];
+                if ~isempty(app) && isvalid(app) && isprop(app, 'UIFigure') ...
+                        && ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    uialert(app.UIFigure, msg, 'Toolbar Customize', 'Icon', 'info');
+                else
+                    obj.setStatus(msg);
+                end
+            catch ME
+                obj.reportException('Command', 'Pref:ToolbarCustomize', ME);
             end
         end
 
