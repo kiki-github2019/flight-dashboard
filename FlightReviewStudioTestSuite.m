@@ -2864,6 +2864,55 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(tab);
         end
 
+        function test_T15_Ribbon_ButtonClickActuallyDispatches(testCase)
+            % Phase 7-fix #1 (ChatGPT review): a click on a RibbonButton
+            % must actually call dispatchCommand on the supplied adapter
+            % shim. The old isvalid()-on-struct guard silently no-op'd
+            % every click in the Welcome/standalone state.
+            try
+                fig = uifigure('Visible', 'off');
+                cleanup = onCleanup(@() delete(fig)); %#ok<NASGU>
+                g = uigridlayout(fig, [1 1]);
+            catch ME
+                testCase.assumeFail(sprintf('uifigure unavailable: %s', ME.message));
+                return;
+            end
+            recorder = flightdash.test.TestDispatchRecorder();
+            shim = struct( ...
+                'dispatchCommand', @(cid, src) recorder.record(cid, src), ...
+                'logCaught',       @(~,~) [], ...
+                'isValidApp',      @() true);
+            btn = flightdash.studio.ribbon.RibbonButton('Save', 'Toolbar:Save');
+            btn.build(g, shim);
+            % Programmatically invoke the click callback.
+            btn.MainHandle.ButtonPushedFcn();
+            testCase.verifyEqual(recorder.Count, 1, ...
+                'Single click must trigger exactly one dispatch.');
+            testCase.verifyEqual(char(recorder.LastCmd), 'Toolbar:Save');
+            testCase.verifyEqual(char(recorder.LastSource), 'Ribbon');
+            delete(btn);
+        end
+
+        function test_T15_Ribbon_AllCommandsRoutedByRouter(testCase)
+            % Phase 7-fix #2 (ChatGPT review): every cmdId surfaced by
+            % the ribbon (main button + dropdown items across all tabs)
+            % must appear in CommandRouter.knownCommands so a regression
+            % that adds a ribbon button without wiring its handler fails
+            % fast here instead of silently no-op'ing at runtime.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            ribbonIds = app.RibbonBar.allCommandIds();
+            known = flightdash.studio.CommandRouter.knownCommands();
+            unknown = setdiff(ribbonIds, known);
+            testCase.verifyEmpty(unknown, sprintf( ...
+                'Ribbon dispatches command IDs not handled by CommandRouter: %s', ...
+                strjoin(unknown, ', ')));
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole

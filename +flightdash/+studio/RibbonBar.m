@@ -91,6 +91,34 @@ classdef RibbonBar < handle
             obj.setEnabledByCmd('Edit:Redo', canRedo);
         end
 
+        function ids = allCommandIds(obj)
+            % Walks every tab > group > button (incl. dropdown items)
+            % and returns a unique cellstr of command IDs the ribbon
+            % can dispatch. Used by the mapping test that asserts each
+            % id is recognised by CommandRouter.
+            seen = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+            for ti = 1:numel(obj.Tabs)
+                t = obj.Tabs{ti};
+                if isempty(t), continue; end
+                for gi = 1:numel(t.Groups)
+                    g = t.Groups{gi};
+                    if isempty(g), continue; end
+                    for bi = 1:numel(g.Buttons)
+                        b = g.Buttons{bi};
+                        if isempty(b), continue; end
+                        if ~isempty(b.CmdId), seen(b.CmdId) = true; end
+                        for di = 1:numel(b.DropdownItems)
+                            it = b.DropdownItems{di};
+                            if iscell(it) && numel(it) >= 2 && ~isempty(it{2})
+                                seen(char(it{2})) = true;
+                            end
+                        end
+                    end
+                end
+            end
+            ids = keys(seen);
+        end
+
         function delete(obj)
             for k = 1:numel(obj.Tabs)
                 try

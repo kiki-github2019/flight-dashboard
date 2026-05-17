@@ -114,6 +114,56 @@ classdef CommandRouter < handle
         end
     end
 
+    methods (Static, Access = public)
+        function ids = knownCommands()
+            % Returns the consolidated list of command IDs the router
+            % has an explicit case for. Used by the ribbon mapping test
+            % so a regression that adds a button without wiring its
+            % handler fails fast.
+            ids = { ...
+                ... % Global scope (dispatchGlobal switch)
+                'File:NewProject','File:OpenProject','File:SaveProject', ...
+                'File:SaveProjectAs','File:PackProject','File:Exit', ...
+                'Edit:Undo','Edit:Redo', ...
+                'Window:CloseActive','Window:CloseAll', ...
+                'Window:ShowObjectMgr','Window:ShowLogs', ...
+                'Pref:Mode:Classic','Pref:Mode:Studio','Pref:Mode:Review', ...
+                'Pref:Mode:Analysis','Pref:Mode:Plot','Pref:Mode:Report', ...
+                'Pref:Mode:Compact','Pref:Mode:DockedFigure', ...
+                'Pref:Theme:Toggle','Pref:AutoUpdate', ...
+                'Pref:ToolbarCustomize','Pref:Shortcuts', ...
+                'Help:About','Help:License','Help:QuickStart', ...
+                'Help:Troubleshooting','Help:SupportBundle','Help:ErrorLog', ...
+                'Help:Shortcuts','Help:Samples', ...
+                'Project:HealthCheck','Project:RepairLinks','Project:EditDetails', ...
+                'Toolbar:ToggleExplorer','Toolbar:ToggleRightDock','Window:ToggleRightDock', ...
+                'Project:AddSession','Project:Properties','Project:CleanupCache', ...
+                'Window:TileH','Window:TileV','Window:Cascade', ...
+                ... % Session scope (dispatchSession switch)
+                'Project:DuplicateSession','Project:RenameSession','Project:DeleteSession', ...
+                'Toolbar:LoadData','Data:LoadFlight1','Data:LoadFlight2', ...
+                'Data:ImportWizard','Data:LoadCoast', ...
+                'Data:Validate','Data:EstimateFps','Data:Summary', ...
+                'Toolbar:LoadVideo','Video:LoadVideo1','Video:LoadVideo2', ...
+                'Video:Clear','Video:Snapshot','Video:DecodeSettings','Video:Metadata', ...
+                'Toolbar:Sync','Sync:Flight','Sync:VideoData', ...
+                'Sync:ResetVideo','Sync:OffsetEditor','Sync:QualityCheck', ...
+                'Toolbar:SyncTime', ...
+                'Toolbar:Play','Toolbar:Stop','Toolbar:Prev','Toolbar:Next', ...
+                'Toolbar:ROI','Review:AddRoi','Toolbar:Marker','Review:AddEvent', ...
+                'Review:Compare','Review:ExportTable','Review:Report', ...
+                'Toolbar:Analyze','Analysis:RoiStats', ...
+                'Analysis:SyncCheck','Analysis:SyncQuality', ...
+                'Analysis:EventDetect','Analysis:Filter','Analysis:Smooth', ...
+                'Analysis:FFT','Analysis:Compare', ...
+                'Toolbar:Recalc','Analysis:Recalculate', ...
+                'Plot:AddSelected','Plot:NewGraph','Plot:NewComparison', ...
+                'Plot:Details','Plot:Axis','Plot:LinkAxes','Plot:Export','Plot:Copy', ...
+                'Plot:ObjectManager', ...
+                'Studio:OpenSampleProject'};
+        end
+    end
+
     methods (Access = private)
         function dispatchGlobal(obj, cmdId, source)
             app = obj.App;
@@ -196,6 +246,18 @@ classdef CommandRouter < handle
                     obj.openHelpDoc('Troubleshooting.md');
                 case 'Help:SupportBundle'
                     obj.exportSupportBundle(app);
+                case 'Help:ErrorLog'
+                    obj.openErrorLog(app);
+                case 'Help:Shortcuts'
+                    obj.openHelpDoc('Shortcuts.md');
+                case 'Help:Samples'
+                    obj.openHelpDoc('LearningSamples.md');
+                case 'Pref:AutoUpdate'
+                    obj.setStatus('Auto Update Mode — preferences dialog pending.');
+                case 'Pref:ToolbarCustomize'
+                    obj.setStatus('Toolbar Customize — ribbon is fixed in this build.');
+                case 'Pref:Shortcuts'
+                    obj.openHelpDoc('Shortcuts.md');
                 case 'Project:HealthCheck'
                     obj.runProjectHealthCheck(app);
                 case 'Project:RepairLinks'
@@ -280,6 +342,88 @@ classdef CommandRouter < handle
                     obj.showRightDockTab('ObjectManagerTab', 'Object Manager');
                 case 'Plot:Details'
                     obj.publishDashboardEvent('PlotDetailsToggled', 1, [], sessionId);
+                case 'Plot:NewComparison'
+                    obj.publishDashboardEvent('PlotTabAddRequested', 1, [], sessionId);
+                case 'Plot:Axis'
+                    obj.publishDashboardEvent('PlotDetailsToggled', 1, [], sessionId);
+                case 'Plot:LinkAxes'
+                    if ismethod(dashboard, 'toggleLinkAxes')
+                        dashboard.toggleLinkAxes();
+                    else
+                        obj.setStatus('Link Axes — not implemented yet.');
+                    end
+                case 'Plot:Export'
+                    obj.setStatus('Plot:Export — handler pending.');
+                case 'Plot:Copy'
+                    if ismethod(dashboard, 'copyActivePlot')
+                        dashboard.copyActivePlot();
+                    else
+                        obj.setStatus('Plot:Copy — copy active figure not implemented yet.');
+                    end
+                case 'Video:Clear'
+                    if ismethod(dashboard, 'clearVideo')
+                        dashboard.clearVideo(1);
+                        try, dashboard.clearVideo(2); catch, end
+                        obj.setStatus('Video cleared.');
+                    else
+                        obj.setStatus('Video:Clear — handler pending.');
+                    end
+                case 'Video:Snapshot'
+                    if ismethod(dashboard, 'snapshotCurrentFrame')
+                        dashboard.snapshotCurrentFrame(1);
+                    else
+                        obj.setStatus('Video:Snapshot — handler pending.');
+                    end
+                case 'Video:DecodeSettings'
+                    obj.setStatus('Video:DecodeSettings — dialog pending.');
+                case 'Video:Metadata'
+                    obj.setStatus('Video:Metadata — read-only viewer pending.');
+                case 'Data:Validate'
+                    if ismethod(dashboard, 'validateLoadedData')
+                        dashboard.validateLoadedData();
+                    else
+                        obj.setStatus('Data:Validate — validator pending.');
+                    end
+                case 'Data:EstimateFps'
+                    obj.setStatus('Data:EstimateFps — estimator pending.');
+                case 'Data:Summary'
+                    obj.setStatus('Data:Summary — summary dialog pending.');
+                case 'Sync:VideoData'
+                    obj.publishDashboardEvent('VideoSyncRequested', 1, [], sessionId);
+                case 'Sync:ResetVideo'
+                    obj.setStatus('Sync:ResetVideo — reset action pending.');
+                case 'Sync:OffsetEditor'
+                    obj.setStatus('Sync:OffsetEditor — editor dialog pending.');
+                case 'Sync:QualityCheck'
+                    obj.openAnalysisDialog(app, 'flightdash.analysis.SyncQualityDialog', sessionId, 1);
+                case {'Toolbar:Marker', 'Review:AddEvent'}
+                    obj.publishDashboardEvent('RoiAddRequested', 1, [], sessionId);
+                case {'Toolbar:Recalc', 'Analysis:Recalculate'}
+                    obj.publishDashboardEvent('AnalysisComputeRequested', 1, [], sessionId);
+                case 'Analysis:EventDetect'
+                    obj.setStatus('Analysis:EventDetect — detector pending.');
+                case 'Analysis:Filter'
+                    obj.setStatus('Analysis:Filter — filter dialog pending.');
+                case 'Analysis:Smooth'
+                    obj.setStatus('Analysis:Smooth — smoothing dialog pending.');
+                case 'Analysis:FFT'
+                    obj.setStatus('Analysis:FFT — FFT viewer pending.');
+                case 'Analysis:Compare'
+                    obj.setStatus('Analysis:Compare — comparison dialog pending.');
+                case 'Review:Compare'
+                    obj.setStatus('Review:Compare — comparison view pending.');
+                case 'Review:ExportTable'
+                    obj.setStatus('Review:ExportTable — exporter pending.');
+                case 'Review:Report'
+                    obj.setStatus('Review:Report — report generator pending.');
+                case 'Studio:OpenSampleProject'
+                    if ismethod(app, 'openSampleProject')
+                        app.openSampleProject();
+                    else
+                        obj.setStatus('Sample project entry not registered.');
+                    end
+                case 'Toolbar:SyncTime'
+                    obj.publishDashboardEvent('VideoSyncRequested', 1, [], sessionId);
                 otherwise
                     obj.noop(source, cmdId, sessionId);
             end
@@ -402,6 +546,20 @@ classdef CommandRouter < handle
                 end
             catch ME
                 obj.reportException('Command', 'Project:HealthCheck', ME);
+            end
+        end
+
+        function openErrorLog(obj, app) %#ok<INUSD>
+            try
+                if exist('flightdash.util.ErrorLog', 'class') == 8 ...
+                        && ismethod('flightdash.util.ErrorLog', 'showRecent')
+                    flightdash.util.ErrorLog.showRecent();
+                    obj.setStatus('Showing recent error log entries.');
+                else
+                    obj.setStatus('Error log viewer not available.');
+                end
+            catch ME
+                obj.reportException('Command', 'Help:ErrorLog', ME);
             end
         end
 

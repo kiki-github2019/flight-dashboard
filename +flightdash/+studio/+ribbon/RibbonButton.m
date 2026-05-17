@@ -126,7 +126,9 @@ classdef RibbonButton < handle
 
         function onMainClick(obj)
             try
-                if isempty(obj.AdapterRef) || ~isvalid(obj.AdapterRef), return; end
+                if ~flightdash.studio.ribbon.RibbonButton.adapterUsable(obj.AdapterRef)
+                    return;
+                end
                 obj.AdapterRef.dispatchCommand(obj.CmdId, 'Ribbon');
             catch ME
                 try, obj.AdapterRef.logCaught(ME, 'Ribbon:click'); catch, end
@@ -164,11 +166,34 @@ classdef RibbonButton < handle
 
         function dispatchDropdown(obj, cmdId)
             try
-                if ~isempty(obj.AdapterRef) && isvalid(obj.AdapterRef)
+                if flightdash.studio.ribbon.RibbonButton.adapterUsable(obj.AdapterRef)
                     obj.AdapterRef.dispatchCommand(char(cmdId), 'Ribbon:Dropdown');
                 end
             catch ME
                 try, obj.AdapterRef.logCaught(ME, 'Ribbon:dropdownClick'); catch, end
+            end
+        end
+    end
+
+    methods (Static, Access = public)
+        function tf = adapterUsable(ad)
+            % Adapter may be either a flightdash.runtime.DashboardAppAdapter
+            % handle OR a struct shim returned by RibbonBar.studioShim when
+            % no dashboard is active. isvalid() throws/returns false for a
+            % struct, so the previous `~isvalid(ad)` guard silently no-op'd
+            % every ribbon click in the Welcome / standalone state. This
+            % helper accepts both shapes.
+            tf = false;
+            if isempty(ad), return; end
+            if isstruct(ad)
+                tf = isfield(ad, 'dispatchCommand') && ...
+                     isa(ad.dispatchCommand, 'function_handle');
+                return;
+            end
+            try
+                tf = isa(ad, 'handle') && isvalid(ad);
+            catch
+                tf = false;
             end
         end
     end
