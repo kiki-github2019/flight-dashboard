@@ -39,6 +39,35 @@ classdef DashboardStateStore < handle
             ch = obj.Channels(fIdx);
         end
 
+        function ch = setCurrentIndex(obj, fIdx, idx)
+            ch = obj.channel(fIdx);
+            if isempty(ch), return; end
+            ch.setCurrentIndex(idx);
+        end
+
+        function applyModelState(obj, fIdx, modelState)
+            ch = obj.channel(fIdx);
+            if isempty(ch), return; end
+            ch.applyModelState(modelState);
+            ch.ChannelIndex = double(fIdx);
+        end
+
+        function s = channelStruct(obj, fIdx)
+            s = struct();
+            ch = obj.channel(fIdx);
+            if ~isempty(ch)
+                s = ch.toStruct();
+            end
+        end
+
+        function mirrorChannelToApp(obj, app, fIdx)
+            ch = obj.channel(fIdx);
+            if isempty(ch), return; end
+            if isprop(app, 'Models') && numel(app.Models) >= fIdx
+                app.Models(fIdx) = ch.toStruct();
+            end
+        end
+
         function syncFromApp(obj, app, fIdx)
             % R2 mirror: refresh either a single channel or all channels
             % from the legacy app.Models / FlightFilePath / VideoFilePath

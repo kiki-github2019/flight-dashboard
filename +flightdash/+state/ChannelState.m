@@ -51,9 +51,18 @@ classdef ChannelState < handle
                 'selectedRow',  obj.SelectedRow, ...
                 'isMockData',   obj.IsMockData);
         end
-    end
 
-    methods
+        function setCurrentIndex(obj, idx)
+            if nargin < 2 || isempty(idx) || ~isnumeric(idx), return; end
+            idx = double(idx(1));
+            if ~isfinite(idx), return; end
+            obj.CurrentIndex = max(1, round(idx));
+        end
+
+        function applyModelState(obj, s)
+            obj.copyFromStruct(s);
+        end
+
         function syncFromApp(obj, app, fIdx)
             % R2 mirror for fields the app still owns. R8 inverted
             % FlightFilePath + VideoFilePath so they are NOT pulled
@@ -81,16 +90,22 @@ classdef ChannelState < handle
         end
 
         function copyFromStruct(obj, s)
-            if ~isstruct(s), return; end
-            f = fieldnames(s);
-            if any(strcmp(f, 'rawData')),      obj.RawData      = s.rawData;      end
-            if any(strcmp(f, 'mappedCols')),   obj.MappedCols   = s.mappedCols;   end
-            if any(strcmp(f, 'displayMeta')),  obj.DisplayMeta  = s.displayMeta;  end
-            if any(strcmp(f, 'bounds')),       obj.Bounds       = s.bounds;       end
-            if any(strcmp(f, 'altBounds')),    obj.AltBounds    = s.altBounds;    end
-            if any(strcmp(f, 'currentIndex')), obj.CurrentIndex = s.currentIndex; end
-            if any(strcmp(f, 'selectedRow')),  obj.SelectedRow  = s.selectedRow;  end
-            if any(strcmp(f, 'isMockData')),   obj.IsMockData   = s.isMockData;   end
+            if ~isstruct(s) && ~isobject(s), return; end
+            if obj.hasFieldOrProp(s, 'rawData'),      obj.RawData      = s.rawData;      end
+            if obj.hasFieldOrProp(s, 'mappedCols'),   obj.MappedCols   = s.mappedCols;   end
+            if obj.hasFieldOrProp(s, 'displayMeta'),  obj.DisplayMeta  = s.displayMeta;  end
+            if obj.hasFieldOrProp(s, 'bounds'),       obj.Bounds       = s.bounds;       end
+            if obj.hasFieldOrProp(s, 'altBounds'),    obj.AltBounds    = s.altBounds;    end
+            if obj.hasFieldOrProp(s, 'currentIndex'), obj.setCurrentIndex(s.currentIndex); end
+            if obj.hasFieldOrProp(s, 'selectedRow'),  obj.SelectedRow  = s.selectedRow;  end
+            if obj.hasFieldOrProp(s, 'isMockData'),   obj.IsMockData   = s.isMockData;   end
+        end
+    end
+
+    methods (Access = private)
+        function tf = hasFieldOrProp(~, s, name)
+            tf = (isstruct(s) && isfield(s, name)) || ...
+                 (isobject(s) && isprop(s, name));
         end
     end
 

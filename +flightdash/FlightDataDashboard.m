@@ -1508,6 +1508,25 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             store = app.StateStore;
         end
 
+        function view = channelUi(app, fIdx)
+            view = flightdash.view.ChannelUiFacade(app, fIdx);
+        end
+
+        function ch = setCurrentIndexInStore(app, fIdx, idx)
+            ch = flightdash.state.ChannelState.empty;
+            try
+                store = app.getStateStore();
+                ch = store.setCurrentIndex(fIdx, idx);
+                store.mirrorChannelToApp(app, fIdx);
+            catch ME
+                try
+                    app.Models(fIdx).currentIndex = max(1, round(double(idx(1))));
+                    app.logCaught(ME, 'Dashboard:setCurrentIndexInStore');
+                catch
+                end
+            end
+        end
+
         function ad = getAsyncDecode(app)
             % [REFACTOR R3] App-bound AsyncDecodeState accessor. The
             % returned handle is bound to this app so its helper methods
@@ -1568,16 +1587,14 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             timeCol = app.Models(fIdx).mappedCols.Time;
             currTime = app.Models(fIdx).rawData.(timeCol)(index);
-            app.Models(fIdx).currentIndex = index;
+            app.setCurrentIndexInStore(fIdx, index);
 
             % [FIX] IsUpdating 플래그를 onCleanup으로 보장 - 예외/return/error 모두 안전
             app.setStateUpdating(fIdx, true);
             cleanup_ = onCleanup(@() resetIsUpdating(app, fIdx)); %#ok<NASGU>
             try
                 app.updateDashboard(fIdx, index);
-                if abs(app.UI(fIdx).spinner.Value - currTime) > eps
-                    app.UI(fIdx).spinner.Value = currTime;
-                end
+                app.channelUi(fIdx).setSpinnerValue(currTime);
             catch e
                 % [FIX] warning 대신 ErrorLog로 사후 추적 가능하게
                 app.logCaught(e, 'applyTimeChange');
@@ -2628,7 +2645,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     end
                 end
                 for ch = 1:2
-                    try, app.Models(ch).currentIndex = max(1, round(sess.CurrentIndex(ch))); catch, end
+                    try, app.setCurrentIndexInStore(ch, max(1, round(sess.CurrentIndex(ch)))); catch, end
                     try, app.VideoSyncState(ch).CurrentFrame = max(0, round(sess.CurrentFrame(ch))); catch, end
                     try
                         pv = app.panelVisibleForChannel(sess.PanelVisible, ch);
@@ -2857,9 +2874,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     idx = round(double(app.structNumber(ch, 'CurrentIndex', 1)));
                     idx = min(max(1, idx), height(app.Models(fIdx).rawData));
                 end
-                app.Models(fIdx).currentIndex = idx;
+                app.setCurrentIndexInStore(fIdx, idx);
                 app.updateDashboard(fIdx, idx);
-                try, app.UI(fIdx).spinner.Value = times(idx); catch, end
+                app.channelUi(fIdx).setSpinnerValue(times(idx));
             catch ME
                 app.logCaught(ME, 'Config:restoreCurrentIndex');
             end
@@ -4931,31 +4948,21 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             % [V3.17 (4)(11)] persistent inCascade → InCascade 인스턴스 속성으로 이동
             % (P0-3: 동일 할당 중복 라인 제거)
             isOuter = ~app.InCascade;
-            app.Models(fIdx).currentIndex = idx;
-            timeCol = app.Models(fIdx).mappedCols.Time;
-            currTime = app.Models(fIdx).rawData.(timeCol)(idx);
+            ch = app.setCurrentIndexInStore(fIdx, idx);
+            if isempty(ch) || isempty(ch.RawData), return; end
+            uiView = app.channelUi(fIdx);
+            timeCol = ch.MappedCols.Time;
+            currTime = ch.RawData.(timeCol)(idx);
 
             try
-                altCol = app.Models(fIdx).mappedCols.Alt;
-                alts = app.Models(fIdx).rawData.(altCol);
+                altCol = ch.MappedCols.Alt;
+                alts = ch.RawData.(altCol);
 
                 % Altitude 패널 마커 + xline 갱신
-                if isfield(app.UI(fIdx), 'hAltMarker') && isvalid(app.UI(fIdx).hAltMarker)
-                    set(app.UI(fIdx).hAltMarker, 'XData', currTime, 'YData', alts(idx));
-                end
-                if isfield(app.UI(fIdx), 'timeLine') && isvalid(app.UI(fIdx).timeLine)
-                    app.UI(fIdx).timeLine.Value = currTime;
-                end
-
-                if isfield(app.UI(fIdx), 'currentTimeLabel') && isvalid(app.UI(fIdx).currentTimeLabel)
-                    app.UI(fIdx).currentTimeLabel.Text = sprintf('%.3f s', currTime);
-                end
-
-                if isfield(app.UI(fIdx), 'spinner') && isvalid(app.UI(fIdx).spinner)
-                    if abs(app.UI(fIdx).spinner.Value - currTime) > eps
-                        app.UI(fIdx).spinner.Value = currTime;
-                    end
-                end
+                uiView.setAltitudeMarker(currTime, alts(idx));
+                uiView.setTimelineValue(currTime);
+                uiView.setCurrentTimeText(currTime);
+                uiView.setSpinnerValue(currTime);
 
                 app.updateCurrentInfoTable(fIdx, idx);
                 app.updateAttitudeGauges(fIdx, idx);
@@ -4963,19 +4970,19 @@ classdef FlightDataDashboard < matlab.apps.AppBase
 
             % [V3.12 1.1] Map 비행경로 + 빨간 삼각형 실시간 갱신 (가벼움)
             try
-                pathLon = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lon);
-                pathLat = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Lat);
+                pathLon = ch.RawData.(ch.MappedCols.Lon);
+                pathLat = ch.RawData.(ch.MappedCols.Lat);
 
                 updateFullPath = ~app.MarkerDragCtrl.IsDraggingMarker || ...
                     ~app.throttleHit('MapPathDragUpdate', fIdx, flightdash.util.AppConstants.MAP_PATH_DRAG_THROTTLE_S);
-                if updateFullPath && isfield(app.UI(fIdx), 'hMapPath') && isvalid(app.UI(fIdx).hMapPath)
-                    set(app.UI(fIdx).hMapPath, 'XData', pathLon(1:idx), 'YData', pathLat(1:idx));
+                if updateFullPath
+                    uiView.setMapPath(pathLon(1:idx), pathLat(1:idx));
                 end
 
                 % Stabilization (review section 5.4): default heading to 0
                 % when the CSV/option file did not map a Heading column.
                 if app.mappedColAvailable(fIdx, 'Heading')
-                    hdg = app.Models(fIdx).rawData.(app.Models(fIdx).mappedCols.Heading)(idx);
+                    hdg = ch.RawData.(ch.MappedCols.Heading)(idx);
                 else
                     hdg = 0;
                 end
@@ -4985,9 +4992,9 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 elseif isnan(pathLon(idx)) || isnan(pathLat(idx))
                     lastValid = find(~isnan(pathLon(1:idx)) & ~isnan(pathLat(1:idx)), 1, 'last');
                 end
-                if ~isempty(lastValid) && isfield(app.UI(fIdx), 'hgMapPlane') && isvalid(app.UI(fIdx).hgMapPlane)
+                if ~isempty(lastValid)
                     T_map = makehgtform('translate', [pathLon(lastValid), pathLat(lastValid), 0]) * makehgtform('zrotate', -hdg * pi / 180);
-                    set(app.UI(fIdx).hgMapPlane, 'Matrix', T_map);
+                    uiView.setMapPlaneMatrix(T_map);
                 end
             catch ME, app.logCaught(ME, 'silent'); end
 
@@ -6124,11 +6131,22 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         end
 
         function applyFlightDataState(app, fIdx, modelState)
-            app.Models(fIdx).rawData = modelState.rawData;
-            app.Models(fIdx).mappedCols = modelState.mappedCols;
-            app.Models(fIdx).displayMeta = modelState.displayMeta;
-            app.Models(fIdx).selectedRow = modelState.selectedRow;
-            app.Models(fIdx).isMockData = modelState.isMockData;
+            applied = false;
+            try
+                store = app.getStateStore();
+                store.applyModelState(fIdx, modelState);
+                store.mirrorChannelToApp(app, fIdx);
+                applied = true;
+            catch ME
+                app.logCaught(ME, 'applyFlightDataState:StateStore');
+            end
+            if ~applied
+                app.Models(fIdx).rawData = modelState.rawData;
+                app.Models(fIdx).mappedCols = modelState.mappedCols;
+                app.Models(fIdx).displayMeta = modelState.displayMeta;
+                app.Models(fIdx).selectedRow = modelState.selectedRow;
+                app.Models(fIdx).isMockData = modelState.isMockData;
+            end
         end
 
         function normalized = normalizeHeaderName(~, value)
@@ -6138,6 +6156,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         function markInvalidGpsAsNaN(app, fIdx)
             app.Models(fIdx).rawData = app.DataLoader.markInvalidGpsAsNaN( ...
                 app.Models(fIdx).rawData, app.Models(fIdx).mappedCols);
+            try
+                store = app.getStateStore();
+                store.syncFromApp(app, fIdx);
+            catch ME
+                app.logCaught(ME, 'markInvalidGpsAsNaN:StateStore');
+            end
         end
 
         function generateMockFlightData(app, fIdx)
@@ -6171,7 +6195,7 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                     app.UI(fIdx).spinner.Enable = 'on';
                 end
 
-                app.Models(fIdx).currentIndex = 1;
+                app.setCurrentIndexInStore(fIdx, 1);
                 app.calculateBounds(fIdx);
 
                 app.initPlots(fIdx);
