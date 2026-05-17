@@ -1,50 +1,46 @@
-classdef PlaybackController < handle
+classdef PlaybackController < flightdash.controller.ControllerBase
     % flightdash.controller.PlaybackController
     % - 재생/이동 이벤트 구독: Slider/Nav/Spinner/Table/PlotTab 등
     %
-    % [REFACTOR R5+10] Migrated to DashboardAppAdapter. Adapter routes
-    % EventBus / logCaught; the dense playback-verb surface
-    % (onVdubSliderChanging/Changed / onVdubNav / handleSpinnerChange /
-    % setInfoFormatMode / applyTimeChange / findClosestIndexByTime /
-    % restorePlotMarkerInteractions / InfoCtrl.handleTableSelection /
-    % InfoCtrl.moveSelectedRow / app.Models / app.UI / app.VideoSyncState)
-    % keeps escape-hatching via obj.Adapter.app(). This is the last of
-    % the 10 controllers migrated to the adapter pattern.
+    % [Phase 4 stabilization] Inherits from ControllerBase. EventBus
+    % subscriptions go through trackListener; onCleanup() forwards to
+    % stopAllFlightPlayback so playback timers are stopped + deleted
+    % on dashboard teardown.
 
     properties (Access = private)
-        Adapter  % flightdash.runtime.DashboardAppAdapter
-        Listeners cell = {}
         FlightPlayTimers = {[], []}
         FlightPlayIntervalS = [1, 1]
     end
 
     methods
         function obj = PlaybackController(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
-                obj.Adapter = adapterOrApp;
-            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                obj.Adapter = adapterOrApp.getAdapter();
-            else
-                error('PlaybackController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
+            obj@flightdash.controller.ControllerBase( ...
+                flightdash.controller.PlaybackController.normalizeInput(adapterOrApp));
             obj.subscribeEvents();
         end
 
         function subscribeEvents(obj)
-            app = obj.Adapter.app();
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
-            obj.Listeners{end+1} = EB('SliderChanging',         @(~,d) obj.onSliderChanging(d));
-            obj.Listeners{end+1} = EB('SliderChanged',          @(~,d) obj.onSliderChanged(d));
-            obj.Listeners{end+1} = EB('NavActionRequested',     @(~,d) obj.onNav(d));
-            obj.Listeners{end+1} = EB('SpinnerChanged',         @(~,d) obj.onSpinner(d));
-            obj.Listeners{end+1} = EB('TableRowSelected',       @(~,d) obj.onTableSelect(d));
-            obj.Listeners{end+1} = EB('InfoFormatRequested',    @(~,d) obj.onInfoFormat(d));
-            obj.Listeners{end+1} = EB('InfoOrderMoveRequested', @(~,d) obj.onInfoOrderMove(d));
-            obj.Listeners{end+1} = EB('FlightPlayRequested',    @(~,d) obj.onFlightPlay(d));
-            obj.Listeners{end+1} = EB('FlightStopRequested',    @(~,d) obj.onFlightStop(d));
-            obj.Listeners{end+1} = EB('FlightPlayIntervalChanged', @(~,d) obj.onFlightPlayInterval(d));
+            appHandle = obj.app();
+            if isempty(appHandle), return; end
+            EB = @(eventName, callback) ...
+                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
+            obj.trackListener(EB('SliderChanging',            @(~,d) obj.onSliderChanging(d)));
+            obj.trackListener(EB('SliderChanged',             @(~,d) obj.onSliderChanged(d)));
+            obj.trackListener(EB('NavActionRequested',        @(~,d) obj.onNav(d)));
+            obj.trackListener(EB('SpinnerChanged',            @(~,d) obj.onSpinner(d)));
+            obj.trackListener(EB('TableRowSelected',          @(~,d) obj.onTableSelect(d)));
+            obj.trackListener(EB('InfoFormatRequested',       @(~,d) obj.onInfoFormat(d)));
+            obj.trackListener(EB('InfoOrderMoveRequested',    @(~,d) obj.onInfoOrderMove(d)));
+            obj.trackListener(EB('FlightPlayRequested',       @(~,d) obj.onFlightPlay(d)));
+            obj.trackListener(EB('FlightStopRequested',       @(~,d) obj.onFlightStop(d)));
+            obj.trackListener(EB('FlightPlayIntervalChanged', @(~,d) obj.onFlightPlayInterval(d)));
+        end
+
+        function onCleanup(obj)
+            % Stop + delete any active playback timers before the base
+            % releases listeners. Otherwise a tick could fire into a
+            % half-torn-down dashboard.
+            try, obj.stopAllFlightPlayback(); catch, end
         end
 
         function onSliderChanging(obj, d)
@@ -261,12 +257,18 @@ classdef PlaybackController < handle
             if ~isfinite(dt) || dt <= 0, dt = 0.001; end
         end
 
-        function delete(obj)
-            obj.stopAllFlightPlayback();
-            for k = 1:numel(obj.Listeners)
-                try, if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end, catch, end
+    end
+
+    methods (Static, Access = private)
+        function input = normalizeInput(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
+            else
+                error('PlaybackController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
             end
-            obj.Listeners = {};
         end
     end
 end
