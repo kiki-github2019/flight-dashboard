@@ -60,6 +60,10 @@ function report = verifyCallbackSafety(rootDir)
         '\bCellSelectionCallback\b\s*[,=]\s*@(?!\()[\w\.]+', 'WARN', 'CellSelectionCallback raw handle';
         '\bButtonDownFcn\b\s*[,=]\s*@(?!\()[\w\.]+', 'WARN', 'ButtonDownFcn raw handle';
         '\bCloseRequestFcn\b\s*[,=]\s*@(?!\()[\w\.]+', 'WARN', 'CloseRequestFcn raw handle';
+        ['EventBus\.publish\(\s*''(FlightFileRequested|AviFileRequested|' ...
+         'CoastFileRequested|SliderChanging|SliderChanged|NavActionRequested|' ...
+         'SpinnerChanged|TableRowSelected)''\s*,\s*[\d\.\-]+'], ...
+            'WARN', 'EventBus.publish with raw numeric payload';
     };
 
     for fIdx = 1:numel(files)

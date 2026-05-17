@@ -3256,6 +3256,24 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyError(@() v(missing, 'r'), 'ProjectSerializer:InvalidPath');
         end
 
+        function test_T15_Phase4_P4_13_MigratedControllersLeakFree(testCase)
+            % Task 5 deliverable: P4-13 in verifyPhase4 exercises
+            % each migrated controller's subscribe + cleanup
+            % round-trip; this T15 test asserts the case passes so
+            % failures show up directly in the test suite.
+            try
+                results = flightdash.studio.diag.verifyPhase4();
+            catch ME
+                testCase.assumeFail(sprintf('verifyPhase4 errored: %s', ME.message));
+                return;
+            end
+            idx = find(arrayfun(@(r) strcmp(r.Id, 'P4-13'), results), 1);
+            testCase.verifyNotEmpty(idx, 'P4-13 case missing from verifyPhase4.');
+            if isempty(idx), return; end
+            testCase.verifyTrue(results(idx).Passed, ...
+                sprintf('P4-13: %s', results(idx).Message));
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole

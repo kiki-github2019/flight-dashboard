@@ -42,6 +42,7 @@ function results = verifyPhase4()
         'P4-10', @p410_sessionScopedListenerApi; ...
         'P4-11', @p411_undoServiceSessionStack; ...
         'P4-12', @p412_undoServiceMaxHistoryAndNoop; ...
+        'P4-13', @p413_migratedControllerLeakFree; ...
         'P9-1', @p91_serializerRoundTrip ...
     };
 
@@ -614,6 +615,73 @@ function r = p412_undoServiceMaxHistoryAndNoop()
     end
 end
 
+
+function r = p413_migratedControllerLeakFree()
+    %P4-13  Each migrated event-relay controller (FileController,
+    %       VideoSyncController, PanelToggleController, PlotController)
+    %       must subscribe N EventBus listeners on construction AND
+    %       release all of them when its inherited ControllerBase
+    %       cleanup() runs. Verifies the leak-free contract the user
+    %       brief asked for in tasks 2 + 5.
+    r = struct('Passed', false, 'Message', '', 'Details', struct());
+    classes = { ...
+        'flightdash.controller.FileController',         5; ...
+        'flightdash.controller.VideoSyncController',    4; ...
+        'flightdash.controller.PanelToggleController',  5; ...
+        'flightdash.controller.PlotController',        10};
+    app = [];
+    try
+        app = flightdash.FlightDataDashboard();
+    catch ME
+        r.Message = sprintf('Dashboard build skipped: %s', ME.message);
+        return;
+    end
+    cleaner = onCleanup(@() trySafeDelete(app)); %#ok<NASGU>
+    base = flightdash.util.EventBus.subscriberCount();
+    perClass = struct();
+    for k = 1:size(classes, 1)
+        clsName = classes{k, 1};
+        expected = classes{k, 2};
+        ctor = str2func(clsName);
+        ctrl = ctor(app.Adapter);
+        actual = numel(ctrl.Listeners);
+        perClass.(localShort(clsName)) = actual;
+        if actual < expected
+            r.Message = sprintf('%s subscribed %d listeners, expected at least %d', ...
+                clsName, actual, expected);
+            r.Details = perClass;
+            return;
+        end
+        ctrl.cleanup();
+        if ~isempty(ctrl.Listeners)
+            r.Message = sprintf('%s cleanup left %d residual listeners', ...
+                clsName, numel(ctrl.Listeners));
+            r.Details = perClass;
+            return;
+        end
+        delete(ctrl);
+    end
+    after = flightdash.util.EventBus.subscriberCount();
+    if after > base
+        r.Message = sprintf('EventBus leaked %d subscribers across migrated controllers', ...
+            after - base);
+        r.Details = perClass;
+        return;
+    end
+    r.Passed = true;
+    r.Message = sprintf('4 migrated controllers: %d listeners total, all released', ...
+        sum(structfun(@(v) v, perClass)));
+    r.Details = perClass;
+end
+
+function s = localShort(cls)
+    parts = strsplit(cls, '.');
+    s = char(parts{end});
+end
+
+function trySafeDelete(h)
+    try, if ~isempty(h) && isvalid(h), delete(h); end, catch, end
+end
 
 function r = p91_serializerRoundTrip()
     % [PHASE 9] Build a non-trivial Project, save it to a .frsproj
