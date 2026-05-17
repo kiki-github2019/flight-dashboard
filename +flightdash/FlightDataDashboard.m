@@ -4510,8 +4510,29 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 decoder = @(req) app.decodeFrameSyncLocal(fIdx, req.FrameNo);
                 [result, decoded] = service.decodeNow( ...
                     app.ActiveSessionId, fIdx, videoPath, clampedFrame, decoder);
-                if strcmp(result.Status, 'cache-hit') || strcmp(result.Status, 'completed')
-                    img = decoded;
+                status = char(result.Status);
+                switch status
+                    case {'cache-hit', 'completed'}
+                        img = decoded;
+                    case 'error'
+                        stats = service.stats();
+                        app.logCaught(MException('flightdash:SharedDecodeError', ...
+                            'Shared decode returned error. LastError: %s', stats.LastError), ...
+                            'decodeShared:error');
+                    case 'stale-discard'
+                        if app.DebugMode
+                            fprintf('[SharedDecode] stale-discard session=%s frame=%d\n', ...
+                                app.ActiveSessionId, clampedFrame);
+                        end
+                    case {'missing', 'idle'}
+                        if app.DebugMode
+                            fprintf('[SharedDecode] %s frame=%d\n', status, clampedFrame);
+                        end
+                    otherwise
+                        if app.DebugMode
+                            fprintf('[SharedDecode] unexpected status=%s frame=%d\n', ...
+                                status, clampedFrame);
+                        end
                 end
             catch ME
                 app.logCaught(ME, 'decodeShared');

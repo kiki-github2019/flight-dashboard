@@ -510,7 +510,8 @@ classdef ProjectSerializer
                 % deps too. Previously only flight_data + video were
                 % tracked, so a missing option file would not surface in
                 % external_links.json / health reports.
-                if isfield(s, 'OptionFilePath') && iscell(s.OptionFilePath)
+                if flightdash.project.ProjectSerializer.hasFieldOrProp(s, 'OptionFilePath') ...
+                        && iscell(s.OptionFilePath)
                     for ch = 1:numel(s.OptionFilePath)
                         p = s.OptionFilePath{ch};
                         if ~isempty(p)
@@ -523,6 +524,11 @@ classdef ProjectSerializer
                     end
                 end
             end
+        end
+
+        function tf = hasFieldOrProp(obj, name)
+            tf = (isstruct(obj) && isfield(obj, name)) || ...
+                 (isobject(obj) && isprop(obj, name));
         end
 
         % ===== JSON helpers =====

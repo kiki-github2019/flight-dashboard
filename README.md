@@ -106,6 +106,10 @@ priority scheduling remains outside the MVP. Phase 10 currently starts with a
 shared service prototype plus Studio/dashboard injection hooks before dashboard
 decode paths are changed. Dashboard decode has an opt-in gate for targeted
 runtime testing while legacy decode remains the default.
+Current shared decode async execution is a MATLAB timer-based cooperative queue
+drain, not parfeval/background worker scheduling. `SharedDecodeService.defaultDecoder`
+is a mock/test fallback; production VideoReader decoding is used only when a
+decoder function handle is injected.
 
 Undo/Redo is session-scoped: each embedded dashboard receives a per-session
 `UndoService`, ROI/marker operations push command objects, and Studio toolbar,
@@ -148,6 +152,10 @@ results6  = flightdash.studio.diag.verifyPhase6();
 results8  = flightdash.studio.diag.verifyPhase8();
 results9  = flightdash.studio.diag.verifyPhase9();
 results10 = flightdash.studio.diag.verifyPhase10();
+vrSmoke   = flightdash.studio.diag.verifyPhase10VideoReaderSmoke();
+risk      = flightdash.studio.diag.verifyRiskRegressionTests();
+% Optional, requires a user-supplied video file:
+% stress = flightdash.studio.diag.verifyPhase10LargeVideoStress("path/to/video.avi");
 multi     = flightdash.studio.diag.runMultiInstanceTests();
 full      = runFullStabilizationTests();
 isolated  = runAllTestCodesWithCleanup(); % reset after every test function
@@ -176,3 +184,8 @@ Important manual/runtime scenarios:
   object hierarchy.
 - History panel is an MVP undo/redo list for the active session.
 - Full Recalculate UX is deferred; Phase 8a/8b/8c currently provide service-level MVP coverage.
+- Shared decode remains opt-in; large AVI performance and MATLAB Online runtime
+  behavior still require explicit validation.
+- FlightDataDashboard still owns session/UI/video/layout/async/controller state;
+  future refactor should move state ownership into SessionContext and
+  DashboardStateStore.

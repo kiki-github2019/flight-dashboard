@@ -4,6 +4,7 @@ classdef SharedDecodeService < handle
     properties
         Cache = []
         ActiveSessionId char = ''
+        ExecutionMode char = 'timer-cooperative'
         AsyncInterval double = 0.01
         AsyncBatchSize double = 1
     end
@@ -88,7 +89,7 @@ classdef SharedDecodeService < handle
                 return;
             end
 
-            req = obj.makeRequest(sessionId, channelIdx, videoPath, frameNo, decoderFcn);
+            req = obj.makeRequest(sessionId, channelIdx, videoPath, frameNo, decoderFcn, []);
             [result, frame] = obj.decodeRequest(req);
         end
 
@@ -102,6 +103,16 @@ classdef SharedDecodeService < handle
             obj.Queue = obj.Queue(~strcmp({obj.Queue.SessionId}, char(sessionId)));
             n = before - numel(obj.Queue);
             obj.CancelledCount = obj.CancelledCount + n;
+        end
+
+        function setExecutionMode(obj, mode)
+            mode = char(mode);
+            allowed = {'sync', 'timer', 'timer-cooperative'};
+            if ~any(strcmp(mode, allowed))
+                error('SharedDecodeService:InvalidExecutionMode', ...
+                    'Invalid execution mode: %s', mode);
+            end
+            obj.ExecutionMode = mode;
         end
 
         function gen = advanceSessionGeneration(obj, sessionId)
@@ -204,6 +215,8 @@ classdef SharedDecodeService < handle
                 'Cancelled', obj.CancelledCount, ...
                 'AsyncRunning', obj.isAsyncRunning(), ...
                 'AsyncErrors', obj.AsyncErrorCount, ...
+                'ExecutionMode', obj.ExecutionMode, ...
+                'IsPrototype', true, ...
                 'ActiveSessionId', obj.ActiveSessionId, ...
                 'LastError', obj.LastError, ...
                 'Cache', cacheStats);
@@ -363,8 +376,15 @@ classdef SharedDecodeService < handle
 
     methods (Static)
         function frame = defaultDecoder(req)
+            %DEFAULTDECODER Backward-compatible mock decoder.
+            % This is intentionally not a production VideoReader decoder.
+            % Production callers should inject a decoder function handle.
+            frame = flightdash.services.SharedDecodeService.mockDecoder(req);
+        end
+
+        function frame = mockDecoder(req)
             seed = mod(round(req.FrameNo) + numel(req.SessionId) + req.ChannelIdx, 255);
-            frame = uint8(seed) * ones(4, 4, 3, 'uint8');
+            frame = repmat(uint8(seed), [4 4 3]);
         end
     end
 end

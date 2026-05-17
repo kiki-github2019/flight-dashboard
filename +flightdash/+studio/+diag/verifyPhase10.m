@@ -15,11 +15,14 @@ function results = verifyPhase10()
         'P10-8', @checkRunRequestSpecific
         'P10-9', @checkDecodeNowCachesWithoutQueue
         'P10-10', @checkAsyncQueueDrains
-        'P10-11', @checkStudioInjectionHooks
-        'P10-12', @checkDashboardDecodeOptInHooks
-        'P10-13', @checkSessionCleanupHooks
-        'P10-14', @checkSessionScopeFailClosed
-        'P10-15', @checkPrototypeScopeGuard
+        'P10-11', @checkStatsPrototypeMetadata
+        'P10-12', @checkMockDecoderMethod
+        'P10-13', @checkVideoReaderSmokeDiagnosticExists
+        'P10-14', @checkStudioInjectionHooks
+        'P10-15', @checkDashboardDecodeOptInHooks
+        'P10-16', @checkSessionCleanupHooks
+        'P10-17', @checkSessionScopeFailClosed
+        'P10-18', @checkPrototypeScopeGuard
     };
 
     results = struct('TC', {}, 'Result', {}, 'Message', {});
@@ -212,6 +215,34 @@ function [ok, msg, status] = checkAsyncQueueDrains()
     end
 end
 
+function [ok, msg, status] = checkStatsPrototypeMetadata()
+    status = '';
+    svc = flightdash.services.SharedDecodeService();
+    stats = svc.stats();
+    ok = isfield(stats, 'ExecutionMode') && isfield(stats, 'IsPrototype') && ...
+        strcmp(stats.ExecutionMode, 'timer-cooperative') && logical(stats.IsPrototype);
+    msg = passFail(ok, 'SharedDecodeService stats expose prototype timer-cooperative mode', ...
+        'SharedDecodeService stats missing ExecutionMode/IsPrototype metadata');
+end
+
+function [ok, msg, status] = checkMockDecoderMethod()
+    status = '';
+    decodeMeta = meta.class.fromName('flightdash.services.SharedDecodeService');
+    req = struct('FrameNo', 3, 'SessionId', 'S1', 'ChannelIdx', 1);
+    frame = flightdash.services.SharedDecodeService.defaultDecoder(req);
+    ok = hasMetaMethod(decodeMeta, 'mockDecoder') && ~isempty(frame) && ...
+        isequal(frame, flightdash.services.SharedDecodeService.mockDecoder(req));
+    msg = passFail(ok, 'SharedDecodeService exposes mockDecoder behind defaultDecoder', ...
+        'SharedDecodeService mockDecoder/defaultDecoder contract is missing');
+end
+
+function [ok, msg, status] = checkVideoReaderSmokeDiagnosticExists()
+    status = '';
+    ok = ~isempty(which('flightdash.studio.diag.verifyPhase10VideoReaderSmoke'));
+    msg = passFail(ok, 'VideoReader smoke diagnostic is available', ...
+        'verifyPhase10VideoReaderSmoke diagnostic is missing');
+end
+
 function [ok, msg, status] = checkStudioInjectionHooks()
     status = '';
     appMeta = meta.class.fromName('flightdash.studio.FlightReviewStudioApp');
@@ -310,7 +341,7 @@ function tf = hasMetaMethod(metaObj, name)
 end
 
 function img = decodeFromRequest(req)
-    img = uint8(req.FrameNo) * ones(2, 2, 3, 'uint8');
+    img = repmat(uint8(req.FrameNo), [2 2 3]);
 end
 
 function msg = passFail(ok, passMsg, failMsg)
