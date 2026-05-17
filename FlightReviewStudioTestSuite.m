@@ -2864,6 +2864,24 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(tab);
         end
 
+        function test_T15_Ribbon_SyncAndPlaybackTabsPresent(testCase)
+            % Phase 4: Sync + Playback tabs must register; Playback
+            % buttons use symbol-style icons (Play/Stop/Prev/Next).
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            titles = cellfun(@(t) char(t.Title), app.RibbonBar.Tabs, 'UniformOutput', false);
+            for needed = {'Sync','Playback'}
+                testCase.verifyTrue(any(strcmp(titles, needed{1})), ...
+                    sprintf('%s tab missing — got: %s', needed{1}, strjoin(titles,',')));
+            end
+            playTab = app.RibbonBar.Tabs{find(strcmp(titles,'Playback'),1)};
+            testCase.verifyGreaterThanOrEqual(numel(playTab.Groups{1}.Buttons), 4);
+        end
+
         function test_T15_Ribbon_DataTabPresent(testCase)
             % Phase 3: launching the Studio app must register a Data
             % tab alongside Home; Flight group contains Wizard/F1/F2.

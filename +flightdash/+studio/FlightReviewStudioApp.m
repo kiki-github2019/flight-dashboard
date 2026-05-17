@@ -1408,6 +1408,8 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.RibbonBar.Container.Layout.Row = 3;
                 app.RibbonBar.addTab(flightdash.studio.ribbon.tabs.HomeTab.build());
                 app.RibbonBar.addTab(flightdash.studio.ribbon.tabs.DataTab.build());
+                app.RibbonBar.addTab(flightdash.studio.ribbon.tabs.SyncTab.build());
+                app.RibbonBar.addTab(flightdash.studio.ribbon.tabs.PlaybackTab.build());
             catch ME
                 try, app.logCaught(ME, 'Studio:buildRibbon'); catch, end
             end
