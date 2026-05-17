@@ -450,6 +450,76 @@ end
 
 빠른 드래그 중 수많은 요청이 쌓여도 최신 요청만 처리.
 
+---
+
+## 부록 A — 리팩토링 스냅샷 (R1–R8 + Ribbon + ControllerBase)
+
+본 부록은 2026 상반기 진행된 후속 리팩토링 단계들의 결과를 한 페이지로 요약합니다. 호환성 보존 원칙에 따라 `app.*` 표면 API는 전부 유지되었으며, 신규 코드는 새 핸들/팩사드로 라우팅합니다.
+
+### A.1 — Ownership Inversion (R1 ~ R8)
+
+| Phase | Owner 클래스 | 필드 수 | 비고 |
+|-------|--------------|---------|------|
+| R1 → R7 | `flightdash.runtime.SessionContext` | 9 | UIFigure / IsEmbedded / ActiveSessionId / RootContainer / MouseRouter / SharedCacheService / SharedDecodeService / UndoService / UseSharedDecodeService |
+| R3 → R6 | `flightdash.state.AsyncDecodeState` | 10 | UseAsyncDecode / AsyncPool / AsyncFutures / AsyncTargetFrame / AsyncGen / IsDecoding / PendingFrame / PendingMode / DragVelocity / DragVelocitySamples |
+| R4 → R6 | `flightdash.state.DashboardLayoutState` | 11 | LayoutProfile / LastLayoutSize / InResponsiveLayout / PreferredVideoWidth / ManualVideoWidth / ManualPanelWidths / PanelSplitterFIdx / PanelSplitterKind / IsDraggingPanelSplitter / LayoutHandles / NormalFigurePosition |
+| R8 (Channel paths) | `flightdash.state.ChannelState` (per-channel) | 2 | FlightFilePath / VideoFilePath (cell shape multiplex 유지) |
+| R8 (Video aggregate) | `flightdash.state.VideoSessionState` | 3 | VideoState / SyncState / VideoSyncState (struct array shape 유지) |
+| **합계** | | **35** | 30개 R1~R7 + 5개 R8 |
+
+`FlightDataDashboard`의 35개 storage 필드는 모두 `(Dependent, Access = public)` Dependent forward로 대체. Subscript-assign 패턴 (`app.AsyncFutures{fIdx} = []`, `app.Models(fIdx).rawData.col(idx)`)은 MATLAB의 get-modify-set chain으로 무수정 통과. 단, **`Models` 자체는 의도적으로 반전 보류** (77 read sites + hot path).
+
+### A.2 — Ribbon UI (R-Ribbon-1 ~ 7)
+
+기존 OS 레벨 menubar + 단일 행 toolbar (12 menus + 21 buttons) → 6-탭 ribbon 으로 전환.
+
+```
++flightdash/+studio/RibbonBar.m           — top-level: QuickAccess + tab strip
++flightdash/+studio/+ribbon/RibbonTab.m   — one tab (label + group row)
++flightdash/+studio/+ribbon/RibbonGroup.m — grouped button section
++flightdash/+studio/+ribbon/RibbonButton.m — icon+label, optional ▼ chevron dropdown
++flightdash/+studio/+ribbon/+tabs/        — HomeTab / DataTab / SyncTab / PlaybackTab / ReviewTab / PlotTab
++flightdash/+ui/RibbonIconFactory.m       — uint8 24×24×3 RGB programmatic icons (text + symbol)
+```
+
+- **QuickAccess (탭 위)**: 편집 가능 프로젝트명 + Mode dropdown (`Pref:Mode:*` 동기화) + Theme + Settings(⚙) + Help(?). Settings는 Experimental: Shared Decode 토글 (opt-in) 포함.
+- **legacy MenuMgr + ToolbarMgr는 더 이상 생성 안 됨**. 모든 cmd dispatch는 `CommandRouter`로 단일화.
+
+### A.3 — Controller Migration (10/10)
+
+10개 컨트롤러 모두 `flightdash.controller.ControllerBase` 상속:
+
+| Controller | EventBus subscribe 수 | onCleanup hook |
+|------------|----------------------|----------------|
+| FileController         | 5  | — |
+| VideoSyncController    | 4  | — |
+| PanelToggleController  | 5  | — |
+| PlotController         | 10 | — |
+| DragController         | 2  | — |
+| PannerController       | 4  | `stopHandleDrag()` |
+| InfoController         | 0  | — |
+| MarkerDragController   | 0  | — |
+| PlaybackController     | 10 | `stopAllFlightPlayback()` |
+| RoiController          | 5  | `clearHover()` |
+
+공통 패턴:
+- 생성자 `obj@flightdash.controller.ControllerBase(flightdash.controller.ControllerBase.normalizeAdapterInput(input, '<ClassName>'))`
+- `obj.subscribeEvent(name, cb)` 한 줄로 subscribe + trackListener
+- 자체 `Listeners` / `delete` 제거 → 베이스의 `cleanup()` 단일 경로
+
+### A.4 — 진단 / 회귀 가드
+
+| 파일 | 역할 |
+|------|------|
+| `+flightdash/+diag/verifyDashboardRefactorBaseline.m` | R6/R7/R8 ownership inversion 35개 잠금 (storage on state class + Dependent on app) |
+| `+flightdash/+studio/+diag/verifyPhase4.m` | P4-1 ~ P4-13 (P4-13 = 4개 migrated controller leak-free 검증) |
+| `+flightdash/+studio/+diag/verifyCallbackSafety.m` | 정적 스캔 (raw `@app.method`, `Listeners` 재선언, `delete` no-cleanup, `EventBus.publish` raw numeric payload) + 런타임 `EventBus.subscriberCount` leak probe |
+| `FlightReviewStudioTestSuite.m` | 50+ T15_* 테스트 (`Refactor_*`, `Ribbon_*`, `ControllerBase_*`, `Phase4_*`, `Diag_*`, `Perf_*`, `Path_*`) |
+
+### A.5 — 외부 표면 변화 없음
+
+`FlightReviewStudio()`, `flightdash.FlightDataDashboard()`, 모든 `app.*` 속성/메서드 호출 시그니처는 R1 이전과 동일. 35개 Dependent forward + 컨트롤러 상속 + ribbon 전환 모두 호출 측 syntax 무변경. R2025a / R2026a / MATLAB Online 호환 보존.
+
 ## 상태 머신 / 라이프사이클
 
 ### App 상태
