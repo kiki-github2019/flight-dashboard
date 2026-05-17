@@ -3171,6 +3171,35 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             end
         end
 
+        function test_T15_ControllerBase_NormalizeInputCentralised(testCase)
+            % Verify the shared normalizer enforces the BadInput
+            % contract that each controller's previous private static
+            % used to throw. Each controller class id must come
+            % through as `<Class>:BadInput`.
+            controllers = {'FileController','VideoSyncController', ...
+                'PanelToggleController','PlotController','DragController', ...
+                'PannerController','InfoController','MarkerDragController', ...
+                'PlaybackController','RoiController'};
+            for k = 1:numel(controllers)
+                threw = false;
+                try
+                    flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                        42, controllers{k});
+                catch ME
+                    threw = true;
+                    testCase.verifyEqual(ME.identifier, ...
+                        sprintf('%s:BadInput', controllers{k}));
+                end
+                testCase.verifyTrue(threw, ...
+                    sprintf('Normalizer must reject bad input for %s.', controllers{k}));
+            end
+            % And `subscribeEvent` must be exposed by ControllerBase.
+            mc = ?flightdash.controller.ControllerBase;
+            methodNames = arrayfun(@(m) string(m.Name), mc.MethodList);
+            testCase.verifyTrue(any(methodNames == "subscribeEvent"));
+            testCase.verifyTrue(any(methodNames == "normalizeAdapterInput"));
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole

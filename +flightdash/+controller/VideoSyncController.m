@@ -9,7 +9,8 @@ classdef VideoSyncController < flightdash.controller.ControllerBase
     methods
         function obj = VideoSyncController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.VideoSyncController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'VideoSyncController'));
             obj.subscribeEvents();
         end
 
@@ -54,16 +55,4 @@ classdef VideoSyncController < flightdash.controller.ControllerBase
         function setCacheBudget(obj, budgetMB),           a = obj.app(); if ~isempty(a), a.setCacheBudget(budgetMB); end, end
     end
 
-    methods (Static, Access = private)
-        function input = normalizeInput(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('VideoSyncController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
-        end
-    end
 end

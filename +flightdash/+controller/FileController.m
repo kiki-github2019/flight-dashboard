@@ -10,7 +10,8 @@ classdef FileController < flightdash.controller.ControllerBase
     methods
         function obj = FileController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.FileController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'FileController'));
             obj.subscribeEvents();
         end
 
@@ -57,18 +58,4 @@ classdef FileController < flightdash.controller.ControllerBase
         function loadFlight(obj, fIdx), appHandle = obj.app(); if ~isempty(appHandle), appHandle.handleFlightFile(fIdx); end, end
     end
 
-    methods (Static, Access = private)
-        function input = normalizeInput(adapterOrApp)
-            % Validate constructor input and pass through. Preserves the
-            % FileController:BadInput identifier callers rely on.
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('FileController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
-        end
-    end
 end

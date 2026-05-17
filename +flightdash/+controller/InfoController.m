@@ -16,7 +16,8 @@ classdef InfoController < flightdash.controller.ControllerBase
     methods
         function obj = InfoController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.InfoController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'InfoController'));
         end
 
         function handleTableSelection(obj, fIdx, event)
@@ -169,16 +170,4 @@ classdef InfoController < flightdash.controller.ControllerBase
         end
     end
 
-    methods (Static, Access = private)
-        function input = normalizeInput(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('InfoController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
-        end
-    end
 end

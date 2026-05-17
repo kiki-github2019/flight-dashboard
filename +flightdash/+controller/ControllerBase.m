@@ -296,6 +296,21 @@ classdef ControllerBase < handle
             end
         end
 
+        function subscribeEvent(obj, eventName, callback)
+            % Convenience: subscribe to the app's EventBus AND register
+            % the returned handle with trackListener so cleanup deletes
+            % it. Returns the listener handle so callers can chain.
+            try
+                appHandle = obj.app();
+                if isempty(appHandle), return; end
+                listener = flightdash.util.EventBus.subscribeForApp( ...
+                    appHandle, char(eventName), callback);
+                obj.trackListener(listener);
+            catch ME
+                obj.logCaught(ME, ['ControllerBase:subscribeEvent:' char(eventName)]);
+            end
+        end
+
         function addSessionListener(obj, source, eventName, callback)
             try
                 L = flightdash.event.SessionScopedListener(obj.SessionId, source, eventName, callback);
@@ -342,6 +357,22 @@ classdef ControllerBase < handle
 
         function delete(obj)
             try, obj.cleanup(); catch, end
+        end
+    end
+
+    methods (Static, Access = public)
+        function input = normalizeAdapterInput(adapterOrApp, identifierClass)
+            % Shared input validator for controllers that accept either
+            % a DashboardAppAdapter or a FlightDataDashboard. Raises
+            % `<identifierClass>:BadInput` on anything else.
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
+                return;
+            end
+            error([char(identifierClass) ':BadInput'], ...
+                'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                class(adapterOrApp));
         end
     end
 

@@ -15,7 +15,8 @@ classdef PlaybackController < flightdash.controller.ControllerBase
     methods
         function obj = PlaybackController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.PlaybackController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'PlaybackController'));
             obj.subscribeEvents();
         end
 
@@ -259,16 +260,4 @@ classdef PlaybackController < flightdash.controller.ControllerBase
 
     end
 
-    methods (Static, Access = private)
-        function input = normalizeInput(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('PlaybackController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
-        end
-    end
 end

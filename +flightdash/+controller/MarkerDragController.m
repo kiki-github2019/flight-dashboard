@@ -21,7 +21,8 @@ classdef MarkerDragController < flightdash.controller.ControllerBase
     methods
         function obj = MarkerDragController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.MarkerDragController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'MarkerDragController'));
         end
 
         function startPlotMarkerDrag(obj, fIdx, ~, src, event)
@@ -419,15 +420,5 @@ classdef MarkerDragController < flightdash.controller.ControllerBase
             end
         end
 
-        function input = normalizeInput(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('MarkerDragController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
-        end
     end
 end

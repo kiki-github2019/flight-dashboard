@@ -14,7 +14,8 @@ classdef DragController < flightdash.controller.ControllerBase
     methods
         function obj = DragController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.DragController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'DragController'));
             obj.subscribeEvents();
         end
 
@@ -102,19 +103,6 @@ classdef DragController < flightdash.controller.ControllerBase
                 end
             catch ME
                 obj.logCaught(ME, 'SplitterHitTest:buttonDown');
-            end
-        end
-    end
-
-    methods (Static, Access = private)
-        function input = normalizeInput(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('DragController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
             end
         end
     end

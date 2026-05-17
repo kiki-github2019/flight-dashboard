@@ -28,7 +28,8 @@ classdef RoiController < flightdash.controller.ControllerBase
     methods
         function obj = RoiController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.RoiController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'RoiController'));
             obj.subscribeEvents();
         end
 
@@ -569,19 +570,6 @@ classdef RoiController < flightdash.controller.ControllerBase
                 undoSvc.push(cmd);
             catch ME
                 obj.Adapter.logCaught(ME, 'ROI:undoPush');
-            end
-        end
-    end
-
-    methods (Static, Access = private)
-        function input = normalizeInput(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('RoiController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
             end
         end
     end

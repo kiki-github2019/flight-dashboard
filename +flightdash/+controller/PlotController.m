@@ -8,7 +8,8 @@ classdef PlotController < flightdash.controller.ControllerBase
     methods
         function obj = PlotController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.PlotController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'PlotController'));
             obj.subscribeEvents();
         end
 
@@ -87,16 +88,4 @@ classdef PlotController < flightdash.controller.ControllerBase
         end
     end
 
-    methods (Static, Access = private)
-        function input = normalizeInput(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('PlotController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
-        end
-    end
 end

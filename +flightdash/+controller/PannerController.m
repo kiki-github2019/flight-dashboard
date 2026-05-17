@@ -15,7 +15,8 @@ classdef PannerController < flightdash.controller.ControllerBase
     methods
         function obj = PannerController(adapterOrApp)
             obj@flightdash.controller.ControllerBase( ...
-                flightdash.controller.PannerController.normalizeInput(adapterOrApp));
+                flightdash.controller.ControllerBase.normalizeAdapterInput( ...
+                    adapterOrApp, 'PannerController'));
             obj.subscribeEvents();
         end
 
@@ -288,16 +289,4 @@ classdef PannerController < flightdash.controller.ControllerBase
 
     end
 
-    methods (Static, Access = private)
-        function input = normalizeInput(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
-                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                input = adapterOrApp;
-            else
-                error('PannerController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
-        end
-    end
 end
