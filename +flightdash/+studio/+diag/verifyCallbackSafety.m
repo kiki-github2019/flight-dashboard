@@ -193,21 +193,14 @@ end
 function n = localEventBusCount()
     n = NaN;
     try
-        if ismethod('flightdash.util.EventBus', 'subscriberCount')
-            n = flightdash.util.EventBus.subscriberCount();
-            return;
-        end
-    catch
-    end
-    try
-        % Try accessing a known internal map. Names vary across builds.
+        % Prefer the explicit static method (added alongside this
+        % diagnostic). Fallback via metaclass keeps the probe useful
+        % on older EventBus builds that did not expose the count.
         meta = ?flightdash.util.EventBus;
         if isempty(meta), return; end
-        for k = 1:numel(meta.MethodList)
-            if strcmpi(meta.MethodList(k).Name, 'allSubscribers')
-                n = numel(flightdash.util.EventBus.allSubscribers());
-                return;
-            end
+        names = arrayfun(@(m) string(m.Name), meta.MethodList);
+        if any(names == "subscriberCount")
+            n = flightdash.util.EventBus.subscriberCount();
         end
     catch
     end

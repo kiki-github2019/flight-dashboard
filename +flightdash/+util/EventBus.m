@@ -130,6 +130,14 @@ classdef EventBus < handle
                     @(src, data) flightdash.util.EventBus.safeSessionCallback( ...
                     sessionId, eventName, callback, src, data));
             end
+            flightdash.util.EventBus.registry(listener);
+        end
+
+        function n = subscriberCount()
+            %SUBSCRIBERCOUNT  Live subscriber count across all events.
+            %   Used by flightdash.studio.diag.verifyCallbackSafety to
+            %   detect listener leaks after dashboard teardown.
+            n = flightdash.util.EventBus.registry();
         end
 
         function listener = subscribeForApp(app, eventName, callback)
@@ -148,6 +156,34 @@ classdef EventBus < handle
     end
 
     methods (Static, Access = private)
+        function result = registry(addListener)
+            % Tracks every listener returned from subscribe(); call
+            % with one arg to register, with no args to return the
+            % live count (and prune dead entries). Persistent cell of
+            % event.listener handles — isvalid() flips to false once
+            % the underlying listener is deleted, so the count
+            % accurately reflects live subscriptions.
+            persistent items
+            if isempty(items), items = {}; end
+            if nargin >= 1 && ~isempty(addListener)
+                items{end+1} = addListener; %#ok<AGROW>
+                result = numel(items);
+                return;
+            end
+            % Prune dead entries.
+            live = false(1, numel(items));
+            for k = 1:numel(items)
+                try
+                    h = items{k};
+                    live(k) = ~isempty(h) && isvalid(h);
+                catch
+                    live(k) = false;
+                end
+            end
+            items = items(live);
+            result = numel(items);
+        end
+
         function sessionId = sessionIdForApp(app)
             sessionId = '';
             try

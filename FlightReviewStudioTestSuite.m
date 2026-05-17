@@ -3062,6 +3062,25 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyEmpty(ctrl.Listeners);
         end
 
+        function test_T15_EventBus_SubscriberCountAndLeakDetection(testCase)
+            % EventBus.subscriberCount must return a number, increment
+            % on subscribe, and decrement after the returned listener
+            % is deleted (auto-pruned by the registry).
+            base = flightdash.util.EventBus.subscriberCount();
+            testCase.verifyClass(base, 'double');
+            handler = @(~, ~) [];
+            L = flightdash.util.EventBus.subscribe('FlightFileRequested', handler);
+            during = flightdash.util.EventBus.subscriberCount();
+            testCase.verifyGreaterThan(during, base, ...
+                'subscriberCount must rise after subscribe.');
+            delete(L);
+            after = flightdash.util.EventBus.subscriberCount();
+            testCase.verifyLessThanOrEqual(after, during, ...
+                'subscriberCount must drop after listener delete.');
+            testCase.verifyEqual(after, base, ...
+                'subscriberCount must return to baseline.');
+        end
+
         function test_T15_Diag_CallbackSafetyRuns(testCase)
             % Diagnostic must run, return a report struct, and report
             % WarnCount >= 0 / ErrCount >= 0 without throwing.
