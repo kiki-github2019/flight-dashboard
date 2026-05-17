@@ -1,19 +1,11 @@
-classdef MarkerDragController < handle
+classdef MarkerDragController < flightdash.controller.ControllerBase
     % flightdash.controller.MarkerDragController
     % Owns plot marker / video frame drag lifecycle and per-drag state.
     %
-    % [REFACTOR R5+2] Migrated to DashboardAppAdapter. Adapter routes
-    % session / uiFigure / logCaught; the dense write surface
-    % (app.State / app.Models / app.UI / app.throttleReset /
-    % app.setXLimListenersEnabled / app.findClosestIndexByTime /
-    % app.updateMarkersOnly / app.goToFrame / app.updateDashboard /
-    % app.prefetchAdjacentFrames / app.setStateUpdating / app.isActive-
-    % Session / app.updateDragVelocity / app.UndoService) still uses
-    % obj.Adapter.app() — too coupled to peel apart in a single phase.
-
-    properties (Access = private)
-        Adapter  % flightdash.runtime.DashboardAppAdapter
-    end
+    % [Phase 4 stabilization] Inherits from ControllerBase. Drag state
+    % is custom (uses figure-level WindowButton callbacks rather than
+    % the base's router-based lock) so the existing handlers are kept;
+    % the base still provides logCaught + session/uiFigure routing.
 
     properties (SetAccess = private)
         IsDraggingMarker logical = false
@@ -28,15 +20,8 @@ classdef MarkerDragController < handle
 
     methods
         function obj = MarkerDragController(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
-                obj.Adapter = adapterOrApp;
-            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                obj.Adapter = adapterOrApp.getAdapter();
-            else
-                error('MarkerDragController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
+            obj@flightdash.controller.ControllerBase( ...
+                flightdash.controller.MarkerDragController.normalizeInput(adapterOrApp));
         end
 
         function startPlotMarkerDrag(obj, fIdx, ~, src, event)
@@ -431,6 +416,17 @@ classdef MarkerDragController < handle
                 tf = ~isempty(controller) && isvalid(controller);
             catch
                 tf = false;
+            end
+        end
+
+        function input = normalizeInput(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
+            else
+                error('MarkerDragController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
             end
         end
     end
