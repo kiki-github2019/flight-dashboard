@@ -27,13 +27,44 @@ classdef ProjectSerializer
 
     methods (Static)
 
+        function p = validatePath(filePath, role)
+            % Accept a text-scalar path (string or non-empty char), return
+            % char for MATLAB file APIs. Reject non-text inputs early
+            % with `ProjectSerializer:InvalidPath` so callers see a
+            % clear failure instead of a downstream char() crash.
+            if nargin < 2 || isempty(role), role = 'filePath'; end
+            if isstring(filePath)
+                if ~isscalar(filePath)
+                    error('ProjectSerializer:InvalidPath', ...
+                        '%s must be a string scalar (got %d elements).', ...
+                        role, numel(filePath));
+                end
+                if ismissing(filePath)
+                    error('ProjectSerializer:InvalidPath', ...
+                        '%s string must not be <missing>.', role);
+                end
+                p = char(filePath);
+            elseif ischar(filePath)
+                if ~isrow(filePath) && ~isempty(filePath)
+                    error('ProjectSerializer:InvalidPath', ...
+                        '%s char must be a row vector.', role);
+                end
+                p = filePath;
+            else
+                error('ProjectSerializer:InvalidPath', ...
+                    '%s must be a string scalar or char (got %s).', ...
+                    role, class(filePath));
+            end
+            if isempty(p) || all(isspace(p))
+                error('ProjectSerializer:EmptyPath', '%s is empty.', role);
+            end
+        end
+
         function save(project, filePath)
             %SAVE  Write a ProjectModel to a .frsproj zip file.
             mustBeA(project, 'flightdash.project.ProjectModel');
-            filePath = char(filePath);
-            if isempty(filePath)
-                error('ProjectSerializer:EmptyPath', 'filePath is empty.');
-            end
+            filePath = flightdash.project.ProjectSerializer.validatePath( ...
+                filePath, 'save:filePath');
 
             tmpDir = tempname();
             mkdir(tmpDir);
@@ -754,7 +785,8 @@ classdef ProjectSerializer
 
         % ===== Filesystem helpers =====
         function resolved = resolveLoadPath(filePath)
-            requested = char(filePath);
+            requested = flightdash.project.ProjectSerializer.validatePath( ...
+                filePath, 'load:filePath');
             candidates = {requested};
             if ~endsWith(requested, '.zip', 'IgnoreCase', true)
                 candidates{end+1} = [requested '.zip']; %#ok<AGROW>

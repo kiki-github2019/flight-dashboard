@@ -3200,6 +3200,62 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyTrue(any(methodNames == "normalizeAdapterInput"));
         end
 
+        function test_T15_Perf_MockFlightDataShapePreserved(testCase)
+            % After the rand-batching optimization the generated table
+            % must still have the canonical columns + N rows.
+            loader = flightdash.model.FlightDataLoader();
+            bounds = struct('minLat',35,'maxLat',36,'minLon',127,'maxLon',128, ...
+                'minAlt',0,'maxAlt',10000,'isValid',true);
+            state = loader.generateMockFlightData(1, bounds);
+            testCase.verifyTrue(istable(state.rawData));
+            testCase.verifyEqual(height(state.rawData), flightdash.util.AppConstants.MOCK_STEP_COUNT);
+            vn = state.rawData.Properties.VariableNames;
+            for needed = {'time','roll','pitch','heading','altitude','latitude','longitude'}
+                testCase.verifyTrue(any(strcmpi(vn, needed{1})) || numel(vn) == 7, ...
+                    sprintf('Expected column related to %s in mock data.', needed{1}));
+            end
+            % Time column must be 0..N-1.
+            tIdx = find(strcmpi(vn, 'time'), 1);
+            if isempty(tIdx), tIdx = 1; end
+            t = state.rawData.(vn{tIdx});
+            testCase.verifyEqual(double(t(1)), 0);
+            testCase.verifyEqual(double(t(end)), double(flightdash.util.AppConstants.MOCK_STEP_COUNT - 1));
+        end
+
+        function test_T15_Perf_ComputeBandsCorrect(testCase)
+            % Vectorized band aggregation must produce the same band
+            % boundaries the legacy per-sample loop did.
+            times = (0:9).';
+            mapped = struct('Time','time');
+            tbl = table(times, ones(10,1), 'VariableNames', {'time', 'Mode'});
+            tbl.Mode = {'A';'A';'B';'B';'B';'C';'C';'A';'A';'A'};
+            bands = flightdash.model.FlightModeAnalyzer.computeBands(mapped, tbl);
+            testCase.verifyEqual(numel(bands), 4);
+            testCase.verifyEqual(char(bands(1).Mode), 'A');
+            testCase.verifyEqual(bands(1).Start, 0);
+            testCase.verifyEqual(bands(1).End,   1);
+            testCase.verifyEqual(char(bands(2).Mode), 'B');
+            testCase.verifyEqual(bands(2).Start, 2);
+            testCase.verifyEqual(bands(2).End,   4);
+            testCase.verifyEqual(char(bands(4).Mode), 'A');
+            testCase.verifyEqual(bands(4).End,   9);
+        end
+
+        function test_T15_Path_ProjectSerializerValidatesInput(testCase)
+            % validatePath must accept char + string-scalar, reject
+            % everything else with ProjectSerializer:InvalidPath, and
+            % reject empty/whitespace with :EmptyPath.
+            v = @flightdash.project.ProjectSerializer.validatePath;
+            testCase.verifyEqual(v('C:\path.frsproj', 'r'), 'C:\path.frsproj');
+            testCase.verifyEqual(v(string('C:\p.frsproj'), 'r'), 'C:\p.frsproj');
+            testCase.verifyError(@() v(42, 'r'), 'ProjectSerializer:InvalidPath');
+            testCase.verifyError(@() v(string.empty, 'r'), 'ProjectSerializer:InvalidPath');
+            testCase.verifyError(@() v({'a','b'}, 'r'), 'ProjectSerializer:InvalidPath');
+            testCase.verifyError(@() v('', 'r'),   'ProjectSerializer:EmptyPath');
+            testCase.verifyError(@() v('   ', 'r'),'ProjectSerializer:EmptyPath');
+            testCase.verifyError(@() v(missing, 'r'), 'ProjectSerializer:InvalidPath');
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole

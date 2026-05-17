@@ -41,14 +41,21 @@ classdef FlightModeAnalyzer
                 labels(times < times(1) + 2) = {'Start'};
             end
 
-            startIdx = 1;
-            for k = 2:numel(labels)
-                if ~strcmp(labels{k}, labels{startIdx})
-                    bands(end+1) = flightdash.model.FlightModeAnalyzer.modeBand(times(startIdx), times(k-1), labels{startIdx}); %#ok<AGROW>
-                    startIdx = k;
-                end
+            % Performance: vectorize change-point detection so the
+            % aggregation loop runs once per band (not once per
+            % sample). categorical() canonicalises labels for diff().
+            nL = numel(labels);
+            cats = categorical(labels);
+            changes = [true; cats(2:nL) ~= cats(1:nL-1)];
+            startIdxs = find(changes);
+            endIdxs = [startIdxs(2:end) - 1; nL];
+            nB = numel(startIdxs);
+            bands = repmat(struct('Start', 0, 'End', 0, 'Mode', '', ...
+                'Color', [0.55 0.55 0.55]), 1, nB);
+            for k = 1:nB
+                bands(k) = flightdash.model.FlightModeAnalyzer.modeBand( ...
+                    times(startIdxs(k)), times(endIdxs(k)), labels{startIdxs(k)});
             end
-            bands(end+1) = flightdash.model.FlightModeAnalyzer.modeBand(times(startIdx), times(end), labels{startIdx});
         end
 
         function labels = labelsFromData(rawData, nRows)
@@ -75,7 +82,13 @@ classdef FlightModeAnalyzer
 
                 col = rawData.(modeCol);
                 if isnumeric(col) || islogical(col)
-                    labels = arrayfun(@(v) flightdash.model.FlightModeAnalyzer.codeLabel(v), col(:), 'UniformOutput', false);
+                    % Performance: compose() vectorises sprintf — drops
+                    % from arrayfun-per-row (~O(N) scalar calls) to a
+                    % single batched format pass.
+                    v = double(col(:));
+                    bad = ~isfinite(v);
+                    labels = compose('Mode %g', v);
+                    if any(bad), labels(bad) = {'Unknown'}; end
                 elseif iscategorical(col)
                     labels = cellstr(col(:));
                 elseif isstring(col)
