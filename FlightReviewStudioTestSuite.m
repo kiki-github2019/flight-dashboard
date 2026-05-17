@@ -2864,6 +2864,25 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(tab);
         end
 
+        function test_T15_Ribbon_ReviewAndPlotTabsPresent(testCase)
+            % Phase 5: Review + Plot tabs must register; verifies
+            % Analyze split button is present in Review tab.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            titles = cellfun(@(t) char(t.Title), app.RibbonBar.Tabs, 'UniformOutput', false);
+            for needed = {'Review','Plot'}
+                testCase.verifyTrue(any(strcmp(titles, needed{1})), ...
+                    sprintf('%s tab missing — got: %s', needed{1}, strjoin(titles,',')));
+            end
+            % All 6 tabs total after Phase 5.
+            testCase.verifyEqual(numel(app.RibbonBar.Tabs), 6, ...
+                'Expected 6 ribbon tabs after Phase 5.');
+        end
+
         function test_T15_Ribbon_SyncAndPlaybackTabsPresent(testCase)
             % Phase 4: Sync + Playback tabs must register; Playback
             % buttons use symbol-style icons (Play/Stop/Prev/Next).
