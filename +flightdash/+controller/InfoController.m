@@ -1,17 +1,11 @@
-classdef InfoController < handle
+classdef InfoController < flightdash.controller.ControllerBase
     % flightdash.controller.InfoController
     % Owns current-info table interactions: row reorder, drag-to-reorder.
     %
-    % [REFACTOR R5+1] Migrated from full-app dependency to
-    % DashboardAppAdapter. Adapter routes the calls the controller
-    % actually needs (logCaught / session / uiFigure); write paths to
-    % app.Models(fIdx).displayMeta and app.updateCurrentInfoTable still
-    % use the adapter.app() escape hatch — these are the future
-    % migration candidates the R5 brief flagged.
-
-    properties (Access = private)
-        Adapter  % flightdash.runtime.DashboardAppAdapter
-    end
+    % [Phase 4 stabilization] Inherits from ControllerBase. No
+    % EventBus listeners (table interactions are direct uitable
+    % callbacks) so the inherited cleanup still applies for
+    % drag-lock release.
 
     properties (SetAccess = private)
         IsDraggingInfoRow logical = false
@@ -21,18 +15,8 @@ classdef InfoController < handle
 
     methods
         function obj = InfoController(adapterOrApp)
-            % Accept either the adapter (new path) or the app handle
-            % (legacy path) so external test code constructing the
-            % controller directly is unaffected during the transition.
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
-                obj.Adapter = adapterOrApp;
-            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                obj.Adapter = adapterOrApp.getAdapter();
-            else
-                error('InfoController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
+            obj@flightdash.controller.ControllerBase( ...
+                flightdash.controller.InfoController.normalizeInput(adapterOrApp));
         end
 
         function handleTableSelection(obj, fIdx, event)
@@ -181,6 +165,19 @@ classdef InfoController < handle
                     router = getappdata(fig, 'StudioMouseRouter');
                 end
             catch
+            end
+        end
+    end
+
+    methods (Static, Access = private)
+        function input = normalizeInput(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
+            else
+                error('InfoController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
             end
         end
     end
