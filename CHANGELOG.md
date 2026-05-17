@@ -7,7 +7,54 @@
 
 ## [Unreleased]
 
-다음 사이클 작업 영역 후보:
+### 2026-05-17 묶음 — Ownership / Ribbon / Controller stabilization
+
+- **R1 ~ R8 ownership inversion** — `FlightDataDashboard`의 35개 storage
+  속성을 4개 state 클래스로 이동: `SessionContext` 9개, `AsyncDecodeState`
+  10개, `DashboardLayoutState` 11개, `VideoSessionState` 3개,
+  `ChannelState` (per-channel paths) 2개. 호출 측 `app.*` syntax 무변경
+  (모두 Dependent forward). `Models` 인버전은 의도적 보류 (77 read site +
+  hot path).
+- **Ribbon UI 전면 교체** — 12 menus + 21 toolbar buttons → 6-탭 ribbon
+  (Home / Data / Sync / Playback / Review / Plot) + QuickAccess
+  (편집 가능 프로젝트명, Mode dropdown, Theme, Settings(⚙), Help(?)).
+  legacy `MenuManager` + `ToolbarManager`는 더 이상 생성되지 않으나
+  파일은 회귀 대응을 위해 보존. `RibbonIconFactory`가 24×24 RGB 아이콘
+  코드 생성 (text + symbol 스타일, 카테고리 색상).
+- **Controller 10/10 → `ControllerBase` 상속** — 자체 `Listeners` /
+  `delete` 제거, 베이스의 `cleanup()` 단일 경로 사용. EventBus
+  subscriptions은 모두 `obj.subscribeEvent(name, cb)` 한 줄 호출.
+  Adapter 입력 검증은 `ControllerBase.normalizeAdapterInput` 정적
+  헬퍼로 통합.
+- **CommandRouter 핸들러 21개 추가** — `Video:Clear`/`Snapshot`/
+  `DecodeSettings`/`Metadata`, `Data:Validate`/`EstimateFps`/`Summary`,
+  `Sync:VideoData`/`ResetVideo`/`OffsetEditor`/`QualityCheck`,
+  `Plot:NewComparison`/`Axis`/`LinkAxes`/`Export`/`Copy`,
+  `Review:Compare`/`ExportTable`/`Report`, `Analysis:EventDetect`/`Filter`/
+  `Smooth`/`FFT`/`Compare`/`Recalculate`,
+  `Pref:Experimental:SharedDecode` (opt-in 토글). `knownCommands()` 정적
+  메서드 + 리본 cmdId 매핑 테스트로 회귀 가드.
+- **EventBus.subscriberCount** — 구독자 라이브 카운트 노출 (registry 기반
+  prune). `verifyCallbackSafety` 런타임 leak probe가 이제 실제 누수 감지.
+- **Perf** — `FlightDataLoader.generateMockFlightData` rand 사전 배치 +
+  time 벡터화, `FlightModeAnalyzer.computeBands` 변화점 벡터화 +
+  `compose()` 배치 라벨 생성.
+- **Path validation** — `ProjectSerializer.validatePath` text-scalar
+  validator 추가 + `save/load` 진입점에 wire.
+- **MATLAB 버전 정책 통일** — README + 진입점이 2-티어 (R2021b 최소 /
+  R2025a+R2026a 검증) 정책으로 동기화, R2024a 미만 launch 시 1회성
+  warning.
+- **External links** — `ProjectSerializer.collectExternalLinks`에
+  `kind='option_file'` 루프 추가 (legacy session 안전 isfield 가드).
+- **WorkspaceManager.openSampleProject** — repo root `..\..\..` →
+  `..\..` 수정 + `isfolder` 사전 검증.
+- **logCaught 강화** — Studio + Workspace의 9개 고위험 silent catch 사이트가
+  `app.logCaught` / `obj.logIfPossible` 호출로 전환.
+- **Phase 4 stabilization 회귀 가드** — `verifyPhase4`에 P4-13
+  (migrated controller leak-free) + `verifyCallbackSafety`에
+  `EventBus.publish` raw numeric payload 스캔 추가.
+
+### 다음 사이클 작업 영역 후보
 
 - Phase 8d / Auto Update 마무리 (Frozen 결과 stale-warning UI)
 - DashboardPanel / VideoPlayerPanel / InstrumentsPanel / DataViewPanel
@@ -16,6 +63,8 @@
 - 사용자 직접 입력 ROI 영역 분석 다중 표시
 - Phase 9 Pack Project + 상대경로 복구 옵션
 - 단독 `FlightDataDashboard` 표준화 정리
+- `Models` ownership inversion (R2 brief 잔여; 77 read site → 점진
+  `app.channel(fIdx)` 마이그레이션 필요)
 
 ---
 
