@@ -1,46 +1,41 @@
-classdef PannerController < handle
+classdef PannerController < flightdash.controller.ControllerBase
     % flightdash.controller.PannerController
     % Owns compact range bar commands and handle-drag lifecycle.
     %
-    % [REFACTOR R5+3] Migrated to DashboardAppAdapter. Adapter routes
-    % session / uiFigure / logCaught; the dense UI write surface
-    % (app.UI / app.Models / app.LayoutMgr / app.PannerView /
-    % app.IsProgrammaticXLim / app.currentPlotXLim /
-    % app.currentPlotTabIndex / app.updatePannerViewport /
-    % app.isActiveSession) still escape-hatches through
-    % obj.Adapter.app(). EventBus.subscribeForApp also needs the live
-    % app handle today.
+    % [Phase 4 stabilization] Inherits from ControllerBase. EventBus
+    % subscriptions go through trackListener; cleanup is centralised.
+    % onCleanup() also forwards to stopHandleDrag so figure-level
+    % WindowButton callbacks are cleared on teardown.
 
     properties (Access = private)
-        Adapter  % flightdash.runtime.DashboardAppAdapter
-        Listeners cell = {}
-        IsDragging logical = false
         DragFIdx double = 0
         DragSide char = ''
     end
 
     methods
         function obj = PannerController(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
-                obj.Adapter = adapterOrApp;
-            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                obj.Adapter = adapterOrApp.getAdapter();
-            else
-                error('PannerController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
+            obj@flightdash.controller.ControllerBase( ...
+                flightdash.controller.PannerController.normalizeInput(adapterOrApp));
             obj.subscribeEvents();
         end
 
         function subscribeEvents(obj)
-            app = obj.Adapter.app();
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
+            appHandle = obj.app();
+            if isempty(appHandle), return; end
+            EB = @(eventName, callback) ...
+                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
             % [PHASE 4] Skip event when this dashboard is not the active Studio session.
-            obj.Listeners{end+1} = EB('PannerToggled',        @(~,d) obj.gated(@(d_) obj.togglePanner(d_.ChannelIdx), d));
-            obj.Listeners{end+1} = EB('PannerClicked',        @(~,d) obj.gated(@(d_) obj.onPannerClicked(d_.ChannelIdx), d));
-            obj.Listeners{end+1} = EB('PannerRangeChanged',   @(~,d) obj.gated(@(d_) obj.onRangeChanged(d_.ChannelIdx), d));
-            obj.Listeners{end+1} = EB('PannerResetRequested', @(~,d) obj.gated(@(d_) obj.resetRange(d_.ChannelIdx), d));
+            obj.trackListener(EB('PannerToggled',        @(~,d) obj.gated(@(d_) obj.togglePanner(d_.ChannelIdx), d)));
+            obj.trackListener(EB('PannerClicked',        @(~,d) obj.gated(@(d_) obj.onPannerClicked(d_.ChannelIdx), d)));
+            obj.trackListener(EB('PannerRangeChanged',   @(~,d) obj.gated(@(d_) obj.onRangeChanged(d_.ChannelIdx), d)));
+            obj.trackListener(EB('PannerResetRequested', @(~,d) obj.gated(@(d_) obj.resetRange(d_.ChannelIdx), d)));
+        end
+
+        function onCleanup(obj)
+            % Forward to stopHandleDrag so figure-level WindowButton
+            % callbacks + pointer state are cleared on teardown
+            % alongside the base's listener / drag-lock release.
+            try, obj.stopHandleDrag(); catch, end
         end
 
         function gated(obj, fn, d)
@@ -291,15 +286,18 @@ classdef PannerController < handle
             end
         end
 
-        function delete(obj)
-            obj.stopHandleDrag();
-            for k = 1:numel(obj.Listeners)
-                try
-                    if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end
-                catch
-                end
+    end
+
+    methods (Static, Access = private)
+        function input = normalizeInput(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
+            else
+                error('PannerController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
             end
-            obj.Listeners = {};
         end
     end
 end

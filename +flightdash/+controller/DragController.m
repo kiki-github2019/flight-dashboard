@@ -1,17 +1,11 @@
-classdef DragController < handle
+classdef DragController < flightdash.controller.ControllerBase
     % flightdash.controller.DragController
     % - SplitterDragStarted 이벤트 구독
     %
-    % [REFACTOR R5+4] Migrated to DashboardAppAdapter. Splitter
-    % start/stop verbs (app.startPanelSplitterDrag,
-    % app.startHISplitterDrag) still escape-hatch through
-    % obj.Adapter.app() — they are dense UI-state mutators that have
-    % no adapter API yet.
-
-    properties (Access = private)
-        Adapter  % flightdash.runtime.DashboardAppAdapter
-        Listeners cell = {}
-    end
+    % [Phase 4 stabilization] Inherits from ControllerBase. EventBus
+    % subscriptions go through trackListener so cleanup releases them
+    % automatically. Splitter start verbs still escape-hatch through
+    % obj.app() — they are dense UI mutators with no adapter API.
 
     properties
         HitThreshold double = 8
@@ -19,57 +13,53 @@ classdef DragController < handle
 
     methods
         function obj = DragController(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
-                obj.Adapter = adapterOrApp;
-            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                obj.Adapter = adapterOrApp.getAdapter();
-            else
-                error('DragController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
+            obj@flightdash.controller.ControllerBase( ...
+                flightdash.controller.DragController.normalizeInput(adapterOrApp));
             obj.subscribeEvents();
         end
 
         function subscribeEvents(obj)
-            app = obj.Adapter.app();
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
-            obj.Listeners{end+1} = EB('PanelSplitterDragStarted', @(~,d) obj.onPanelSplitterStart(d));
-            obj.Listeners{end+1} = EB('SplitterDragStarted', @(~,d) obj.onSplitterStart(d));
+            appHandle = obj.app();
+            if isempty(appHandle), return; end
+            EB = @(eventName, callback) ...
+                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
+            obj.trackListener(EB('PanelSplitterDragStarted', @(~,d) obj.onPanelSplitterStart(d)));
+            obj.trackListener(EB('SplitterDragStarted',     @(~,d) obj.onSplitterStart(d)));
         end
 
         function onPanelSplitterStart(obj, d)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(d), return; end
-            app.startPanelSplitterDrag(d.ChannelIdx, d.Payload);
+            a = obj.app();
+            if isempty(a) || ~a.isActiveSession(d), return; end
+            a.startPanelSplitterDrag(d.ChannelIdx, d.Payload);
         end
         function onSplitterStart(obj, d)
-            app = obj.Adapter.app();
-            if ~app.isActiveSession(d), return; end
-            app.startHISplitterDrag(d.ChannelIdx);
+            a = obj.app();
+            if isempty(a) || ~a.isActiveSession(d), return; end
+            a.startHISplitterDrag(d.ChannelIdx);
         end
 
         % 호환 wrapper
         function startSplitter(obj, fIdx)
-            obj.Adapter.app().startHISplitterDrag(fIdx);
+            a = obj.app(); if ~isempty(a), a.startHISplitterDrag(fIdx); end
         end
 
         function [tf, target] = hitTest(obj, point)
+            % Splitter-specific override of ControllerBase.hitTest.
             tf = false;
             target = [];
             try
-                app = obj.Adapter.app();
-                if isempty(app) || ~isvalid(app) || ~app.isActiveSession()
+                a = obj.app();
+                if isempty(a) || ~isvalid(a) || ~a.isActiveSession()
                     return;
                 end
                 point = double(point);
                 if numel(point) < 2 || any(~isfinite(point(1:2))) || ...
-                        ~isprop(app, 'UI') || isempty(app.UI)
+                        ~isprop(a, 'UI') || isempty(a.UI)
                     return;
                 end
                 point = point(1:2);
 
-                for fIdx = 1:min(2, numel(app.UI))
+                for fIdx = 1:min(2, numel(a.UI))
                     candidates = obj.splitterCandidates(fIdx);
                     for k = 1:numel(candidates)
                         c = candidates{k};
@@ -92,33 +82,40 @@ classdef DragController < handle
                     end
                 end
             catch ME
-                obj.Adapter.logCaught(ME, 'SplitterHitTest');
+                obj.logCaught(ME, 'SplitterHitTest');
                 tf = false;
                 target = [];
             end
         end
 
         function onButtonDown(obj, target, ~)
+            % Splitter button-down — overrides ControllerBase.onButtonDown.
             try
                 if isempty(target) || ~isstruct(target) || ~isfield(target, 'ChannelIdx')
                     return;
                 end
-                app = obj.Adapter.app();
+                a = obj.app();
                 if isfield(target, 'IsPanel') && target.IsPanel
-                    app.startPanelSplitterDrag(target.ChannelIdx, target.Kind);
+                    a.startPanelSplitterDrag(target.ChannelIdx, target.Kind);
                 else
-                    app.startHISplitterDrag(target.ChannelIdx);
+                    a.startHISplitterDrag(target.ChannelIdx);
                 end
             catch ME
-                obj.Adapter.logCaught(ME, 'SplitterHitTest:buttonDown');
+                obj.logCaught(ME, 'SplitterHitTest:buttonDown');
             end
         end
+    end
 
-        function delete(obj)
-            for k = 1:numel(obj.Listeners)
-                try, if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end, catch, end
+    methods (Static, Access = private)
+        function input = normalizeInput(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
+            else
+                error('DragController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
             end
-            obj.Listeners = {};
         end
     end
 
@@ -126,8 +123,8 @@ classdef DragController < handle
         function candidates = splitterCandidates(obj, fIdx)
             candidates = {};
             try
-                app = obj.Adapter.app();
-                ui = app.UI(fIdx);
+                a = obj.app();
+                ui = a.UI(fIdx);
                 candidates = obj.addCandidate(candidates, ui, 'attMapSplitter', fIdx, 'att-map', true);
                 candidates = obj.addCandidate(candidates, ui, 'mapInfoSplitter', fIdx, 'map-info', true);
                 candidates = obj.addCandidate(candidates, ui, 'infoPlotSplitter', fIdx, 'info-plot', true);

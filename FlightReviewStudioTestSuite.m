@@ -3121,6 +3121,32 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             testCase.verifyGreaterThan(report.Summary.ScannedFiles, 0);
         end
 
+        function test_T15_ControllerBase_DragPannerInheritBase(testCase)
+            % Phase 4 stabilization wave 2: DragController +
+            % PannerController also inherit ControllerBase. Listener
+            % cleanup goes through the base path.
+            for cls = ["flightdash.controller.DragController", ...
+                       "flightdash.controller.PannerController"]
+                mc = meta.class.fromName(char(cls));
+                testCase.verifyNotEmpty(mc);
+                supers = arrayfun(@(s) string(s.Name), mc.SuperclassList);
+                testCase.verifyTrue(any(supers == "flightdash.controller.ControllerBase"), ...
+                    sprintf('%s must inherit ControllerBase.', cls));
+            end
+            app = [];
+            try, app = flightdash.FlightDataDashboard(); catch ME
+                testCase.assumeFail(sprintf('Headless build failed: %s', ME.message));
+                return;
+            end
+            cleanup = onCleanup(@() delete(app)); %#ok<NASGU>
+            % Listener registration round-trip through inherited
+            % trackListener.
+            ctrl = flightdash.controller.PannerController(app.Adapter);
+            testCase.verifyGreaterThanOrEqual(numel(ctrl.Listeners), 4);
+            ctrl.cleanup();
+            testCase.verifyEmpty(ctrl.Listeners);
+        end
+
         function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
             % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
             % no longer instantiated. The RibbonBar is the sole
