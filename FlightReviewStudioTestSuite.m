@@ -2864,6 +2864,23 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(tab);
         end
 
+        function test_T15_Ribbon_LegacyToolbarMenuRetired(testCase)
+            % Phase 7: post-launch the legacy MenuMgr + ToolbarMgr are
+            % no longer instantiated. The RibbonBar is the sole
+            % header surface.
+            app = [];
+            try, app = testCase.launchStudio(); catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.verifyTrue(isempty(app.MenuMgr), ...
+                'MenuMgr must not be constructed after Phase 7.');
+            testCase.verifyTrue(isempty(app.ToolbarMgr), ...
+                'ToolbarMgr must not be constructed after Phase 7.');
+            testCase.verifyTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar));
+            testCase.verifyEqual(numel(app.RibbonBar.Tabs), 6);
+        end
+
         function test_T15_Ribbon_QuickAccessHasSettingsAndHelp(testCase)
             % Phase 6: Quick Access must expose Settings (⚙) + Help (?)
             % buttons alongside Mode dropdown + Theme toggle.

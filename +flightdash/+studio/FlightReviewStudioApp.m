@@ -260,6 +260,9 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 if ~isempty(app.MenuMgr) && isvalid(app.MenuMgr) && ismethod(app.MenuMgr, 'setUndoState')
                     app.MenuMgr.setUndoState(canUndo, canRedo);
                 end
+                if ~isempty(app.RibbonBar) && isvalid(app.RibbonBar) && ismethod(app.RibbonBar, 'setUndoState')
+                    app.RibbonBar.setUndoState(canUndo, canRedo);
+                end
             catch ME
                 try, app.logCaught(ME, 'Studio:refreshUndoState:menu'); catch, end
             end
@@ -1080,6 +1083,22 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
         function setToolbarVisible(app, tf)
             try
+                % [R-Ribbon-7] Toolbar Panel no longer exists; toggle
+                % the RibbonBar container instead so the "hide header"
+                % preference keeps working through the ribbon surface.
+                if ~isempty(app.RibbonBar) && isvalid(app.RibbonBar) && ...
+                        ~isempty(app.RibbonBar.Container) && isvalid(app.RibbonBar.Container)
+                    app.RibbonBar.Container.Visible = app.onOff(tf);
+                    headerGrid = app.RibbonBar.Container.Parent;
+                    if ~isempty(headerGrid) && isvalid(headerGrid) && isprop(headerGrid, 'RowHeight')
+                        if tf
+                            headerGrid.RowHeight = {flightdash.util.UIScale.px(118)};
+                        else
+                            headerGrid.RowHeight = {0};
+                        end
+                    end
+                    return;
+                end
                 if isempty(app.ToolbarMgr) || ~isvalid(app.ToolbarMgr) || ...
                         ~isprop(app.ToolbarMgr, 'Panel') || ~isgraphics(app.ToolbarMgr.Panel)
                     return;
@@ -1390,22 +1409,21 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.HeaderPanel = uipanel(shellGrid, 'BorderType', 'none', ...
                 'BackgroundColor', theme.Header);
             app.HeaderPanel.Layout.Row = 1;
-            headerGrid = uigridlayout(app.HeaderPanel, [3 1], ...
-                'RowHeight', {UIScale.px(28), UIScale.px(36), UIScale.px(92)}, ...
+            % [R-Ribbon-7] Header is now ribbon-only. Legacy
+            % MenuManager + ToolbarManager are no longer instantiated;
+            % all 60+ commands flow through the ribbon (6 tabs) and
+            % Quick Access dropdowns. Class files retained on disk in
+            % case a regression requires a quick revert — see the
+            % git history `feat(studio): ribbon scaffolding` chain.
+            headerGrid = uigridlayout(app.HeaderPanel, [1 1], ...
+                'RowHeight', {UIScale.px(118)}, ...
                 'RowSpacing', 0, 'Padding', [0 0 0 0]);
 
             app.CommandRouter = flightdash.studio.CommandRouter(app);
-            app.MenuMgr    = flightdash.studio.MenuManager(app);
-            app.ToolbarMgr = flightdash.studio.ToolbarManager(app, headerGrid);
-
-            % [R-Ribbon-2] Ribbon bar with Home tab — sits below the
-            % legacy menu/toolbar rows during the migration so both
-            % surfaces are visible side-by-side. Phases 3-7 add the
-            % remaining tabs and finally retire the legacy widgets.
             try
                 app.RibbonBar = flightdash.studio.RibbonBar(app);
                 app.RibbonBar.build(headerGrid);
-                app.RibbonBar.Container.Layout.Row = 3;
+                app.RibbonBar.Container.Layout.Row = 1;
                 app.RibbonBar.addTab(flightdash.studio.ribbon.tabs.HomeTab.build());
                 app.RibbonBar.addTab(flightdash.studio.ribbon.tabs.DataTab.build());
                 app.RibbonBar.addTab(flightdash.studio.ribbon.tabs.SyncTab.build());
