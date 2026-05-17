@@ -1,4 +1,4 @@
-﻿classdef FlightReviewStudioCoreTestSuite < matlab.unittest.TestCase
+﻿classdef old_FlightReviewStudioCoreTestSuite < matlab.unittest.TestCase
     %FLIGHTREVIEWSTUDIOTESTSUITE
     % Automated compatibility and stabilization tests for FlightReviewStudio.
     %

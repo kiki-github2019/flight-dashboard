@@ -3,11 +3,17 @@ function results = FlightReviewStudioTestSuite()
 %
 %   Performs the workspace + cache cleanup commands the user requested
 %   (close all force / clear all force / clear classes / rehash
-%   toolboxcache) BEFORE invoking any test, then iterates every .m file
-%   under ./static_test/ and runs it:
-%     - classdef matlab.unittest.TestCase  -> runtests(name)
-%     - other classdef helpers             -> skipped (treated as PASS)
-%     - function-style .m                  -> str2func(name)() invocation
+%   toolboxcache) BEFORE invoking any test, then enumerates and runs
+%   every individual test function inside ./static_test/:
+%     - matlab.unittest.TestCase subclass : every Test method counted
+%       separately and dispatched via matlab.unittest.TestSuite.fromMethod
+%     - other classdef helpers           : reported as SKIP
+%     - function-style .m                : top-level function executed
+%
+%   Progress messages on the command window have the shape
+%       [k/N] <test-function-name>  ... STATUS
+%   so the user can see which test (out of how many) is currently
+%   running.
 %
 %   On any failure, writes a Claude-Code / ChatGPT-Cowork follow-up
 %   prompt to a UTF-8 .txt file, then renames it to .log so Notepad
@@ -16,7 +22,7 @@ function results = FlightReviewStudioTestSuite()
 %   Usage:
 %     results = FlightReviewStudioTestSuite();
 %
-%   Returns: struct array (File, Status, Detail, Error).
+%   Returns: struct array (File, Function, Status, Detail, Error).
 
     % --- pre-test cleanup ----------------------------------------------
     %#ok<*CLALL>
@@ -30,38 +36,51 @@ function results = FlightReviewStudioTestSuite()
     if ~isfolder(staticDir)
         warning('FlightReviewStudioTestSuite:NoStaticFolder', ...
             'static_test folder missing at %s', staticDir);
-        results = repmat(struct('File','','Status','','Detail','','Error',''), 0, 1);
+        results = repmat(localEmptyResult(), 0, 1);
         return;
     end
     addpath(staticDir);
 
-    files = dir(fullfile(staticDir, '*.m'));
-    nFiles = numel(files);
-    results = repmat(struct('File','','Status','','Detail','','Error',''), nFiles, 1);
+    % --- enumerate every test entry ------------------------------------
+    fprintf('\n[FlightReviewStudioTestSuite] enumerating test functions in %s ...\n', staticDir);
+    entries = localBuildEntries(staticDir);
+    total = numel(entries);
+    fprintf('[FlightReviewStudioTestSuite] %d test function(s) discovered.\n\n', total);
+
+    results = repmat(localEmptyResult(), total, 1);
     failures = repmat(struct('file','','name','','identifier','','message','','stack',''), 0, 1);
 
-    fprintf('\n[FlightReviewStudioTestSuite] running %d static_test file(s)\n', nFiles);
-    for k = 1:nFiles
-        relFile = files(k).name;
-        [~, name, ~] = fileparts(relFile);
-        fprintf('  %2d/%2d  %s ... ', k, nFiles, relFile);
+    for k = 1:total
+        e = entries(k);
+        % Progress line: which K-th of total N + the test function name.
+        fprintf('  [%d/%d] %s  ... ', k, total, e.Display);
         try
-            detail = localExecuteOne(fullfile(staticDir, relFile), name);
-            results(k) = struct('File', relFile, 'Status', 'PASS', 'Detail', detail, 'Error', '');
+            detail = localExecuteEntry(e);
+            results(k) = struct('File', e.File, 'Function', e.Display, ...
+                'Status', 'PASS', 'Detail', detail, 'Error', '');
             fprintf('PASS  (%s)\n', detail);
         catch ME
-            results(k) = struct('File', relFile, 'Status', 'FAIL', 'Detail', '', 'Error', ME.message);
-            failures(end+1, 1) = struct( ...
-                'file', relFile, 'name', name, ...
-                'identifier', ME.identifier, 'message', ME.message, ...
-                'stack', localStackString(ME.stack)); %#ok<AGROW>
-            fprintf('FAIL  %s\n', ME.message);
+            if strcmpi(ME.identifier, 'FlightReviewStudioTestSuite:Skip')
+                results(k) = struct('File', e.File, 'Function', e.Display, ...
+                    'Status', 'SKIP', 'Detail', ME.message, 'Error', '');
+                fprintf('SKIP  (%s)\n', ME.message);
+            else
+                results(k) = struct('File', e.File, 'Function', e.Display, ...
+                    'Status', 'FAIL', 'Detail', '', 'Error', ME.message);
+                failures(end+1, 1) = struct( ...
+                    'file', e.File, 'name', e.Display, ...
+                    'identifier', ME.identifier, 'message', ME.message, ...
+                    'stack', localStackString(ME.stack)); %#ok<AGROW>
+                fprintf('FAIL  %s\n', ME.message);
+            end
         end
     end
 
     nPass = sum(strcmp({results.Status}, 'PASS'));
     nFail = sum(strcmp({results.Status}, 'FAIL'));
-    fprintf('\n[FlightReviewStudioTestSuite] summary: %d PASS / %d FAIL\n', nPass, nFail);
+    nSkip = sum(strcmp({results.Status}, 'SKIP'));
+    fprintf('\n[FlightReviewStudioTestSuite] summary: %d PASS / %d FAIL / %d SKIP (total %d)\n', ...
+        nPass, nFail, nSkip, total);
 
     if ~isempty(failures)
         logPath = localWriteFailureLog(here, failures);
@@ -69,53 +88,129 @@ function results = FlightReviewStudioTestSuite()
     end
 end
 
-% ---------- helpers --------------------------------------------------------
+% ---------- enumeration ----------------------------------------------------
 
-function detail = localExecuteOne(absPath, name)
-    txt = fileread(absPath);
-    isClass = ~isempty(regexp(txt, '^\s*classdef\b', 'once', 'lineanchors'));
-    if isClass
-        mc = meta.class.fromName(name);
-        if isempty(mc)
-            error('FlightReviewStudioTestSuite:ClassNotFound', ...
-                'Cannot resolve metaclass for %s', name);
-        end
-        if localIsTestCase(mc)
-            r = runtests(name);
-            passCount = sum([r.Passed]);
-            failCount = sum(~[r.Passed]);
-            detail = sprintf('runtests: %d pass / %d fail / %d total', ...
-                passCount, failCount, numel(r));
-            if failCount > 0
-                failedNames = arrayfun(@(t) string(t.Name), r(~[r.Passed]));
-                error('FlightReviewStudioTestSuite:TestCaseFailures', ...
-                    'TestCase %s failed: %s', name, strjoin(failedNames, ', '));
+function entries = localBuildEntries(staticDir)
+    files = dir(fullfile(staticDir, '*.m'));
+    entries = repmat(localEmptyEntry(), 0, 1);
+    for k = 1:numel(files)
+        relFile = files(k).name;
+        [~, name, ~] = fileparts(relFile);
+        absPath = fullfile(staticDir, relFile);
+        txt = fileread(absPath);
+        isClass = ~isempty(regexp(txt, '^\s*classdef\b', 'once', 'lineanchors'));
+        if isClass
+            mc = meta.class.fromName(name);
+            if isempty(mc)
+                entries(end+1, 1) = localMakeEntry(relFile, name, 'function'); %#ok<AGROW>
+                continue;
+            end
+            if localIsTestCase(mc)
+                testMethods = localTestMethods(mc);
+                if isempty(testMethods)
+                    entries(end+1, 1) = localMakeEntry(relFile, name, 'skip-empty'); %#ok<AGROW>
+                else
+                    for ti = 1:numel(testMethods)
+                        e = localMakeEntry(relFile, sprintf('%s/%s', name, testMethods{ti}), 'method');
+                        e.Class = name;
+                        e.Method = testMethods{ti};
+                        entries(end+1, 1) = e; %#ok<AGROW>
+                    end
+                end
+            else
+                entries(end+1, 1) = localMakeEntry(relFile, name, 'skip-helper'); %#ok<AGROW>
             end
         else
-            detail = 'classdef helper — skipped';
+            entries(end+1, 1) = localMakeEntry(relFile, name, 'function'); %#ok<AGROW>
         end
-        return;
     end
-    % Function file — invoke the top-level function once.
-    fnh = str2func(name);
-    out = fnh();
-    detail = localSummarize(out);
+end
+
+function r = localEmptyResult()
+    r = struct('File', '', 'Function', '', 'Status', '', 'Detail', '', 'Error', '');
+end
+
+function e = localEmptyEntry()
+    e = struct('File', '', 'Display', '', 'Kind', '', 'Class', '', 'Method', '');
+end
+
+function e = localMakeEntry(file, display, kind)
+    e = localEmptyEntry();
+    e.File = file; e.Display = display; e.Kind = kind;
 end
 
 function tf = localIsTestCase(mc)
     tf = false;
     try
-        supers = mc.SuperclassList;
-        while ~isempty(supers)
-            names = arrayfun(@(s) string(s.Name), supers);
+        toScan = mc;
+        seen = strings(0, 1);
+        while ~isempty(toScan)
+            names = arrayfun(@(s) string(s.Name), toScan);
             if any(names == "matlab.unittest.TestCase"), tf = true; return; end
+            seen = [seen; names]; %#ok<AGROW>
             nextSupers = matlab.metadata.Class.empty;
-            for k = 1:numel(supers)
-                nextSupers = [nextSupers; supers(k).SuperclassList]; %#ok<AGROW>
+            for k = 1:numel(toScan)
+                nextSupers = [nextSupers; toScan(k).SuperclassList]; %#ok<AGROW>
             end
-            supers = nextSupers;
+            % Drop already-seen to avoid diamond-graph loops.
+            keep = true(numel(nextSupers), 1);
+            for k = 1:numel(nextSupers)
+                if any(seen == string(nextSupers(k).Name)), keep(k) = false; end
+            end
+            toScan = nextSupers(keep);
         end
     catch
+    end
+end
+
+function names = localTestMethods(mc)
+    names = {};
+    try
+        for k = 1:numel(mc.MethodList)
+            m = mc.MethodList(k);
+            if localMethodHasTestAttribute(m), names{end+1} = m.Name; end %#ok<AGROW>
+        end
+    catch
+    end
+end
+
+function tf = localMethodHasTestAttribute(m)
+    tf = false;
+    try
+        attrs = m.Test;
+        tf = ~isempty(attrs) && islogical(attrs) && any(attrs);
+    catch
+    end
+end
+
+% ---------- dispatch ------------------------------------------------------
+
+function detail = localExecuteEntry(e)
+    switch e.Kind
+        case 'method'
+            r = runtests(sprintf('%s/%s', e.Class, e.Method));
+            if isempty(r)
+                error('FlightReviewStudioTestSuite:NoResult', ...
+                    'runtests returned no result for %s', e.Display);
+            end
+            if all([r.Passed])
+                detail = sprintf('runtests OK (%.3fs)', sum([r.Duration]));
+            elseif all([r.Incomplete] | ~[r.Passed] & ~[r.Failed])
+                error('FlightReviewStudioTestSuite:Skip', ...
+                    'test incomplete (likely assumeFail)');
+            else
+                error('FlightReviewStudioTestSuite:TestCaseFailures', ...
+                    'TestCase method %s failed', e.Display);
+            end
+        case 'function'
+            fnh = str2func(e.Display);
+            out = fnh();
+            detail = localSummarize(out);
+        case {'skip-helper','skip-empty'}
+            error('FlightReviewStudioTestSuite:Skip', '%s', e.Kind);
+        otherwise
+            error('FlightReviewStudioTestSuite:UnknownKind', ...
+                'unknown entry kind: %s', e.Kind);
     end
 end
 
@@ -168,7 +263,7 @@ function logPath = localWriteFailureLog(rootDir, failures)
     fprintf(fid, ['You are continuing a Claude Code / ChatGPT Cowork session ' ...
         'on the MATLAB repo D:\\flightdashboard\\5. 4th\\root.\n\n']);
     fprintf(fid, ['FlightReviewStudioTestSuite just ran and the ' ...
-        'following static_test files failed. Please diagnose and ' ...
+        'following static_test entries failed. Please diagnose and ' ...
         'propose minimal-risk fixes (no broad refactor). Preserve ' ...
         'adapter-based controller behavior and MATLAB R2025a/R2026a + ' ...
         'MATLAB Online compatibility. Then run runtests again to ' ...
@@ -176,7 +271,7 @@ function logPath = localWriteFailureLog(rootDir, failures)
     fprintf(fid, 'Failures (%d):\n', numel(failures));
     for k = 1:numel(failures)
         f = failures(k);
-        fprintf(fid, '\n[%d] %s (function: %s)\n', k, f.file, f.name);
+        fprintf(fid, '\n[%d] file=%s function=%s\n', k, f.file, f.name);
         if ~isempty(f.identifier)
             fprintf(fid, '    identifier : %s\n', f.identifier);
         end
