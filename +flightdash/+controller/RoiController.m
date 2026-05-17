@@ -1,19 +1,13 @@
-classdef RoiController < handle
+classdef RoiController < flightdash.controller.ControllerBase
     % flightdash.controller.RoiController
     % Owns ROI events, ROI table state updates, and ROI statistics commands.
     %
-    % [REFACTOR R5+9] Migrated to DashboardAppAdapter. Adapter routes
-    % EventBus / session / uiFigure / undoService / logCaught; the
-    % per-ROI write surface (app.UI(fIdx).roiRows / roiGraphics /
-    % selectedRoiIdx / roiTable; app.Models / app.currentPlotXLim /
-    % app.currentPlotTabIndex / app.selectedPlotIndex / app.AuxWindowMgr
-    % / app.throttleHit / app.excludeFromLegend / app.deleteGraphicsHan-
-    % dles / app.registerReviewResult / app.lookupStudioMouseRouter)
-    % stays on obj.Adapter.app().
+    % [Phase 4 stabilization] Inherits from ControllerBase. EventBus
+    % subscriptions go through trackListener; onCleanup() forwards to
+    % clearHover so the patch-handle hover state is reset before
+    % dashboard teardown.
 
     properties (Access = private)
-        Adapter  % flightdash.runtime.DashboardAppAdapter
-        Listeners cell = {}
         IsDraggingRoi logical = false
         CurrentHitInfo = struct()
         OriginalRoiRow = {}
@@ -33,28 +27,30 @@ classdef RoiController < handle
 
     methods
         function obj = RoiController(adapterOrApp)
-            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter')
-                obj.Adapter = adapterOrApp;
-            elseif isa(adapterOrApp, 'flightdash.FlightDataDashboard')
-                obj.Adapter = adapterOrApp.getAdapter();
-            else
-                error('RoiController:BadInput', ...
-                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
-                    class(adapterOrApp));
-            end
+            obj@flightdash.controller.ControllerBase( ...
+                flightdash.controller.RoiController.normalizeInput(adapterOrApp));
             obj.subscribeEvents();
         end
 
         function subscribeEvents(obj)
-            app = obj.Adapter.app();
-            EB = @(eventName, callback) flightdash.util.EventBus.subscribeForApp(app, eventName, callback);
+            appHandle = obj.app();
+            if isempty(appHandle), return; end
+            EB = @(eventName, callback) ...
+                flightdash.util.EventBus.subscribeForApp(appHandle, eventName, callback);
             % [PHASE 4] Each handler bails when this controller's app
             % is not the active Studio session.
-            obj.Listeners{end+1} = EB('RoiAddRequested',            @(~,d) obj.gated(@(d_) obj.addCurrentRoi(d_.ChannelIdx), d));
-            obj.Listeners{end+1} = EB('RoiSelectionChanged',        @(~,d) obj.gated(@(d_) obj.onSelectionChanged(d_.ChannelIdx, d_.Payload), d));
-            obj.Listeners{end+1} = EB('RoiDeleteSelectedRequested', @(~,d) obj.gated(@(d_) obj.deleteSelectedRoi(d_.ChannelIdx), d));
-            obj.Listeners{end+1} = EB('RoiClearRequested',          @(~,d) obj.gated(@(d_) obj.clearRois(d_.ChannelIdx), d));
-            obj.Listeners{end+1} = EB('AnalysisComputeRequested',   @(~,d) obj.gated(@(d_) obj.computeAnalysis(d_.ChannelIdx), d));
+            obj.trackListener(EB('RoiAddRequested',            @(~,d) obj.gated(@(d_) obj.addCurrentRoi(d_.ChannelIdx), d)));
+            obj.trackListener(EB('RoiSelectionChanged',        @(~,d) obj.gated(@(d_) obj.onSelectionChanged(d_.ChannelIdx, d_.Payload), d)));
+            obj.trackListener(EB('RoiDeleteSelectedRequested', @(~,d) obj.gated(@(d_) obj.deleteSelectedRoi(d_.ChannelIdx), d)));
+            obj.trackListener(EB('RoiClearRequested',          @(~,d) obj.gated(@(d_) obj.clearRois(d_.ChannelIdx), d)));
+            obj.trackListener(EB('AnalysisComputeRequested',   @(~,d) obj.gated(@(d_) obj.computeAnalysis(d_.ChannelIdx), d)));
+        end
+
+        function onCleanup(obj)
+            % Clear hover-state patch appearance before listener
+            % cleanup so the inherited destructor does not leave
+            % visible highlights on the figure.
+            try, obj.clearHover(); catch, end
         end
 
         function gated(obj, fn, d)
@@ -560,16 +556,6 @@ classdef RoiController < handle
             end
         end
 
-        function delete(obj)
-            obj.clearHover();
-            for k = 1:numel(obj.Listeners)
-                try
-                    if isvalid(obj.Listeners{k}), delete(obj.Listeners{k}); end
-                catch
-                end
-            end
-            obj.Listeners = {};
-        end
 
         function pushRoiRowsCommand(obj, fIdx, rowIdx, rowData, operation, description)
             try
@@ -583,6 +569,19 @@ classdef RoiController < handle
                 undoSvc.push(cmd);
             catch ME
                 obj.Adapter.logCaught(ME, 'ROI:undoPush');
+            end
+        end
+    end
+
+    methods (Static, Access = private)
+        function input = normalizeInput(adapterOrApp)
+            if isa(adapterOrApp, 'flightdash.runtime.DashboardAppAdapter') || ...
+                    isa(adapterOrApp, 'flightdash.FlightDataDashboard')
+                input = adapterOrApp;
+            else
+                error('RoiController:BadInput', ...
+                    'Expected DashboardAppAdapter or FlightDataDashboard, got %s.', ...
+                    class(adapterOrApp));
             end
         end
     end
