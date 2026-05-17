@@ -2864,6 +2864,30 @@ classdef FlightReviewStudioTestSuite < matlab.unittest.TestCase
             delete(tab);
         end
 
+        function test_T15_Ribbon_HomeTabPresent(testCase)
+            % Phase 2: launching the Studio app must populate
+            % app.RibbonBar with at least one tab whose Title='Home'.
+            app = [];
+            try
+                app = testCase.launchStudio();
+            catch ME
+                testCase.assumeFail(sprintf('Studio launch failed: %s', ME.message));
+                return;
+            end
+            testCase.assumeTrue(isprop(app, 'RibbonBar'), ...
+                'RibbonBar property missing — Phase 2 not wired.');
+            testCase.assumeTrue(~isempty(app.RibbonBar) && isvalid(app.RibbonBar), ...
+                'RibbonBar instance missing post-construction.');
+            testCase.verifyGreaterThanOrEqual(numel(app.RibbonBar.Tabs), 1);
+            tab1 = app.RibbonBar.Tabs{1};
+            testCase.verifyEqual(char(tab1.Title), 'Home');
+            % Project group must contain at least the three split
+            % buttons (New / Open / Save).
+            projectGrp = tab1.Groups{1};
+            testCase.verifyEqual(char(projectGrp.Title), 'Project');
+            testCase.verifyGreaterThanOrEqual(numel(projectGrp.Buttons), 3);
+        end
+
         function test_T15_Refactor_OwnershipBaselineLocked(testCase)
             % Wrap-up regression guard. Runs the
             % r6r7r8_ownership_baseline step from the diagnostic in

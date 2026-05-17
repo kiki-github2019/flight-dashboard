@@ -24,6 +24,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         % Region managers (Phase 1: shells only)
         MenuMgr               % flightdash.studio.MenuManager
         ToolbarMgr            % flightdash.studio.ToolbarManager
+        RibbonBar             % flightdash.studio.RibbonBar (R-Ribbon)
         CommandRouter         % flightdash.studio.CommandRouter
         ProjectExplorer       % flightdash.studio.ProjectExplorerPanel
         Workspace             % flightdash.studio.WorkspaceManager
@@ -1234,6 +1235,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
             try, delete(app.MenuMgr);          catch, end
             try, delete(app.ToolbarMgr);       catch, end
+            try, delete(app.RibbonBar);        catch, end
             try, delete(app.CommandRouter);    catch, end
             try, delete(app.ProjectExplorer);  catch, end
             try, delete(app.Workspace);        catch, end
@@ -1388,13 +1390,26 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.HeaderPanel = uipanel(shellGrid, 'BorderType', 'none', ...
                 'BackgroundColor', theme.Header);
             app.HeaderPanel.Layout.Row = 1;
-            headerGrid = uigridlayout(app.HeaderPanel, [2 1], ...
-                'RowHeight', {UIScale.px(28), UIScale.px(36)}, ...
+            headerGrid = uigridlayout(app.HeaderPanel, [3 1], ...
+                'RowHeight', {UIScale.px(28), UIScale.px(36), UIScale.px(92)}, ...
                 'RowSpacing', 0, 'Padding', [0 0 0 0]);
 
             app.CommandRouter = flightdash.studio.CommandRouter(app);
             app.MenuMgr    = flightdash.studio.MenuManager(app);
             app.ToolbarMgr = flightdash.studio.ToolbarManager(app, headerGrid);
+
+            % [R-Ribbon-2] Ribbon bar with Home tab — sits below the
+            % legacy menu/toolbar rows during the migration so both
+            % surfaces are visible side-by-side. Phases 3-7 add the
+            % remaining tabs and finally retire the legacy widgets.
+            try
+                app.RibbonBar = flightdash.studio.RibbonBar(app);
+                app.RibbonBar.build(headerGrid);
+                app.RibbonBar.Container.Layout.Row = 3;
+                app.RibbonBar.addTab(flightdash.studio.ribbon.tabs.HomeTab.build());
+            catch ME
+                try, app.logCaught(ME, 'Studio:buildRibbon'); catch, end
+            end
 
             % --- Body (3-column: explorer | workspace | dock) ---
             % [PHASE 3c] Slim down the side panels so the workspace
