@@ -27,9 +27,10 @@ classdef SessionLifecycle
             sessionId = '';
             ME = MException.empty;
             if nargin < 3, sessionModel = []; end
-            if isempty(sess) || ~isvalid(sess)
+            if isempty(sess) || ~isa(sess, 'flightdash.project.SessionModel') ...
+                    || ~isscalar(sess) || isempty(char(sess.SessionId))
                 ME = MException('SessionLifecycle:InvalidSession', ...
-                    'SessionModel is empty or invalid.');
+                    'SessionModel is empty, invalid, or missing SessionId.');
                 return;
             end
             candidateId = char(sess.SessionId);

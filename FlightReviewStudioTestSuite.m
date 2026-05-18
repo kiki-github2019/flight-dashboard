@@ -239,6 +239,7 @@ function detail = localExecuteEntry(e)
                         'function suite incomplete');
                 end
             else
+                localFailOnVerifyStyleResult(out, e.Display);
                 detail = localSummarize(out);
             end
         case {'skip-helper','skip-empty'}
@@ -246,6 +247,43 @@ function detail = localExecuteEntry(e)
         otherwise
             error('FlightReviewStudioTestSuite:UnknownKind', ...
                 'unknown entry kind: %s', e.Kind);
+    end
+end
+
+function localFailOnVerifyStyleResult(out, displayName)
+    try
+        if isstruct(out) && isfield(out, 'Result')
+            status = upper(string({out.Result}));
+            if any(status == "FAIL" | status == "ERROR")
+                error('FlightReviewStudioTestSuite:VerifyStyleFailures', ...
+                    'verify-style function %s returned FAIL/ERROR', displayName);
+            end
+        end
+        if isstruct(out) && isfield(out, 'Status')
+            status = upper(string({out.Status}));
+            if any(status == "FAIL" | status == "ERROR")
+                error('FlightReviewStudioTestSuite:VerifyStyleFailures', ...
+                    'verify-style function %s returned FAIL/ERROR', displayName);
+            end
+        end
+        if isstruct(out) && isfield(out, 'Passed') && any(~logical([out.Passed]))
+            error('FlightReviewStudioTestSuite:VerifyStyleFailures', ...
+                'verify-style function %s returned failed Passed flag', displayName);
+        end
+        if isstruct(out) && isfield(out, 'Summary')
+            summaries = {out.Summary};
+            for i = 1:numel(summaries)
+                s = summaries{i};
+                if isstruct(s) && isfield(s, 'Fail') && double(s.Fail) > 0
+                    error('FlightReviewStudioTestSuite:VerifyStyleFailures', ...
+                        'verify-style function %s summary contains failures', displayName);
+                end
+            end
+        end
+    catch ME
+        if strcmp(ME.identifier, 'FlightReviewStudioTestSuite:VerifyStyleFailures')
+            rethrow(ME);
+        end
     end
 end
 
