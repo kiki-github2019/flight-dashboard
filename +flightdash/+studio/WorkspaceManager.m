@@ -116,6 +116,13 @@ classdef WorkspaceManager < handle
         function removeDashboardTab(obj, sessionId)
             sessionId = char(sessionId);
             if ~obj.DashboardEntries.isKey(sessionId), return; end
+            % Snapshot surviving keys BEFORE any teardown so we can detect
+            % accidental collateral removal (RISK-5 regression guard).
+            try
+                survivorKeys = setdiff(obj.DashboardEntries.keys, {sessionId});
+            catch
+                survivorKeys = {};
+            end
             entry = obj.DashboardEntries(sessionId);
             obj.releaseSessionResources(sessionId, entry);
             try
@@ -128,7 +135,22 @@ classdef WorkspaceManager < handle
                     delete(entry.Tab);
                 end
             catch, end
-            obj.DashboardEntries.remove(sessionId);
+            if obj.DashboardEntries.isKey(sessionId)
+                obj.DashboardEntries.remove(sessionId);
+            end
+            % Defensive: ensure releaseSessionResources / delete cascades
+            % did not silently drop unrelated sessions. If they did, log
+            % the discrepancy (cannot resurrect, but tests will see it).
+            try
+                missing = setdiff(survivorKeys, obj.DashboardEntries.keys);
+                if ~isempty(missing) && ~isempty(obj.App) && isvalid(obj.App)
+                    obj.App.logCaught( ...
+                        MException('Workspace:CollateralRemoval', ...
+                            'Sessions unexpectedly removed: %s', strjoin(missing, ', ')), ...
+                        'Workspace:removeDashboardTab:collateral');
+                end
+            catch
+            end
             try, obj.onTabChanged(); catch, end
         end
 

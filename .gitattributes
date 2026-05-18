@@ -41,6 +41,8 @@
 *.mp4            binary
 *.mov            binary
 *.dat            binary
+*.frsproj        binary
+*.log            text eol=lf working-tree-encoding=UTF-8
 
 # --- Repo metadata ---
 .gitattributes   text eol=lf
