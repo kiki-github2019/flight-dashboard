@@ -97,7 +97,7 @@ function [ok, msg, status] = checkStudioManagers()
     try
         app = createStudioApp();
 
-        required = {'MenuMgr', 'ToolbarMgr', 'CommandRouter', 'RightDock', 'Workspace', 'StatusBar'};
+        required = {'RibbonBar', 'CommandRouter', 'RightDock', 'Workspace', 'StatusBar'};
         missing = {};
         emptyVals = {};
 
@@ -113,7 +113,7 @@ function [ok, msg, status] = checkStudioManagers()
         ok = isempty(missing) && isempty(emptyVals);
 
         if ok
-            msg = 'Studio exposes MenuMgr, ToolbarMgr, RightDock, Workspace, and StatusBar';
+            msg = 'Studio exposes RibbonBar, CommandRouter, RightDock, Workspace, and StatusBar';
         else
             msg = sprintf('Missing=[%s], empty=[%s]', strjoin(missing, ', '), strjoin(emptyVals, ', '));
         end
@@ -836,7 +836,7 @@ function [ok, msg] = verifyGuiModeProfile(app, modeName)
 
     modeOk = hasProp(app, 'Project') && isprop(app.Project, 'GuiMode') && ...
         strcmp(char(app.Project.GuiMode), mode);
-    toolbarOk = componentVisible(app.ToolbarMgr.Panel) == expected.ToolbarVisible;
+    toolbarOk = ribbonBarVisible(app) == expected.ToolbarVisible;
     explorerOk = managerPanelVisible(app.ProjectExplorer) == expected.ExplorerVisible;
     dockOk = managerPanelVisible(app.RightDock) == expected.RightDockVisible;
     columnsOk = bodyColumnsMatchMode(app, expected);
@@ -933,15 +933,21 @@ function tf = columnWidthMatchesVisibility(widthValue, isVisible)
     end
 end
 
-function tf = guiModeMenuChecked(app, modeName)
+function tf = guiModeMenuChecked(app, modeName) %#ok<INUSD>
+    % Ribbon retired the legacy MenuMgr.ModeMenus path. Mode checking is
+    % now expressed via Project.GuiMode (already verified in modeOk) plus
+    % RibbonBar.syncMode visual state. Skip the legacy menu check.
     tf = true;
+end
+
+function tf = ribbonBarVisible(app)
+    tf = false;
     try
-        if ~hasProp(app, 'MenuMgr') || isempty(app.MenuMgr) || ~isvalid(app.MenuMgr) || ...
-                ~isprop(app.MenuMgr, 'ModeMenus') || ~isfield(app.MenuMgr.ModeMenus, modeName)
-            return;
+        if hasProp(app, 'RibbonBar') && ~isempty(app.RibbonBar) && isvalid(app.RibbonBar) && ...
+                isprop(app.RibbonBar, 'Container') && ~isempty(app.RibbonBar.Container) && ...
+                isgraphics(app.RibbonBar.Container)
+            tf = strcmpi(char(app.RibbonBar.Container.Visible), 'on');
         end
-        item = app.MenuMgr.ModeMenus.(modeName);
-        tf = ~isempty(item) && isvalid(item) && strcmpi(char(item.Checked), 'on');
     catch
         tf = false;
     end

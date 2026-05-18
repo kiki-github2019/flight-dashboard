@@ -11,8 +11,8 @@ function results = verifyPhase1()
         'P1-2',  @checkStudioAppConstructDelete
         'P1-3',  @checkShellTopLevelHandles
         'P1-4',  @checkManagersExist
-        'P1-5',  @checkMenuManager
-        'P1-6',  @checkToolbarManager
+        'P1-5',  @checkRibbonBar
+        'P1-6',  @checkRibbonTabs
         'P1-7',  @checkProjectExplorer
         'P1-8',  @checkWorkspaceManager
         'P1-9',  @checkRightDockManager
@@ -155,8 +155,7 @@ function [ok, msg, status] = checkManagersExist()
         app = createStudioApp();
 
         required = {
-            'MenuMgr'
-            'ToolbarMgr'
+            'RibbonBar'
             'ProjectExplorer'
             'Workspace'
             'RightDock'
@@ -195,85 +194,73 @@ function [ok, msg, status] = checkManagersExist()
     safeDelete(app);
 end
 
-function [ok, msg, status] = checkMenuManager()
+function [ok, msg, status] = checkRibbonBar()
     status = '';
 
     app = [];
     try
         app = createStudioApp();
 
-        if ~hasProp(app, 'MenuMgr') || isempty(app.MenuMgr)
+        if ~hasProp(app, 'RibbonBar') || isempty(app.RibbonBar) || ~isvalid(app.RibbonBar)
             ok = false;
-            msg = 'MenuMgr missing';
+            msg = 'RibbonBar missing';
             safeDelete(app);
             return;
         end
 
-        menuMgr = app.MenuMgr;
+        rb = app.RibbonBar;
+        hasContainer = hasProp(rb, 'Container') && ~isempty(rb.Container) && isgraphics(rb.Container);
 
-        existing = menuRootNames(app.UIFigure);
-        if isempty(existing) && hasProp(menuMgr, 'Roots') && isstruct(menuMgr.Roots)
-            names = fieldnames(menuMgr.Roots);
-            for i = 1:numel(names)
-                try
-                    if isgraphics(menuMgr.Roots.(names{i}))
-                        existing{end+1} = names{i}; %#ok<AGROW>
-                    end
-                catch
-                end
-            end
-        end
-
-        ok = numel(existing) >= 4;
+        ok = hasContainer;
         if ok
-            msg = sprintf('MenuManager created root menus: %s', strjoin(existing, ', '));
+            msg = 'RibbonBar created with container';
         else
-            msg = sprintf('Too few root menus detected: %s', strjoin(existing, ', '));
+            msg = 'RibbonBar exists but container missing';
         end
     catch ME
         ok = false;
-        msg = sprintf('MenuManager check failed: %s', ME.message);
+        msg = sprintf('RibbonBar check failed: %s', ME.message);
     end
 
     safeDelete(app);
 end
 
-function [ok, msg, status] = checkToolbarManager()
+function [ok, msg, status] = checkRibbonTabs()
     status = '';
 
     app = [];
     try
         app = createStudioApp();
 
-        if ~hasProp(app, 'ToolbarMgr') || isempty(app.ToolbarMgr)
+        if ~hasProp(app, 'RibbonBar') || isempty(app.RibbonBar) || ~isvalid(app.RibbonBar)
             ok = false;
-            msg = 'ToolbarMgr missing';
+            msg = 'RibbonBar missing';
             safeDelete(app);
             return;
         end
 
-        tb = app.ToolbarMgr;
-
-        hasContainer = false;
-        containerNames = {'ToolbarGrid', 'RootGrid', 'Container', 'Panel'};
-        for i = 1:numel(containerNames)
-            if hasProp(tb, containerNames{i}) && isgraphics(tb.(containerNames{i}))
-                hasContainer = true;
-                break;
+        rb = app.RibbonBar;
+        tabCount = 0;
+        try
+            if hasProp(rb, 'Tabs') && ~isempty(rb.Tabs)
+                tabCount = numel(rb.Tabs);
+            elseif hasProp(rb, 'TabGroup') && ~isempty(rb.TabGroup) && isvalid(rb.TabGroup)
+                tabCount = numel(rb.TabGroup.Children);
             end
+        catch
         end
 
         buttonCount = countGraphicsByType(app.UIFigure, 'uibutton');
 
-        ok = hasContainer || buttonCount > 0;
+        ok = tabCount >= 3 || buttonCount > 0;
         if ok
-            msg = sprintf('ToolbarManager initialized; detected %d uibutton objects', buttonCount);
+            msg = sprintf('RibbonBar initialized; %d tab(s), %d uibutton(s) detected', tabCount, buttonCount);
         else
-            msg = 'ToolbarManager exists but no toolbar container/buttons detected';
+            msg = 'RibbonBar exists but no tabs/buttons detected';
         end
     catch ME
         ok = false;
-        msg = sprintf('ToolbarManager check failed: %s', ME.message);
+        msg = sprintf('RibbonBar tabs check failed: %s', ME.message);
     end
 
     safeDelete(app);
