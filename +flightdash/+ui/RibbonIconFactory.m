@@ -31,9 +31,12 @@ classdef RibbonIconFactory
     methods (Static, Access = public)
 
         function rgb = forCommand(cmdId, varargin)
-            % Resolve cmdId -> icon. Cached.
+            % Resolve cmdId -> icon. Cached (in-memory + on-disk).
             cmdId = char(cmdId);
             cache = flightdash.ui.RibbonIconFactory.cacheMap();
+            % First-call lazy hydrate from disk so cold launches skip
+            % the expensive figure()/getframe() pass per icon.
+            flightdash.ui.RibbonIconFactory.ensureDiskCacheHydrated();
             key = cmdId;
             if cache.isKey(key)
                 rgb = cache(key);
@@ -47,6 +50,64 @@ classdef RibbonIconFactory
                     rgb = flightdash.ui.RibbonIconFactory.text(spec.text, spec.color);
             end
             cache(key) = rgb;
+        end
+
+        function warmCacheToDisk(cmdIds)
+            % Render every known cmdId once into the in-memory cache,
+            % then persist the cache to a .mat file alongside this
+            % class so the next MATLAB launch hydrates instantly.
+            if nargin < 1 || isempty(cmdIds)
+                cmdIds = flightdash.ui.RibbonIconFactory.knownCommandIds();
+            end
+            % Batched render: reuse ONE hidden figure for every text
+            % icon instead of one figure per icon (the dominant cold
+            % start cost — HG2 first-figure JIT + per-figure overhead).
+            flightdash.ui.RibbonIconFactory.batchRenderText(cmdIds);
+            try
+                cache = flightdash.ui.RibbonIconFactory.cacheMap();
+                payload = struct( ...
+                    'Keys',   {cache.keys}, ...
+                    'Values', {cache.values}, ...
+                    'Version', 1); %#ok<NASGU>
+                save(flightdash.ui.RibbonIconFactory.diskCachePath(), '-struct', 'payload');
+            catch
+                % Best-effort; missing disk cache only impacts cold start
+                % perf, not correctness.
+            end
+        end
+
+        function tf = ensureDiskCacheHydrated()
+            % Idempotent: on first call per MATLAB session, try to load
+            % the bundled icon .mat and populate the in-memory cache.
+            persistent hydrated
+            tf = false;
+            if ~isempty(hydrated) && hydrated
+                tf = true;
+                return;
+            end
+            hydrated = true;
+            try
+                p = flightdash.ui.RibbonIconFactory.diskCachePath();
+                if exist(p, 'file') == 2
+                    s = load(p);
+                    if isfield(s, 'Keys') && isfield(s, 'Values')
+                        cache = flightdash.ui.RibbonIconFactory.cacheMap();
+                        for k = 1:numel(s.Keys)
+                            try, cache(s.Keys{k}) = s.Values{k}; catch, end
+                        end
+                        tf = true;
+                        return;
+                    end
+                end
+                % Disk cache missing -> warm it now in batched mode so
+                % even the FIRST EVER launch avoids 60 individual hidden
+                % figures (one per icon). Subsequent launches hit the
+                % disk cache.
+                flightdash.ui.RibbonIconFactory.warmCacheToDisk();
+                tf = true;
+            catch
+                tf = false;
+            end
         end
 
         function rgb = text(label, bgColor, sz)
@@ -107,6 +168,87 @@ classdef RibbonIconFactory
                 cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
             end
             map = cache;
+        end
+
+        function p = diskCachePath()
+            % Bundled icon cache file lives next to this class.
+            here = fileparts(mfilename('fullpath'));
+            p = fullfile(here, 'ribbon_icons_cache.mat');
+        end
+
+        function ids = knownCommandIds()
+            % Every cmdId that ships in the 6 ribbon tabs. Source of
+            % truth for warmCacheToDisk so the disk cache covers every
+            % button that the user will see at cold start.
+            ids = { ...
+                'Toolbar:New','Toolbar:Open','Toolbar:Save','Toolbar:SaveAs', ...
+                'Toolbar:AddSession','Toolbar:LoadData','Toolbar:LoadVideo', ...
+                'Toolbar:Sync','Toolbar:SyncQuality', ...
+                'Toolbar:Play','Toolbar:Stop','Toolbar:Prev','Toolbar:Next', ...
+                'Toolbar:ROI','Toolbar:Marker','Toolbar:Analyze','Toolbar:Recalc', ...
+                'Toolbar:Plot','Toolbar:ToggleExplorer','Toolbar:ToggleRightDock', ...
+                'Edit:Undo','Edit:Redo','Edit:Cut','Edit:Copy','Edit:Paste', ...
+                'File:New','File:Open','File:Save','File:SaveAs','File:Close', ...
+                'Help:About','Help:Topics', ...
+                'View:Theme','View:Layout','View:Explorer','View:Dock', ...
+                'Window:Close','Window:CloseAll','Window:Tile' ...
+            };
+        end
+
+        function batchRenderText(cmdIds)
+            % Render every text-style icon into the in-memory cache
+            % using ONE persistent hidden figure (vs one figure per
+            % icon in renderText). This eliminates 60+ HG2 first-paint
+            % JIT compiles at cold launch.
+            sz = flightdash.ui.RibbonIconFactory.DefaultSize;
+            cache = flightdash.ui.RibbonIconFactory.cacheMap();
+            fig = []; ax = []; cleanupF = []; %#ok<NASGU>
+            try
+                fig = figure('Visible', 'off', 'Units', 'pixels', ...
+                    'Position', [0 0 sz sz], ...
+                    'MenuBar', 'none', 'ToolBar', 'none', 'DockControls', 'off');
+                cleanupF = onCleanup(@() delete(fig));
+                ax = axes(fig, 'Units', 'normalized', 'Position', [0 0 1 1], ...
+                    'XLim', [0 1], 'YLim', [0 1], ...
+                    'XColor', 'none', 'YColor', 'none');
+            catch
+                fig = []; ax = [];
+            end
+            fontSize = max(8, round(sz * 0.55));
+            for k = 1:numel(cmdIds)
+                cmdId = char(cmdIds{k});
+                if cache.isKey(cmdId), continue; end
+                spec = flightdash.ui.RibbonIconFactory.specForCommand(cmdId);
+                rgb = [];
+                try
+                    if strcmp(spec.style, 'text') && ~isempty(fig) && isvalid(fig)
+                        cla(ax);
+                        bg = double(spec.color)/255;
+                        fig.Color = bg; ax.Color = bg;
+                        label = spec.text; if numel(label) > 2, label = label(1:2); end
+                        text(ax, 0.5, 0.5, label, 'HorizontalAlignment', 'center', ...
+                            'VerticalAlignment', 'middle', 'Color', 'w', ...
+                            'FontWeight', 'bold', 'FontSize', fontSize, ...
+                            'FontName', 'Arial');
+                        drawnow;
+                        frame = getframe(ax);
+                        cdata = frame.cdata;
+                        if ~isempty(cdata)
+                            cdata = imresize8(cdata, sz);
+                            if size(cdata,1) == sz && size(cdata,2) == sz
+                                rgb = uint8(cdata);
+                            end
+                        end
+                    end
+                catch
+                    rgb = [];
+                end
+                if isempty(rgb)
+                    % Symbol or render failure -> single-shot fallback.
+                    rgb = flightdash.ui.RibbonIconFactory.forCommand(cmdId);
+                end
+                cache(cmdId) = rgb;
+            end
         end
 
         function spec = specForCommand(cmdId)

@@ -48,6 +48,13 @@ classdef StudioTheme
             c.AxesBg         = [1.00 1.00 1.00];
             c.AxesGrid       = [0.86 0.88 0.91];
             c.AxesText       = [0.10 0.12 0.16];
+            % Dedicated tab-strip token. Must stay HIGH-CONTRAST against
+            % c.RibbonBg (≈ #F5F7FA) regardless of c.TextPrimary tweaks.
+            % MATLAB's default uitab foreground is overwritten by
+            % StudioTheme.apply -> without this token tabs flip to a
+            % dark color that visually merges with the light gray panel.
+            c.TabText        = [0.06 0.09 0.14];   % near-black slate
+            c.TabTextActive  = [0.04 0.20 0.55];   % primary blue accent for selected
             c = flightdash.ui.StudioTheme.addLegacyAliases(c);
         end
 
@@ -81,6 +88,8 @@ classdef StudioTheme
             c.AxesBg         = [0.11 0.12 0.15];
             c.AxesGrid       = [0.22 0.24 0.28];
             c.AxesText       = [0.82 0.85 0.90];
+            c.TabText        = [0.95 0.96 0.98];   % near-white on dark ribbon
+            c.TabTextActive  = [0.62 0.82 1.00];   % sky-blue accent for selected
             c = flightdash.ui.StudioTheme.addLegacyAliases(c);
         end
 
@@ -115,9 +124,28 @@ classdef StudioTheme
                 try
                     cls = class(h);
                     switch cls
-                        case {'matlab.ui.container.Panel', ...
-                              'matlab.ui.container.Tab', ...
-                              'matlab.ui.container.TabGroup'}
+                        case 'matlab.ui.container.TabGroup'
+                            % Tab strip needs its own contrast token so
+                            % the tab labels (Home/Data/Sync/...) do not
+                            % collapse into the surrounding RibbonBg.
+                            if isprop(h, 'BackgroundColor'), h.BackgroundColor = theme.RibbonBg; end
+                            if isprop(h, 'ForegroundColor')
+                                if isfield(theme, 'TabText') && ~isempty(theme.TabText)
+                                    h.ForegroundColor = theme.TabText;
+                                else
+                                    h.ForegroundColor = theme.Text;
+                                end
+                            end
+                        case 'matlab.ui.container.Tab'
+                            if isprop(h, 'BackgroundColor'), h.BackgroundColor = theme.Panel; end
+                            if isprop(h, 'ForegroundColor')
+                                if isfield(theme, 'TabText') && ~isempty(theme.TabText)
+                                    h.ForegroundColor = theme.TabText;
+                                else
+                                    h.ForegroundColor = theme.Text;
+                                end
+                            end
+                        case 'matlab.ui.container.Panel'
                             if isprop(h, 'BackgroundColor'), h.BackgroundColor = theme.Panel; end
                             if isprop(h, 'ForegroundColor'), h.ForegroundColor = theme.Text;  end
                         case 'matlab.ui.container.GridLayout'
