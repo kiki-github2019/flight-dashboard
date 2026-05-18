@@ -331,7 +331,10 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             % ribbon command enablement with current sessionCount.
             hasSession = false;
             try
-                if ~isempty(app.Project) && isvalid(app.Project)
+                if ~isempty(app.Project)
+                    if isa(app.Project, 'handle') && ~isvalid(app.Project)
+                        return;
+                    end
                     hasSession = app.Project.sessionCount() > 0;
                 end
             catch
@@ -349,6 +352,29 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     gated = flightdash.studio.FlightReviewStudioApp.sessionGatedCmdIds();
                     for k = 1:numel(gated)
                         try, app.RibbonBar.setEnabledByCmd(gated{k}, hasSession); catch, end
+                    end
+                end
+            catch
+            end
+            try
+                if ~isempty(app.ToolbarMgr) && isvalid(app.ToolbarMgr) ...
+                        && ismethod(app.ToolbarMgr, 'setEnabledByCmd')
+                    gated = flightdash.studio.FlightReviewStudioApp.sessionGatedCmdIds();
+                    for k = 1:numel(gated)
+                        try, app.ToolbarMgr.setEnabledByCmd(gated{k}, hasSession); catch, end
+                    end
+                end
+            catch
+            end
+            try
+                if ~isempty(app.MenuMgr) && isvalid(app.MenuMgr)
+                    if ismethod(app.MenuMgr, 'setSessionCommandsEnabled')
+                        app.MenuMgr.setSessionCommandsEnabled(hasSession);
+                    elseif ismethod(app.MenuMgr, 'setEnabledByCmd')
+                        gated = flightdash.studio.FlightReviewStudioApp.sessionGatedCmdIds();
+                        for k = 1:numel(gated)
+                            try, app.MenuMgr.setEnabledByCmd(gated{k}, hasSession); catch, end
+                        end
                     end
                 end
             catch
@@ -1708,18 +1734,18 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function ids = sessionGatedCmdIds()
-            % Ribbon commands that require at least one open session.
-            % NOT gated (always enabled): New, Open, AddSession, Theme,
-            % Help, Settings, Open Sample Project.
-            ids = { ...
-                'Toolbar:Save','Toolbar:SaveAs','File:Save','File:SaveAs','File:Close', ...
-                'Toolbar:LoadData','Toolbar:LoadVideo', ...
-                'Toolbar:Sync','Toolbar:SyncQuality', ...
-                'Toolbar:Play','Toolbar:Stop','Toolbar:Prev','Toolbar:Next', ...
-                'Toolbar:ROI','Toolbar:Marker','Toolbar:Analyze','Toolbar:Recalc', ...
-                'Toolbar:Plot','Edit:Undo','Edit:Redo','Edit:Cut','Edit:Copy','Edit:Paste', ...
-                'Window:Close','Window:CloseAll','Window:Tile' ...
+            % Commands that should not look clickable before a review
+            % session exists. Global project commands stay available:
+            % New, Open, AddSession, Theme, Help, Settings, Sample Project.
+            routerIds = flightdash.studio.CommandRouter.sessionCommandIds();
+            legacyIds = { ...
+                'Toolbar:Save','Toolbar:SaveAs','File:Save','File:SaveAs', ...
+                'File:SaveProject','File:SaveProjectAs','File:Close', ...
+                'Edit:Undo','Edit:Redo','Edit:Cut','Edit:Copy','Edit:Paste', ...
+                'Window:Close','Window:CloseActive','Window:CloseAll', ...
+                'Window:Tile','Window:TileH','Window:TileV','Window:Cascade' ...
             };
+            ids = unique([routerIds, legacyIds], 'stable');
         end
     end
 end

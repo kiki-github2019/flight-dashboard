@@ -165,6 +165,20 @@ classdef CommandRouter < handle
                 'Plot:ObjectManager', ...
                 'Studio:OpenSampleProject'};
         end
+
+        function ids = sessionCommandIds()
+            allIds = flightdash.studio.CommandRouter.knownCommands();
+            router = flightdash.studio.CommandRouter([]);
+            keep = false(size(allIds));
+            for k = 1:numel(allIds)
+                try
+                    keep(k) = router.isSessionCommand(allIds{k});
+                catch
+                    keep(k) = false;
+                end
+            end
+            ids = allIds(keep);
+        end
     end
 
     methods (Access = private)

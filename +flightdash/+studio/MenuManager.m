@@ -11,6 +11,7 @@ classdef MenuManager < handle
         Roots struct = struct()    % Map of menu name -> root uimenu
         Items struct = struct()
         ModeMenus struct = struct()
+        CommandItems
     end
 
     methods
@@ -24,6 +25,7 @@ classdef MenuManager < handle
             obj.Roots = struct();
             obj.Items = struct();
             obj.ModeMenus = struct();
+            obj.CommandItems = [];
         end
 
         function setUndoState(obj, canUndo, canRedo)
@@ -50,11 +52,50 @@ classdef MenuManager < handle
             catch
             end
         end
+
+        function setEnabledByCmd(obj, cmdId, tf)
+            try
+                if isempty(obj.CommandItems) || ~isa(obj.CommandItems, 'containers.Map')
+                    return;
+                end
+                key = char(cmdId);
+                if ~obj.CommandItems.isKey(key)
+                    return;
+                end
+                items = obj.CommandItems(key);
+                for k = 1:numel(items)
+                    item = items{k};
+                    if ~isempty(item) && isvalid(item)
+                        item.Enable = obj.onOff(tf);
+                    end
+                end
+            catch
+            end
+        end
+
+        function setSessionCommandsEnabled(obj, tf)
+            try
+                if isempty(obj.CommandItems) || ~isa(obj.CommandItems, 'containers.Map')
+                    return;
+                end
+                router = flightdash.studio.CommandRouter([]);
+                extras = flightdash.studio.FlightReviewStudioApp.sessionGatedCmdIds();
+                keys = obj.CommandItems.keys;
+                for k = 1:numel(keys)
+                    cmdId = keys{k};
+                    if router.isSessionCommand(cmdId) || any(strcmp(cmdId, extras))
+                        obj.setEnabledByCmd(cmdId, tf);
+                    end
+                end
+            catch
+            end
+        end
     end
 
     methods (Access = private)
         function build(obj)
             fig = obj.App.UIFigure;
+            obj.CommandItems = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
             obj.Roots.File = obj.makeRoot(fig, 'File');
             obj.addLeaf(obj.Roots.File, 'New Project',           'File:NewProject');
@@ -187,6 +228,7 @@ classdef MenuManager < handle
             end
             m = uimenu(parent, 'Text', label, ...
                 'MenuSelectedFcn', @(~,~) obj.dispatch(cmdId));
+            obj.registerCommandItem(cmdId, m);
             if ~isempty(accelerator)
                 try, m.Accelerator = char(accelerator); catch, end
             end
@@ -195,6 +237,7 @@ classdef MenuManager < handle
         function m = addSeparator(obj, parent, label, cmdId)
             m = uimenu(parent, 'Text', label, 'Separator', 'on', ...
                 'MenuSelectedFcn', @(~,~) obj.dispatch(cmdId));
+            obj.registerCommandItem(cmdId, m);
         end
 
         function sub = addSubmenu(~, parent, label)
@@ -232,6 +275,22 @@ classdef MenuManager < handle
                 value = 'on';
             else
                 value = 'off';
+            end
+        end
+
+        function registerCommandItem(obj, cmdId, item)
+            try
+                if isempty(obj.CommandItems) || ~isa(obj.CommandItems, 'containers.Map')
+                    obj.CommandItems = containers.Map('KeyType', 'char', 'ValueType', 'any');
+                end
+                key = char(cmdId);
+                items = {};
+                if obj.CommandItems.isKey(key)
+                    items = obj.CommandItems(key);
+                end
+                items{end+1} = item; %#ok<AGROW>
+                obj.CommandItems(key) = items;
+            catch
             end
         end
 

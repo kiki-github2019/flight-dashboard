@@ -10,6 +10,7 @@ classdef ToolbarManager < handle
         App
         Panel    % uipanel
         Buttons  struct = struct()
+        CommandButtons
     end
 
     methods
@@ -29,11 +30,29 @@ classdef ToolbarManager < handle
             catch
             end
         end
+
+        function setEnabledByCmd(obj, cmdId, tf)
+            try
+                if isempty(obj.CommandButtons) || ~isa(obj.CommandButtons, 'containers.Map')
+                    return;
+                end
+                key = char(cmdId);
+                if ~obj.CommandButtons.isKey(key)
+                    return;
+                end
+                btn = obj.CommandButtons(key);
+                if ~isempty(btn) && isvalid(btn)
+                    btn.Enable = obj.onOff(tf);
+                end
+            catch
+            end
+        end
     end
 
     methods (Access = private)
         function build(obj, parentGrid)
             UIScale = flightdash.util.UIScale;
+            obj.CommandButtons = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
             obj.Panel = uipanel(parentGrid, 'BorderType', 'none', ...
                 'BackgroundColor', [0.97 0.97 0.98]);
@@ -94,6 +113,7 @@ classdef ToolbarManager < handle
                 'FontWeight', 'bold', ...
                 'BackgroundColor', [1 1 1], ...
                 'ButtonPushedFcn', @(~,~) obj.dispatch(cmdId));
+            try, obj.CommandButtons(char(cmdId)) = btn; catch, end
         end
 
         function addSpacer(~, grid)

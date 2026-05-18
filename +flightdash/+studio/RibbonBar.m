@@ -125,6 +125,7 @@ classdef RibbonBar < handle
                         if strcmp(b.CmdId, cmdId)
                             try, b.setEnabled(tf); catch, end
                         end
+                        try, b.setDropdownEnabledByCmd(cmdId, tf); catch, end
                     end
                 end
             end

@@ -19,6 +19,7 @@ classdef RibbonButton < handle
         DropdownItems     cell    = {}   % {{label, cmdId}, ...}
         IconSize          double  = 24
         Enabled           logical = true
+        DropdownEnabled
     end
 
     properties (Access = public, Transient)
@@ -42,6 +43,7 @@ classdef RibbonButton < handle
             obj.HasDropdown   = logical(p.Results.HasDropdown);
             obj.DropdownItems = p.Results.DropdownItems;
             obj.IconSize      = double(p.Results.IconSize);
+            obj.DropdownEnabled = containers.Map('KeyType', 'char', 'ValueType', 'logical');
         end
 
         function build(obj, parent, adapter)
@@ -59,12 +61,22 @@ classdef RibbonButton < handle
                 theme = obj.currentTheme();
                 if ~isempty(obj.MainHandle) && isvalid(obj.MainHandle)
                     obj.MainHandle.Enable = ternaryEnable(tf);
+                    obj.MainHandle.Tooltip = obj.tooltipForState(tf);
                     flightdash.ui.StudioTheme.styleButton(obj.MainHandle, theme, 'secondary');
                 end
                 if ~isempty(obj.ChevronHandle) && isvalid(obj.ChevronHandle)
                     obj.ChevronHandle.Enable = ternaryEnable(tf);
+                    obj.ChevronHandle.Tooltip = obj.tooltipForChevron(tf);
                     flightdash.ui.StudioTheme.styleButton(obj.ChevronHandle, theme, 'ghost');
                 end
+            catch
+            end
+        end
+
+        function setDropdownEnabledByCmd(obj, cmdId, tf)
+            try
+                obj.ensureDropdownEnabledMap();
+                obj.DropdownEnabled(char(cmdId)) = logical(tf);
             catch
             end
         end
@@ -181,18 +193,63 @@ classdef RibbonButton < handle
                 item = obj.DropdownItems{k};
                 if ~iscell(item) || numel(item) < 2, continue; end
                 lbl = char(item{1}); cid = char(item{2});
-                uimenu(obj.ContextMenu, 'Text', lbl, ...
+                m = uimenu(obj.ContextMenu, 'Text', lbl, ...
                     'MenuSelectedFcn', @(~,~) obj.dispatchDropdown(cid));
+                try, m.Enable = ternaryEnable(obj.dropdownItemEnabled(cid)); catch, end
             end
         end
 
         function dispatchDropdown(obj, cmdId)
             try
+                if ~obj.dropdownItemEnabled(cmdId)
+                    return;
+                end
                 if flightdash.studio.ribbon.RibbonButton.adapterUsable(obj.AdapterRef)
                     obj.AdapterRef.dispatchCommand(char(cmdId), 'Ribbon:Dropdown');
                 end
             catch ME
                 try, obj.AdapterRef.logCaught(ME, 'Ribbon:dropdownClick'); catch, end
+            end
+        end
+
+        function tf = dropdownItemEnabled(obj, cmdId)
+            tf = true;
+            try
+                obj.ensureDropdownEnabledMap();
+                key = char(cmdId);
+                if obj.DropdownEnabled.isKey(key)
+                    tf = logical(obj.DropdownEnabled(key));
+                end
+            catch
+                tf = true;
+            end
+        end
+
+        function ensureDropdownEnabledMap(obj)
+            if isempty(obj.DropdownEnabled) || ~isa(obj.DropdownEnabled, 'containers.Map')
+                obj.DropdownEnabled = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+            end
+        end
+
+        function tip = tooltipForState(obj, tf)
+            tip = obj.Tooltip;
+            if ~tf
+                tip = obj.appendUnavailableTip(tip);
+            end
+        end
+
+        function tip = tooltipForChevron(obj, tf)
+            tip = sprintf('%s - more options', obj.Label);
+            if ~tf
+                tip = obj.appendUnavailableTip(tip);
+            end
+        end
+
+        function tip = appendUnavailableTip(~, tip)
+            if isempty(tip)
+                tip = 'Unavailable until a review session is open.';
+            else
+                tip = sprintf('%s\nUnavailable until a review session is open.', tip);
             end
         end
     end
