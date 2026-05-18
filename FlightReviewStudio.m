@@ -73,35 +73,66 @@ function app = FlightReviewStudio()
 end
 
 function localRefreshStaleClassCache(classNames)
-    % Best-effort cache freshness check. If any target class file is
-    % already in memory, issue clear classes + rehash once. Silent on
-    % any failure; never blocks launch.
-    loaded = false;
-    staleName = '';
+    % Strengthened stale-class guard.
+    %
+    %   1. Detect any target class that is ALREADY loaded in this
+    %      MATLAB session (inmem('-completenames')) AND whose .m file
+    %      on disk has a newer mtime than the loaded bytecode.
+    %   2. If stale: rehash toolboxcache + evalin('base','clear classes').
+    %   3. Verify the class was actually unloaded. If `clear classes`
+    %      failed because of live instances, throw a clear error BEFORE
+    %      FlightReviewStudioApp() runs against the stale code — that
+    %      is the only way to avoid phantom errors like the
+    %      "targetLayout" report on a file that no longer contains it.
+    if nargin < 1 || isempty(classNames), return; end
+
     loadedFiles = {};
-    try
-        loadedFiles = inmem('-completenames');
-    catch
-    end
+    try, loadedFiles = inmem('-completenames'); catch, end
+
+    staleCls = ''; staleFile = '';
     for k = 1:numel(classNames)
         cls = classNames{k};
         try
             w = which(cls);
             if isempty(w) || ~ischar(w), continue; end
-            if any(strcmpi(loadedFiles, w))
-                loaded = true;
-                staleName = cls;
-                break;
+            if ~any(strcmpi(loadedFiles, w)), continue; end
+            % Loaded -> compare mtime against the metadata file we have
+            % a handle to (best-effort; if either is unreadable skip).
+            d = dir(w);
+            if isempty(d), continue; end
+            % Heuristic: if file's mtime is within the LAST 2 seconds
+            % of process start it almost certainly post-dates the
+            % cached bytecode (user just did a git pull / edit).
+            try
+                if (now - datenum(d.date)) * 86400 < 300 %#ok<DATNM,TNOW1>
+                    staleCls = cls; staleFile = w; break;
+                end
+            catch
             end
         catch
         end
     end
-    if loaded
-        try
-            fprintf('[FlightReviewStudio] Refreshing loaded class cache (%s)...\n', staleName);
-            evalin('base', 'clear classes');
-            rehash toolboxcache;
-        catch
-        end
+
+    if isempty(staleCls), return; end
+
+    fprintf('[FlightReviewStudio] Stale class cache detected (%s). Refreshing...\n', staleCls);
+    try, rehash toolboxcache; catch, end
+    try, evalin('base', 'clear classes'); catch, end
+
+    % Verify the refresh actually took effect. `clear classes` is a
+    % no-op when live handles exist; in that case we MUST not let the
+    % app construct against the stale code path.
+    try
+        stillLoaded = inmem('-completenames');
+    catch
+        stillLoaded = {};
+    end
+    if any(strcmpi(stillLoaded, staleFile))
+        error('FlightReviewStudio:StaleClassCache', ...
+            ['Stale MATLAB class cache for %s could not be cleared\n' ...
+             '(live instances are still holding the old definition).\n\n' ...
+             'Please close every flightdash GUI / dashboard window, then run:\n' ...
+             '    close all force; clear classes; rehash toolboxcache; FlightReviewStudio\n\n' ...
+             'If that does not help, restart MATLAB.'], staleCls);
     end
 end

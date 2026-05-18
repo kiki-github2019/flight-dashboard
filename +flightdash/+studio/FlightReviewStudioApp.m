@@ -117,72 +117,28 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
         function sessionId = addSession(app, displayName)
             % Phase 2/3b entry point: Menu > Project > Add Review Session.
-            % Pre-flight embed validation: build the embedded dashboard
-            % FIRST in a workspace tab; only commit the session to the
-            % ProjectModel + Project Explorer if construction succeeded.
-            % This makes the operation fully atomic — no rollback path
-            % needed because we never enter an inconsistent state.
+            % Delegates to SessionLifecycle.embedAndCommit so the same
+            % atomic embed-first contract is shared with duplicateSession
+            % and restoreProjectSessionTabs.
             sessionId = '';
             if nargin < 2 || isempty(displayName)
                 displayName = sprintf('Session %d', app.Project.sessionCount() + 1);
             end
             sess = flightdash.project.SessionModel(displayName);
-            candidateId = sess.SessionId;
-
-            % [PHASE 3b pre-flight] Try the embed before touching project.
-            embedOk = false; embedME = [];
-            try
-                if isempty(app.Workspace) || ~isvalid(app.Workspace)
-                    error('FlightReviewStudio:NoWorkspace', ...
-                        'Workspace manager is not available.');
-                end
-                app.Workspace.addDashboardTab(candidateId, sess.DisplayName);
-                embedOk = true;
-            catch ME
-                embedME = ME;
-                % addDashboardTab already cleaned up its own uitab on
-                % throw. Be doubly sure no stale entry remains.
-                try
-                    if ~isempty(app.Workspace) && isvalid(app.Workspace)
-                        app.Workspace.removeDashboardTab(candidateId);
-                    end
-                catch
-                end
-            end
-
-            if ~embedOk
-                shortMsg = sprintf('Embed failed: %s', embedME.message);
-                if ~isempty(app.StatusBar), app.StatusBar.setMessage(shortMsg); end
-                try
-                    detail = sprintf(['The session could not be embedded in a workspace tab.\n' ...
-                        'No session was added to the project (state remains consistent).\n\n' ...
-                        'Identifier: %s\n' ...
-                        'Message:    %s\n\n' ...
-                        'Top stack frame:\n  %s'], ...
-                        embedME.identifier, embedME.message, ...
-                        flightdash.studio.FlightReviewStudioApp.formatTopStackFrame(embedME));
-                    if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                        uialert(app.UIFigure, detail, 'Embed FlightDataDashboard failed');
-                    end
-                catch
-                    warning('FlightReviewStudio:EmbedFailed', '%s', embedME.message);
-                end
-                try, app.logCaught(embedME, 'Studio:addSession:embed'); catch, end
+            [ok, sessionId, ME] = flightdash.studio.SessionLifecycle.embedAndCommit(app, sess);
+            if ~ok
+                flightdash.studio.SessionLifecycle.reportFailure(app, ME, 'addSession');
+                sessionId = '';
                 return;
             end
-
-            % Embed succeeded — now commit to the project model.
-            app.Project = app.Project.addSession(sess);
-            sessionId = candidateId;
-            app.refreshExplorer();
-            app.refreshTitle();
             try
                 flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
                 app.applyManagerThemes();
             catch
             end
-            msg = sprintf('Added session: %s (%s)', sess.DisplayName, sessionId);
-            if ~isempty(app.StatusBar), app.StatusBar.setMessage(msg); end
+            if ~isempty(app.StatusBar)
+                app.StatusBar.setMessage(sprintf('Added session: %s (%s)', sess.DisplayName, sessionId));
+            end
         end
 
         function [cacheService, decodeService] = ensureSharedServices(app)
@@ -444,47 +400,27 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function newSessionId = duplicateSession(app, sessionId)
-            % [PHASE 5] Create a new session that clones the source
-            % session's lightweight metadata. The embedded dashboard
-            % itself starts fresh (no flight data preloaded) — users
-            % typically want a clean review session with the same name
-            % conventions. Phase 9 will let users opt in to deep clone
-            % via the project save/load round-trip.
+            % [PHASE 5] Clone a session via the shared lifecycle helper
+            % so embed-failure semantics match addSession exactly.
             newSessionId = '';
             sessionId = char(sessionId);
             try
                 src = app.Project.findSession(sessionId);
                 if isempty(src), return; end
-                copyName = sprintf('%s (copy)', src.DisplayName);
-                copy = flightdash.project.SessionModel(copyName);
-                % Carry over user preferences that are session-scoped
+                copy = flightdash.project.SessionModel(sprintf('%s (copy)', src.DisplayName));
                 copy.AutoUpdateMode = src.AutoUpdateMode;
                 copy.PanelVisible   = src.PanelVisible;
                 copy.LayoutState    = src.LayoutState;
-                newSessionId = copy.SessionId;
             catch ME
-                try, app.logCaught(ME, 'Studio:duplicateSession:project'); catch, end
+                try, app.logCaught(ME, 'Studio:duplicateSession:clone'); catch, end
                 return;
             end
-            try
-                if ~isempty(app.Workspace) && isvalid(app.Workspace)
-                    app.Workspace.addDashboardTab(newSessionId, copy.DisplayName, copy);
-                end
-            catch ME
-                try
-                    if ~isempty(app.Workspace) && isvalid(app.Workspace)
-                        app.Workspace.removeDashboardTab(newSessionId);
-                    end
-                catch
-                end
-                try, app.logCaught(ME, 'Studio:duplicateSession:tab'); catch, end
-                if ~isempty(app.StatusBar)
-                    app.StatusBar.setMessage(sprintf('Duplicate failed: %s', ME.message));
-                end
+            [ok, newSessionId, lcME] = flightdash.studio.SessionLifecycle.embedAndCommit(app, copy, copy);
+            if ~ok
+                flightdash.studio.SessionLifecycle.reportFailure(app, lcME, 'duplicateSession');
+                newSessionId = '';
                 return;
             end
-            app.Project = app.Project.addSession(copy);
-            app.refreshExplorer();
             if ~isempty(app.StatusBar)
                 app.StatusBar.setMessage(sprintf('Duplicated -> %s', copy.DisplayName));
             end
@@ -707,11 +643,18 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
         end
 
         function restoreProjectSessionTabs(app)
+            % Project restore: each session was already loaded into
+            % app.Project from disk. For each one, attempt the embed
+            % via the shared lifecycle helper. If embed fails, REMOVE
+            % the session from app.Project so Project Explorer and
+            % Workspace do not diverge after a partial load.
             try
                 if isempty(app.Workspace) || ~isvalid(app.Workspace), return; end
                 if isempty(app.Project) || isempty(app.Project.Sessions), return; end
-                for k = 1:numel(app.Project.Sessions)
-                    sess = app.Project.Sessions(k);
+                failed = {};
+                originalSessions = app.Project.Sessions;
+                for k = 1:numel(originalSessions)
+                    sess = originalSessions(k);
                     sessionId = char(sess.SessionId);
                     displayName = char(sess.DisplayName);
                     if isempty(sessionId), continue; end
@@ -723,7 +666,25 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     try
                         app.Workspace.addDashboardTab(sessionId, displayName, sess);
                     catch ME
+                        failed{end+1} = struct('Id', sessionId, 'Name', displayName, 'ME', ME); %#ok<AGROW>
+                        flightdash.studio.SessionLifecycle.cleanupEmbedRemnants(app, sessionId);
                         try, app.logCaught(ME, 'Studio:restoreSessionTab'); catch, end
+                    end
+                end
+                % Drop any sessions whose embed failed so the project
+                % model matches Workspace.DashboardEntries.
+                if ~isempty(failed)
+                    for j = 1:numel(failed)
+                        try
+                            app.Project = app.Project.removeSession(failed{j}.Id);
+                        catch
+                        end
+                    end
+                    try, app.refreshExplorer(); catch, end
+                    try, app.refreshTitle();   catch, end
+                    if ~isempty(app.StatusBar) && isvalid(app.StatusBar)
+                        app.StatusBar.setMessage(sprintf( ...
+                            'Project restore: %d session(s) dropped (embed failed)', numel(failed)));
                     end
                 end
             catch ME
