@@ -28,6 +28,7 @@ classdef PlotView < handle
             plotLayout = uigridlayout(newTab, 'ColumnWidth', {'1x'}, 'RowHeight', {}, ...
                                       'Padding', [5 5 5 5], 'RowSpacing', 5, 'Scrollable', 'on');
             app.UI(fIdx).plotLayouts{end + 1} = plotLayout;
+            obj.addEmptyState(plotLayout);
 
             tabIdx = nTabs + 1;
             app.UI(fIdx).plotAxes{tabIdx} = {};
@@ -40,6 +41,7 @@ classdef PlotView < handle
 
             app.UI(fIdx).tabGroup.SelectedTab = newTab;
             app.UI(fIdx).selectedPlotIdx = 0;
+            obj.addEmptyState(targetLayout);
             obj.refreshCompanions();
         end
 
@@ -153,6 +155,13 @@ classdef PlotView < handle
             tData = app.Models(fIdx).rawData.(timeCol);
             yData = app.Models(fIdx).rawData.(yCol);
             targetLayout = app.UI(fIdx).plotLayouts{tabIdx};
+            if isempty(app.UI(fIdx).plotAxes{tabIdx})
+                try
+                    delete(targetLayout.Children);
+                    targetLayout.RowHeight = {};
+                catch
+                end
+            end
             targetLayout.RowHeight{end + 1} = flightdash.util.AppConstants.PLOT_ROW_HEIGHT;
             newRowIdx = numel(targetLayout.RowHeight);
             app.updatePlotRowHeights(fIdx);
@@ -218,6 +227,24 @@ classdef PlotView < handle
             obj.refreshCompanions();
             app.updateFlightModeBands(fIdx);
             drawnow;
+        end
+
+        function addEmptyState(~, plotLayout)
+            try
+                if isempty(plotLayout) || ~isvalid(plotLayout), return; end
+                delete(plotLayout.Children);
+                plotLayout.RowHeight = {'1x'};
+                lbl = uilabel(plotLayout, ...
+                    'Text', '비행 데이터를 불러오거나 +Tab을 눌러 그래프를 추가하세요', ...
+                    'HorizontalAlignment', 'center', ...
+                    'VerticalAlignment', 'center', ...
+                    'FontAngle', 'italic', ...
+                    'FontColor', [0.48 0.52 0.58], ...
+                    'WordWrap', 'on');
+                lbl.Layout.Row = 1;
+                lbl.Layout.Column = 1;
+            catch
+            end
         end
 
         function updateTimeIndicators(obj, currIdx, currTime)

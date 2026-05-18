@@ -50,6 +50,8 @@ classdef AppConstants
         LAYOUT_VIDEO_WIDE_MAX = 900
         LAYOUT_VIDEO_MEDIUM  = 380
         LAYOUT_VIDEO_COMPACT = 320
+        LAYOUT_VIDEO_MIN     = 160
+        LAYOUT_VIDEO_PREFERRED = 220
         LAYOUT_VIDEO_RAIL    = 72
         LAYOUT_SPLITTER_W    = 8
         LAYOUT_H_MIN_WIDE    = 320

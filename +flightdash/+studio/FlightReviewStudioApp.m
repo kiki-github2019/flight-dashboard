@@ -144,6 +144,11 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
 
             if embedOk
+                try
+                    flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
+                    app.applyManagerThemes();
+                catch
+                end
                 msg = sprintf('Added session: %s (%s)', sess.DisplayName, sessionId);
                 if ~isempty(app.StatusBar), app.StatusBar.setMessage(msg); end
             else
@@ -474,11 +479,6 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             app.applyGuiMode(app.Project.GuiMode, false);
             app.refreshExplorer();
             app.refreshTitle();
-            % Commit 2: parity with constructor — a brand new project
-            % should land on an active Dashboard, not on Welcome only.
-            try, app.addSession('Session 1'); catch autoME
-                warning('FlightReviewStudio:AutoSessionFailed', '%s', autoME.message);
-            end
             if ~isempty(app.StatusBar)
                 app.StatusBar.setMessage('New project (Untitled)');
             end
@@ -768,6 +768,8 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 'ToolbarVisible', true, ...
                 'ExplorerVisible', true, ...
                 'RightDockVisible', true, ...
+                'RightDockCollapsed', false, ...
+                'RightDockRailWidth', 40, ...
                 'ExplorerWidth',  220, ...
                 'RightDockWidth', 300, ...
                 'WindowStyle',   'normal');
@@ -823,6 +825,56 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     profile.RightDockWidth = 300;
                     profile.WindowStyle = 'docked';
             end
+            profile = app.applyStudioBreakpoints(profile);
+        end
+
+        function profile = applyStudioBreakpoints(app, profile)
+            try
+                w = app.currentFigureWidthPx();
+                if w < 1400
+                    layoutProfile = 'compact';
+                elseif w < 1700
+                    layoutProfile = 'normal';
+                else
+                    layoutProfile = 'wide';
+                end
+                profile.LayoutProfile = layoutProfile;
+                switch layoutProfile
+                    case 'compact'
+                        profile.ExplorerWidth = min(profile.ExplorerWidth, 190);
+                        profile.RightDockVisible = false;
+                        profile.RightDockCollapsed = true;
+                        profile.RightDockRailWidth = 40;
+                    case 'normal'
+                        profile.ExplorerWidth = min(profile.ExplorerWidth, 210);
+                        profile.RightDockVisible = true;
+                        profile.RightDockCollapsed = false;
+                        profile.RightDockWidth = min(profile.RightDockWidth, 220);
+                    otherwise
+                        profile.RightDockVisible = true;
+                        profile.RightDockCollapsed = false;
+                        profile.RightDockWidth = min(max(profile.RightDockWidth, 280), 320);
+                end
+            catch
+            end
+        end
+
+        function w = currentFigureWidthPx(app)
+            w = 1700;
+            try
+                if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
+                    pos = getpixelposition(app.UIFigure);
+                    if numel(pos) >= 3 && isfinite(pos(3)) && pos(3) > 0
+                        w = pos(3);
+                        return;
+                    end
+                    pos = app.UIFigure.Position;
+                    if numel(pos) >= 3 && isfinite(pos(3)) && pos(3) > 0
+                        w = pos(3);
+                    end
+                end
+            catch
+            end
         end
 
         function mode = normalizeGuiMode(~, modeName)
@@ -845,6 +897,9 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.setToolbarVisible(profile.ToolbarVisible);
                 app.setManagerPanelVisible(app.ProjectExplorer, profile.ExplorerVisible);
                 app.setManagerPanelVisible(app.RightDock, profile.RightDockVisible);
+                if isfield(profile, 'RightDockCollapsed')
+                    app.IsRightDockCollapsed = logical(profile.RightDockCollapsed);
+                end
                 app.setBodyColumnWidths(profile);
                 if isfield(profile, 'WindowStyle') && ~isempty(profile.WindowStyle)
                     app.applyWindowStyle(profile.WindowStyle);
@@ -1042,6 +1097,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     app.CurrentThemeStruct = flightdash.ui.StudioTheme.dark();
                 end
                 flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
+                app.applyManagerThemes();
                 % Patch 4 medium-term: persist the user's choice into the
                 % project model so Save round-trips Dark/Light. DirtyFlag
                 % is left to ProjectModel.touch (no-op when the value
@@ -1136,7 +1192,13 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 leftW = profile.ExplorerWidth;
                 rightW = profile.RightDockWidth;
                 if ~profile.ExplorerVisible, leftW = 0; end
-                if ~profile.RightDockVisible, rightW = 0; end
+                if ~profile.RightDockVisible
+                    if isfield(profile, 'RightDockCollapsed') && profile.RightDockCollapsed
+                        rightW = profile.RightDockRailWidth;
+                    else
+                        rightW = 0;
+                    end
+                end
                 app.BodyGrid.ColumnWidth = {leftW, '1x', rightW};
             catch ME
                 try, app.logCaught(ME, 'Studio:setBodyColumnWidths'); catch, end
@@ -1409,7 +1471,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
             % --- Top-level grid: header / body / status bar ---
             shellGrid = uigridlayout(app.UIFigure, [3 1], ...
-                'RowHeight', {UIScale.px(70), '1x', UIScale.px(28)}, ...
+                'RowHeight', {UIScale.px(118), '1x', UIScale.px(28)}, ...
                 'ColumnWidth', {'1x'}, ...
                 'RowSpacing', 0, 'ColumnSpacing', 0, ...
                 'Padding', [0 0 0 0]);
@@ -1506,6 +1568,22 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     app.CurrentThemeStruct = flightdash.ui.StudioTheme.light();
                 end
                 flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
+                app.applyManagerThemes();
+            catch
+            end
+        end
+
+        function applyManagerThemes(app)
+            try
+                if ~isempty(app.RightDock) && isvalid(app.RightDock) && ismethod(app.RightDock, 'applyTheme')
+                    app.RightDock.applyTheme(app.CurrentThemeStruct);
+                end
+            catch
+            end
+            try
+                if ~isempty(app.StatusBar) && isvalid(app.StatusBar) && ismethod(app.StatusBar, 'applyTheme')
+                    app.StatusBar.applyTheme(app.CurrentThemeStruct);
+                end
             catch
             end
         end

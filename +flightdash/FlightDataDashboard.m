@@ -3551,6 +3551,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 app.UI(fIdx).vidAxes.DataAspectRatio = [1 1 1];
                 app.UI(fIdx).vidAxes.PlotBoxAspectRatioMode = 'auto';
             end
+            try
+                if isfield(app.UI(fIdx), 'videoEmptyText') && isvalid(app.UI(fIdx).videoEmptyText)
+                    app.UI(fIdx).videoEmptyText.Visible = 'off';
+                end
+            catch
+            end
             app.cacheStoreFrame(fIdx, 1, firstFrame);
             app.LastDisplayedFrame(fIdx) = 1;
         end
@@ -4594,6 +4600,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
             try
                 if ~app.isVideoReady(fIdx) || isempty(img), return; end
                 set(app.VideoState(fIdx).vidImageHandle, 'CData', img);
+                try
+                    if isfield(app.UI(fIdx), 'videoEmptyText') && isvalid(app.UI(fIdx).videoEmptyText)
+                        app.UI(fIdx).videoEmptyText.Visible = 'off';
+                    end
+                catch
+                end
                 app.LastDisplayedFrame(fIdx) = frameNo;   % [PATCH] 조기반환 키
 
                 % 캐시 store (히트 아닐 때만 - cache-first write-through)
@@ -4639,6 +4651,12 @@ classdef FlightDataDashboard < matlab.apps.AppBase
                 if hasFrame(app.VideoState(fIdx).videoReader)
                     frame = readFrame(app.VideoState(fIdx).videoReader);
                     set(app.VideoState(fIdx).vidImageHandle, 'CData', frame);
+                    try
+                        if isfield(app.UI(fIdx), 'videoEmptyText') && isvalid(app.UI(fIdx).videoEmptyText)
+                            app.UI(fIdx).videoEmptyText.Visible = 'off';
+                        end
+                    catch
+                    end
                 end
             catch ME_silent, app.logCaught(ME_silent, 'silent'); end
         end

@@ -161,6 +161,7 @@ results9  = flightdash.studio.diag.verifyPhase9();
 results10 = flightdash.studio.diag.verifyPhase10();
 vrSmoke   = flightdash.studio.diag.verifyPhase10VideoReaderSmoke();
 risk      = flightdash.studio.diag.verifyRiskRegressionTests();
+polish    = flightdash.studio.diag.verifyThemeAndLayoutPolish();
 % Optional, requires a user-supplied video file:
 % stress = flightdash.studio.diag.verifyPhase10LargeVideoStress("path/to/video.avi");
 multi     = flightdash.studio.diag.runMultiInstanceTests();

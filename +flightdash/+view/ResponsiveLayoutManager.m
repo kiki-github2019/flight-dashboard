@@ -405,7 +405,14 @@ classdef ResponsiveLayoutManager < handle
             if isfinite(deficit) && deficit > 0
                 minAtt   = flightdash.util.UIScale.pxForProfile(flightdash.util.AppConstants.LAYOUT_ATT_RAIL, profile);
                 minInfo  = flightdash.util.UIScale.pxForProfile(flightdash.util.AppConstants.LAYOUT_INFO_RAIL, profile);
-                minVideo = flightdash.util.UIScale.pxForProfile(flightdash.util.AppConstants.LAYOUT_VIDEO_RAIL, profile);
+                minVideoD = flightdash.util.AppConstants.LAYOUT_VIDEO_RAIL;
+                try
+                    if isprop(app, 'IsEmbedded') && app.IsEmbedded
+                        minVideoD = flightdash.util.AppConstants.LAYOUT_VIDEO_MIN;
+                    end
+                catch
+                end
+                minVideo = flightdash.util.UIScale.pxForProfile(minVideoD, profile);
                 minMap   = flightdash.util.UIScale.pxForProfile(flightdash.util.AppConstants.LAYOUT_MAP_RAIL, profile);
 
                 [videoW, deficit] = obj.shrinkWidth(videoW, minVideo, deficit);
@@ -432,13 +439,13 @@ classdef ResponsiveLayoutManager < handle
                     attD   = flightdash.util.AppConstants.LAYOUT_ATT_MEDIUM;
                     mapD   = flightdash.util.AppConstants.LAYOUT_MAP_COMPACT;
                     infoD  = flightdash.util.AppConstants.LAYOUT_INFO_MEDIUM;
-                    videoD = flightdash.util.AppConstants.LAYOUT_VIDEO_COMPACT;
+                    videoD = flightdash.util.AppConstants.LAYOUT_VIDEO_PREFERRED;
                     hMinD  = flightdash.util.AppConstants.LAYOUT_H_MIN_COMPACT;
                 case flightdash.util.AppConstants.LAYOUT_PROFILE_MEDIUM
                     attD   = flightdash.util.AppConstants.LAYOUT_ATT_MEDIUM;
                     mapD   = flightdash.util.AppConstants.LAYOUT_MAP_MEDIUM;
                     infoD  = flightdash.util.AppConstants.LAYOUT_INFO_MEDIUM;
-                    videoD = flightdash.util.AppConstants.LAYOUT_VIDEO_MEDIUM;
+                    videoD = flightdash.util.AppConstants.LAYOUT_VIDEO_PREFERRED;
                     hMinD  = flightdash.util.AppConstants.LAYOUT_H_MIN_MEDIUM;
                 otherwise
                     attD   = flightdash.util.AppConstants.LAYOUT_ATT_WIDE;

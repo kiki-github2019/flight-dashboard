@@ -54,8 +54,8 @@ classdef HistoryPanel < handle
             try
                 if isempty(obj.ListBox) || ~isvalid(obj.ListBox), return; end
                 if isempty(obj.UndoService) || ~isvalid(obj.UndoService)
-                    obj.ListBox.Items = {'No active session'};
-                    obj.ListBox.Value = 'No active session';
+                    obj.ListBox.Items = {'작업 이력이 없습니다'};
+                    obj.ListBox.Value = '작업 이력이 없습니다';
                     return;
                 end
 
@@ -71,7 +71,7 @@ classdef HistoryPanel < handle
                 end
 
                 if isempty(items)
-                    items = {'No history'};
+                    items = {'작업 이력이 없습니다'};
                 end
                 obj.ListBox.Items = items;
                 obj.ListBox.Value = items{end};
@@ -83,7 +83,7 @@ classdef HistoryPanel < handle
     methods (Access = private)
         function build(obj, parent)
             obj.Grid = uigridlayout(parent, [1 1], 'Padding', [4 4 4 4]);
-            obj.ListBox = uilistbox(obj.Grid, 'Items', {'No history'});
+            obj.ListBox = uilistbox(obj.Grid, 'Items', {'작업 이력이 없습니다'});
         end
 
         function desc = commandDescription(~, command)

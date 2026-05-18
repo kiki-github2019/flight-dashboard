@@ -27,6 +27,8 @@ classdef RightDockManager < handle
         InspectorBody      % uigridlayout
         ShowBtn            % quick-action handle (Phase 6b)
         HideBtn            % quick-action handle (Phase 6b)
+        ColorBtn
+        StyleBtn
 
         % Object Manager
         ObjectTree         % uitree
@@ -53,17 +55,50 @@ classdef RightDockManager < handle
             catch
             end
         end
+
+        function applyTheme(obj, tokens)
+            if nargin < 2 || ~isstruct(tokens)
+                tokens = flightdash.ui.StudioTheme.light();
+            end
+            try
+                if ~isempty(obj.Panel) && isvalid(obj.Panel)
+                    obj.Panel.BackgroundColor = tokens.PanelBg;
+                    obj.Panel.ForegroundColor = tokens.TextPrimary;
+                end
+                hs = findall(obj.Panel);
+                for k = 1:numel(hs)
+                    h = hs(k);
+                    try
+                        if isa(h, 'matlab.ui.container.GridLayout')
+                            h.BackgroundColor = tokens.PanelBg;
+                        elseif isa(h, 'matlab.ui.container.Tab') || isa(h, 'matlab.ui.container.TabGroup')
+                            h.BackgroundColor = tokens.PanelBg;
+                            if isprop(h, 'ForegroundColor'), h.ForegroundColor = tokens.TextPrimary; end
+                        elseif isa(h, 'matlab.ui.control.Label')
+                            h.FontColor = tokens.TextMuted;
+                        elseif isa(h, 'matlab.ui.control.Button')
+                            flightdash.ui.StudioTheme.styleButton(h, tokens, 'secondary');
+                        end
+                    catch
+                    end
+                end
+            catch
+            end
+        end
     end
 
     methods (Access = private)
         function build(obj, parentGrid)
+            tokens = obj.theme();
             obj.Panel = uipanel(parentGrid, ...
                 'BorderType', 'line', ...
-                'BackgroundColor', 'w');
+                'BackgroundColor', tokens.PanelBg, ...
+                'ForegroundColor', tokens.TextPrimary);
             obj.Panel.Layout.Column = 3;
 
             grid = uigridlayout(obj.Panel, [1 1], ...
                 'RowHeight', {'1x'}, 'Padding', [2 2 2 2]);
+            grid.BackgroundColor = tokens.PanelBg;
 
             obj.TabGroup = uitabgroup(grid);
 
@@ -81,8 +116,8 @@ classdef RightDockManager < handle
             tab = uitab(obj.TabGroup, 'Title', 'Analysis');
             grid = uigridlayout(tab, [1 1], 'Padding', [12 12 12 12]);
             uilabel(grid, ...
-                'Text', '(Analysis tools will dock here — Analyzer, ROI, Plot Detail)', ...
-                'FontColor', [0.5 0.5 0.5], ...
+                'Text', '분석 도구가 여기에 표시됩니다', ...
+                'FontColor', obj.theme().TextMuted, ...
                 'HorizontalAlignment', 'center', 'WordWrap', 'on');
         end
 
@@ -101,15 +136,21 @@ classdef RightDockManager < handle
                 'ButtonPushedFcn', @(~,~) obj.onQuickAction('show'));
             obj.HideBtn = uibutton(obj.InspectorQuickRow, 'Text', 'Hide', 'FontSize', 10, ...
                 'ButtonPushedFcn', @(~,~) obj.onQuickAction('hide'));
-            uibutton(obj.InspectorQuickRow, 'Text', 'Color', 'FontSize', 10, 'Enable', 'off');
-            uibutton(obj.InspectorQuickRow, 'Text', 'Style', 'FontSize', 10, 'Enable', 'off');
+            obj.ColorBtn = uibutton(obj.InspectorQuickRow, 'Text', 'Color', 'FontSize', 10, 'Enable', 'off');
+            obj.StyleBtn = uibutton(obj.InspectorQuickRow, 'Text', 'Style', 'FontSize', 10, 'Enable', 'off');
+            tokens = obj.theme();
+            flightdash.ui.StudioTheme.styleButton(obj.ShowBtn, tokens, 'secondary');
+            flightdash.ui.StudioTheme.styleButton(obj.HideBtn, tokens, 'secondary');
+            flightdash.ui.StudioTheme.styleButton(obj.ColorBtn, tokens, 'disabled');
+            flightdash.ui.StudioTheme.styleButton(obj.StyleBtn, tokens, 'disabled');
 
             % Body: empty placeholder grid for properties (Phase 6b fills)
             obj.InspectorBody = uigridlayout(grid, [1 1], ...
                 'RowHeight', {'1x'}, 'Padding', [4 4 4 4]);
             uilabel(obj.InspectorBody, ...
-                'Text', '(Select an object to view its properties)', ...
-                'FontColor', [0.5 0.5 0.5], 'HorizontalAlignment', 'center');
+                'Text', '속성을 볼 객체를 선택하세요', ...
+                'FontColor', tokens.TextMuted, 'FontAngle', 'italic', ...
+                'HorizontalAlignment', 'center', 'WordWrap', 'on');
         end
 
         function tab = buildObjectManagerTab(obj)
@@ -157,8 +198,20 @@ classdef RightDockManager < handle
             tab = uitab(obj.TabGroup, 'Title', 'Apps');
             grid = uigridlayout(tab, [1 1], 'Padding', [12 12 12 12]);
             uilabel(grid, ...
-                'Text', '(Installed analysis apps will appear here)', ...
-                'FontColor', [0.5 0.5 0.5], 'HorizontalAlignment', 'center');
+                'Text', '설치된 분석 앱이 여기에 표시됩니다', ...
+                'FontColor', obj.theme().TextMuted, 'FontAngle', 'italic', ...
+                'HorizontalAlignment', 'center', 'WordWrap', 'on');
+        end
+
+        function tokens = theme(obj)
+            try
+                tokens = obj.App.CurrentThemeStruct;
+            catch
+                tokens = flightdash.ui.StudioTheme.light();
+            end
+            if ~isstruct(tokens) || ~isfield(tokens, 'PanelBg')
+                tokens = flightdash.ui.StudioTheme.light();
+            end
         end
     end
 

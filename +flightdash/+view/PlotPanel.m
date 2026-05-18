@@ -8,7 +8,7 @@ classdef PlotPanel
             UIScale = flightdash.util.UIScale;
             ui = struct();
 
-            hPnl = uipanel(dataGrid, 'Title', 'H: Data View Panel', ...
+            hPnl = uipanel(dataGrid, 'Title', '데이터 보기 (Data View)', ...
                 'FontSize', 12, 'FontWeight', 'bold', 'BackgroundColor', 'w');
             hPnl.Layout.Column = 7;
             ui.plotPanel = hPnl;

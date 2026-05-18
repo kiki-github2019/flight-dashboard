@@ -56,11 +56,14 @@ classdef RibbonButton < handle
         function setEnabled(obj, tf)
             obj.Enabled = logical(tf);
             try
+                theme = obj.currentTheme();
                 if ~isempty(obj.MainHandle) && isvalid(obj.MainHandle)
                     obj.MainHandle.Enable = ternaryEnable(tf);
+                    flightdash.ui.StudioTheme.styleButton(obj.MainHandle, theme, 'secondary');
                 end
                 if ~isempty(obj.ChevronHandle) && isvalid(obj.ChevronHandle)
                     obj.ChevronHandle.Enable = ternaryEnable(tf);
+                    flightdash.ui.StudioTheme.styleButton(obj.ChevronHandle, theme, 'ghost');
                 end
             catch
             end
@@ -76,6 +79,7 @@ classdef RibbonButton < handle
     methods (Access = private)
         function buildSingle(obj, parent)
             iconRgb = obj.iconFor(obj.CmdId);
+            theme = obj.currentTheme();
             btn = uibutton(parent, 'push', ...
                 'Text', obj.Label, ...
                 'Icon', iconRgb, ...
@@ -83,9 +87,9 @@ classdef RibbonButton < handle
                 'WordWrap', 'on', ...
                 'Tooltip', obj.Tooltip, ...
                 'FontSize', 10, ...
-                'BackgroundColor', [0.97 0.97 0.97], ...
                 'ButtonPushedFcn', @(~,~) obj.onMainClick());
             obj.MainHandle = btn;
+            flightdash.ui.StudioTheme.styleButton(btn, theme, 'secondary');
         end
 
         function buildSplit(obj, parent)
@@ -98,6 +102,7 @@ classdef RibbonButton < handle
             holder.Padding       = [0 0 0 0];
 
             iconRgb = obj.iconFor(obj.CmdId);
+            theme = obj.currentTheme();
             obj.MainHandle = uibutton(holder, 'push', ...
                 'Text', obj.Label, ...
                 'Icon', iconRgb, ...
@@ -105,14 +110,31 @@ classdef RibbonButton < handle
                 'WordWrap', 'on', ...
                 'Tooltip', obj.Tooltip, ...
                 'FontSize', 10, ...
-                'BackgroundColor', [0.97 0.97 0.97], ...
                 'ButtonPushedFcn', @(~,~) obj.onMainClick());
             obj.ChevronHandle = uibutton(holder, 'push', ...
                 'Text', char(9660), ...   % ▼
                 'FontSize', 8, ...
-                'BackgroundColor', [0.92 0.92 0.92], ...
                 'Tooltip', sprintf('%s — more options', obj.Label), ...
                 'ButtonPushedFcn', @(~,~) obj.onChevronClick());
+            flightdash.ui.StudioTheme.styleButton(obj.MainHandle, theme, 'secondary');
+            flightdash.ui.StudioTheme.styleButton(obj.ChevronHandle, theme, 'ghost');
+        end
+
+        function theme = currentTheme(obj)
+            theme = flightdash.ui.StudioTheme.light();
+            try
+                if ~isempty(obj.AdapterRef) && isobject(obj.AdapterRef) && ...
+                        isprop(obj.AdapterRef, 'App') && isprop(obj.AdapterRef.App, 'CurrentThemeStruct')
+                    theme = obj.AdapterRef.App.CurrentThemeStruct;
+                elseif isstruct(obj.AdapterRef) && isfield(obj.AdapterRef, 'App') && ...
+                        isprop(obj.AdapterRef.App, 'CurrentThemeStruct')
+                    theme = obj.AdapterRef.App.CurrentThemeStruct;
+                end
+            catch
+            end
+            if ~isstruct(theme) || ~isfield(theme, 'ButtonBg')
+                theme = flightdash.ui.StudioTheme.light();
+            end
         end
 
         function rgb = iconFor(obj, cmdId)

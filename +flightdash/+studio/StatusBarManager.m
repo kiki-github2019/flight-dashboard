@@ -11,6 +11,7 @@ classdef StatusBarManager < handle
 
     properties (Access = public)
         App
+        RootGrid
         ProjectLabel        % uilabel
         SessionLabel        % uilabel
         ChannelLabel        % uilabel
@@ -60,6 +61,30 @@ classdef StatusBarManager < handle
             catch
             end
         end
+
+        function applyTheme(obj, tokens)
+            if nargin < 2 || ~isstruct(tokens)
+                tokens = flightdash.ui.StudioTheme.light();
+            end
+            try
+                if ~isempty(obj.RootGrid) && isvalid(obj.RootGrid)
+                    obj.RootGrid.BackgroundColor = tokens.HeaderBg;
+                end
+                labels = {obj.ProjectLabel, obj.SessionLabel, obj.ChannelLabel, ...
+                    obj.TimeLabel, obj.FrameLabel, obj.VideoSyncLabel, obj.FlightSyncLabel, ...
+                    obj.AutoUpdateLabel, obj.MessageLabel, obj.DecodeQueueLabel, obj.ErrorCountLabel};
+                for k = 1:numel(labels)
+                    h = labels{k};
+                    if ~isempty(h) && isvalid(h)
+                        h.FontColor = tokens.TextSecondary;
+                    end
+                end
+                if ~isempty(obj.MessageLabel) && isvalid(obj.MessageLabel)
+                    obj.MessageLabel.FontColor = tokens.TextPrimary;
+                end
+            catch
+            end
+        end
     end
 
     methods (Access = private)
@@ -68,25 +93,26 @@ classdef StatusBarManager < handle
 
             grid = uigridlayout(parentPanel, [1 12], ...
                 'RowHeight', {'1x'}, ...
-                'ColumnSpacing', 8, 'Padding', [8 2 8 2], ...
+                'ColumnSpacing', 6, 'Padding', [8 2 8 2], ...
                 'BackgroundColor', [0.92 0.92 0.94]);
+            obj.RootGrid = grid;
             grid.ColumnWidth = { ...
-                UIScale.px(180), ...   % project
-                UIScale.px(160), ...   % session
-                UIScale.px(110), ...   % channel
-                UIScale.px(140), ...   % time
-                UIScale.px(120), ...   % frame
-                UIScale.px(110), ...   % video sync
-                UIScale.px(110), ...   % flight sync
-                UIScale.px(110), ...   % auto update
+                UIScale.px(160), ...   % project
+                UIScale.px(130), ...   % session
+                UIScale.px(82), ...    % channel
+                UIScale.px(108), ...   % time
+                UIScale.px(96), ...    % frame
+                UIScale.px(92), ...    % video sync
+                UIScale.px(92), ...    % flight sync
+                UIScale.px(76), ...    % auto update
                 '1x', ...              % ROI summary / message (stretches)
-                UIScale.px(140), ...   % decode queue
-                UIScale.px(80),  ...   % errors
+                UIScale.px(104), ...   % decode queue
+                UIScale.px(60),  ...   % errors
                 UIScale.px(0)};        % spare
 
             obj.ProjectLabel     = obj.makeLabel(grid, sprintf('Project: %s', obj.App.ProjectName));
             obj.SessionLabel     = obj.makeLabel(grid, 'Session: standalone');
-            obj.ChannelLabel     = obj.makeLabel(grid, 'Channel: -');
+            obj.ChannelLabel     = obj.makeLabel(grid, 'Ch: -');
             obj.TimeLabel        = obj.makeLabel(grid, 'Time: -');
             obj.FrameLabel       = obj.makeLabel(grid, 'Frame: -');
             obj.VideoSyncLabel   = obj.makeLabel(grid, 'VidSync: -');

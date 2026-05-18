@@ -28,15 +28,16 @@ classdef RibbonBar < handle
         end
 
         function build(obj, parent)
+            theme = obj.theme();
             obj.Container = uipanel(parent, ...
                 'BorderType', 'none', ...
-                'BackgroundColor', [0.94 0.94 0.94]);
+                'BackgroundColor', theme.RibbonBg);
             obj.OuterGrid = uigridlayout(obj.Container, [2 1]);
             obj.OuterGrid.RowHeight     = {26, '1x'};
             obj.OuterGrid.ColumnWidth   = {'1x'};
             obj.OuterGrid.RowSpacing    = 0;
             obj.OuterGrid.Padding       = [0 0 0 0];
-            obj.OuterGrid.BackgroundColor = [0.94 0.94 0.94];
+            obj.OuterGrid.BackgroundColor = theme.RibbonBg;
 
             obj.buildQuickAccess();
             obj.TabGroup = uitabgroup(obj.OuterGrid);
@@ -177,9 +178,10 @@ classdef RibbonBar < handle
 
     methods (Access = private)
         function buildQuickAccess(obj)
+            theme = obj.theme();
             obj.QuickAccessPanel = uipanel(obj.OuterGrid, ...
                 'BorderType', 'none', ...
-                'BackgroundColor', [0.92 0.92 0.92]);
+                'BackgroundColor', theme.HeaderBg);
             obj.QuickAccessPanel.Layout.Row = 1;
             obj.QuickAccessPanel.Layout.Column = 1;
 
@@ -188,7 +190,7 @@ classdef RibbonBar < handle
             g.ColumnWidth   = {'1x', 140, 80, 30, 30};
             g.ColumnSpacing = 4;
             g.Padding       = [6 2 6 2];
-            g.BackgroundColor = [0.92 0.92 0.92];
+            g.BackgroundColor = theme.HeaderBg;
 
             obj.QuickAccess.Title = uieditfield(g, 'text', ...
                 'Value', char(obj.App.ProjectName), ...
@@ -215,6 +217,20 @@ classdef RibbonBar < handle
                 'FontWeight', 'bold', ...
                 'Tooltip', 'Help & support', ...
                 'ButtonPushedFcn', @(src,~) obj.showHelpMenu(src));
+            flightdash.ui.StudioTheme.styleButton(obj.QuickAccess.ThemeBtn, theme, 'secondary');
+            flightdash.ui.StudioTheme.styleButton(obj.QuickAccess.SettingsBtn, theme, 'ghost');
+            flightdash.ui.StudioTheme.styleButton(obj.QuickAccess.HelpBtn, theme, 'ghost');
+        end
+
+        function theme = theme(obj)
+            try
+                theme = obj.App.CurrentThemeStruct;
+            catch
+                theme = flightdash.ui.StudioTheme.light();
+            end
+            if ~isstruct(theme) || ~isfield(theme, 'RibbonBg')
+                theme = flightdash.ui.StudioTheme.light();
+            end
         end
 
         function showSettingsMenu(obj, src)

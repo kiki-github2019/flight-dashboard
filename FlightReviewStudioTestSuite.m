@@ -3,7 +3,7 @@ function results = FlightReviewStudioTestSuite()
 %
 %   Performs the workspace + cache cleanup commands the user requested
 %   (close all force / clear all force / clear classes / rehash
-%   toolboxcache) BEFORE invoking any test, then enumerates and runs
+%   toolboxcache) BEFORE enumerating tests, then runs
 %   every canonical test function inside ./static_test/:
 %     - matlab.unittest.TestCase subclass : every Test method counted
 %       separately and dispatched via matlab.unittest.TestSuite.fromMethod
@@ -141,7 +141,9 @@ end
 function localCleanupEnvironment(~)
     try, close all force; catch, end
     try, evalin('base', 'clear all force'); catch, end
-    try, evalin('base', 'clear classes'); catch, end
+    % Do not call "clear classes" from this onCleanup callback. MATLAB can
+    % still have cleanup-owned or toolbox-owned objects alive at this point,
+    % which produces benign "Cannot clear this class" warnings in R2025a.
     try, rehash toolboxcache; catch, end
 end
 
