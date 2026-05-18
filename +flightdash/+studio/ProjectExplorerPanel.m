@@ -99,6 +99,14 @@ classdef ProjectExplorerPanel < handle
                         node = uitreenode(obj.Roots.Sessions, ...
                             'Text', sprintf('%s (%s)', s.DisplayName, s.SessionId), ...
                             'NodeData', struct('SessionId', s.SessionId, 'Kind', 'session'));
+                        try
+                            if isprop(node, 'Tooltip')
+                                node.Tooltip = sprintf( ...
+                                    'Session: %s\nID: %s\nClick to focus this review tab.', ...
+                                    char(s.DisplayName), char(s.SessionId));
+                            end
+                        catch
+                        end
                     end
                 end
 
@@ -205,21 +213,34 @@ classdef ProjectExplorerPanel < handle
             tree.SelectionChangedFcn = @(src,evt) obj.onTreeSelection(evt);
 
             % Phase 1 placeholder structure (matches plan §1.2)
-            obj.Roots.Project   = obj.makeNode(tree,             obj.App.ProjectName);
-            obj.Roots.Sessions  = obj.makeNode(obj.Roots.Project, 'Sessions');
-            obj.Roots.FlightData = obj.makeNode(obj.Roots.Project, 'Flight Data');
-            obj.Roots.Videos    = obj.makeNode(obj.Roots.Project, 'Videos');
-            obj.Roots.Graphs    = obj.makeNode(obj.Roots.Project, 'Graphs');
-            obj.Roots.Roi       = obj.makeNode(obj.Roots.Project, 'ROI Results');
-            obj.Roots.Sync      = obj.makeNode(obj.Roots.Project, 'Sync Results');
-            obj.Roots.Snapshots = obj.makeNode(obj.Roots.Project, 'Snapshots');
-            obj.Roots.Reports   = obj.makeNode(obj.Roots.Project, 'Reports');
-            obj.Roots.Notes     = obj.makeNode(obj.Roots.Project, 'Notes');
-            obj.Roots.Themes    = obj.makeNode(obj.Roots.Project, 'Analysis Themes');
-            obj.Roots.Logs      = obj.makeNode(obj.Roots.Project, 'Logs');
-            obj.makeNode(obj.Roots.Logs, 'Message Log');
-            obj.makeNode(obj.Roots.Logs, 'Error Log');
-            obj.makeNode(obj.Roots.Logs, 'Result Log');
+            mk = @(parent, label, tip) obj.makeNodeWithTip(parent, label, tip);
+            obj.Roots.Project   = mk(tree, obj.App.ProjectName, ...
+                'Current project. Right-click for project-level actions.');
+            obj.Roots.Sessions  = mk(obj.Roots.Project, 'Sessions', ...
+                'Review sessions. Each session opens an embedded dashboard tab.');
+            obj.Roots.FlightData = mk(obj.Roots.Project, 'Flight Data', ...
+                'Loaded flight log files. Drop CSV/MAT files here.');
+            obj.Roots.Videos    = mk(obj.Roots.Project, 'Videos', ...
+                'Synced videos paired with flight data sessions.');
+            obj.Roots.Graphs    = mk(obj.Roots.Project, 'Graphs', ...
+                'User-defined plot configurations and graph templates.');
+            obj.Roots.Roi       = mk(obj.Roots.Project, 'ROI Results', ...
+                'Region-of-interest analysis results (Auto / Manual / Frozen).');
+            obj.Roots.Sync      = mk(obj.Roots.Project, 'Sync Results', ...
+                'Video / flight-data synchronization quality reports.');
+            obj.Roots.Snapshots = mk(obj.Roots.Project, 'Snapshots', ...
+                'Saved playback snapshots and frame captures.');
+            obj.Roots.Reports   = mk(obj.Roots.Project, 'Reports', ...
+                'Exported review reports (PDF / HTML / images).');
+            obj.Roots.Notes     = mk(obj.Roots.Project, 'Notes', ...
+                'Free-form notes attached to the project or sessions.');
+            obj.Roots.Themes    = mk(obj.Roots.Project, 'Analysis Themes', ...
+                'Saved analysis configurations reusable across projects.');
+            obj.Roots.Logs      = mk(obj.Roots.Project, 'Logs', ...
+                'Diagnostic logs: messages, errors, recalc results.');
+            mk(obj.Roots.Logs, 'Message Log', 'Status / info messages.');
+            mk(obj.Roots.Logs, 'Error Log',   'Errors and caught exceptions.');
+            mk(obj.Roots.Logs, 'Result Log',  'Recalculate / ROI result history.');
 
             try, expand(obj.Roots.Project); catch, end
             obj.Tree = tree;
@@ -237,6 +258,18 @@ classdef ProjectExplorerPanel < handle
 
         function n = makeNode(~, parent, label)
             n = uitreenode(parent, 'Text', label);
+        end
+
+        function n = makeNodeWithTip(~, parent, label, tipText)
+            % uitreenode Tooltip is R2022b+; fall back gracefully on
+            % older releases by silently ignoring the unset property.
+            n = uitreenode(parent, 'Text', label);
+            try
+                if ~isempty(tipText) && isprop(n, 'Tooltip')
+                    n.Tooltip = char(tipText);
+                end
+            catch
+            end
         end
 
         function replaceChildren(~, parentNode)

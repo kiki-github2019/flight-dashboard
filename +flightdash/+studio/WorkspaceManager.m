@@ -45,6 +45,38 @@ classdef WorkspaceManager < handle
             catch, end
         end
 
+        function setWelcomeVisible(obj, tf)
+            % Show/hide the Welcome (Start Page) tab based on whether
+            % the project has any embedded sessions. uitab does not
+            % expose a runtime Visible toggle, so we delete-and-rebuild
+            % the tab as the user opens / closes sessions.
+            tf = logical(tf);
+            try
+                hasWelcome = ~isempty(obj.WelcomeTab) && isvalid(obj.WelcomeTab);
+                if tf && ~hasWelcome
+                    % Re-create the Welcome tab at index 1.
+                    newTab = uitab(obj.TabGroup, 'Title', 'Welcome');
+                    newTab.UserData = struct('SessionId', 'standalone');
+                    obj.WelcomeTab = newTab;
+                    obj.buildStartPage(newTab);
+                    % Move Welcome to the front (index 1) by reordering
+                    % children if the API allows.
+                    try
+                        kids = obj.TabGroup.Children;
+                        if numel(kids) > 1 && kids(end) == newTab
+                            obj.TabGroup.Children = [newTab; kids(1:end-1)];
+                        end
+                    catch
+                    end
+                    try, flightdash.ui.StudioTheme.apply(newTab, obj.App.CurrentThemeStruct); catch, end
+                elseif ~tf && hasWelcome
+                    try, delete(obj.WelcomeTab); catch, end
+                    obj.WelcomeTab = [];
+                end
+            catch
+            end
+        end
+
         function tab = addDashboardTab(obj, sessionId, displayName, sessionModel)
             % [PHASE 3b] Create a workspace tab and embed a
             % FlightDataDashboard inside it for the given session.

@@ -102,6 +102,7 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 app.buildShell();
                 app.applyGuiMode(app.Project.GuiMode, false);
                 app.refreshTitle();
+                try, app.applySessionStateUI(); catch, end
                 % Auto Session 1 has been moved to the user-facing
                 % FlightReviewStudio() entry-point wrapper so tests and
                 % diagnostics that instantiate this class directly start
@@ -319,6 +320,38 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 end
             catch ME
                 try, app.logCaught(ME, 'Studio:refreshExplorer'); catch, end
+            end
+            % Keep session-state UI in sync every time the project model
+            % view refreshes (covers add / remove / load / new project).
+            try, app.applySessionStateUI(); catch, end
+        end
+
+        function applySessionStateUI(app)
+            % Synchronize Welcome-tab visibility and session-gated
+            % ribbon command enablement with current sessionCount.
+            hasSession = false;
+            try
+                if ~isempty(app.Project) && isvalid(app.Project)
+                    hasSession = app.Project.sessionCount() > 0;
+                end
+            catch
+            end
+            try
+                if ~isempty(app.Workspace) && isvalid(app.Workspace) ...
+                        && ismethod(app.Workspace, 'setWelcomeVisible')
+                    app.Workspace.setWelcomeVisible(~hasSession);
+                end
+            catch
+            end
+            try
+                if ~isempty(app.RibbonBar) && isvalid(app.RibbonBar) ...
+                        && ismethod(app.RibbonBar, 'setEnabledByCmd')
+                    gated = flightdash.studio.FlightReviewStudioApp.sessionGatedCmdIds();
+                    for k = 1:numel(gated)
+                        try, app.RibbonBar.setEnabledByCmd(gated{k}, hasSession); catch, end
+                    end
+                end
+            catch
             end
         end
 
@@ -1672,6 +1705,21 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 s = sprintf('%s (line %d)', f.name, f.line);
             catch
             end
+        end
+
+        function ids = sessionGatedCmdIds()
+            % Ribbon commands that require at least one open session.
+            % NOT gated (always enabled): New, Open, AddSession, Theme,
+            % Help, Settings, Open Sample Project.
+            ids = { ...
+                'Toolbar:Save','Toolbar:SaveAs','File:Save','File:SaveAs','File:Close', ...
+                'Toolbar:LoadData','Toolbar:LoadVideo', ...
+                'Toolbar:Sync','Toolbar:SyncQuality', ...
+                'Toolbar:Play','Toolbar:Stop','Toolbar:Prev','Toolbar:Next', ...
+                'Toolbar:ROI','Toolbar:Marker','Toolbar:Analyze','Toolbar:Recalc', ...
+                'Toolbar:Plot','Edit:Undo','Edit:Redo','Edit:Cut','Edit:Copy','Edit:Paste', ...
+                'Window:Close','Window:CloseAll','Window:Tile' ...
+            };
         end
     end
 end
