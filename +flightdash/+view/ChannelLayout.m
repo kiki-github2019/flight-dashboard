@@ -60,7 +60,14 @@ classdef ChannelLayout
             ui.btnVid = uibutton(glCtrl, 'Text', '비디오 ▾', ...
                 'ButtonPushedFcn', @(~,~) flightdash.util.EventBus.publish('PanelToggled', flightdash.util.AppEventData(fIdx, 'video')));
             ui.btnVid.Layout.Column = 12;
-            ui.PanelVisible = struct('attitude', true, 'map', true, 'video', true);
+            % Per UX spec: initial review session opens with ONLY the
+            % "Current Flight Data" (info) panel + plot-add column
+            % active. Attitude / Map-Altitude / Video are hidden until
+            % the user explicitly toggles them on. The toggle buttons
+            % retain their default Korean labels until first click,
+            % after which togglePanel() switches to the English ON/OFF
+            % form (matches existing convention).
+            ui.PanelVisible = struct('attitude', false, 'map', false, 'video', false);
             
             % 9컬럼 dataGrid - DPI 스케일 반영 (96 DPI 기준 디자인 → 실효 픽셀)
             ui.dataGrid = uigridlayout(fGrid, [1 9]);
@@ -83,6 +90,23 @@ classdef ChannelLayout
             
             % 평면 alias (기존 app.UI(fIdx).xxx 100% 호환)
             ui = flightdash.view.ChannelLayout.mergeStructs(ui, attUi, mapUi, infoUi, plotUi, splitUi, videoUi);
+
+            % Apply the initial hidden state for attitude/map/video.
+            try
+                if isfield(ui, 'panelAttitude') && ~isempty(ui.panelAttitude) && isvalid(ui.panelAttitude)
+                    ui.panelAttitude.Visible = 'off';
+                end
+            catch, end
+            try
+                if isfield(ui, 'panelMapAlt') && ~isempty(ui.panelMapAlt) && isvalid(ui.panelMapAlt)
+                    ui.panelMapAlt.Visible = 'off';
+                end
+            catch, end
+            try
+                if isfield(ui, 'panelVideo') && ~isempty(ui.panelVideo) && isvalid(ui.panelVideo)
+                    ui.panelVideo.Visible = 'off';
+                end
+            catch, end
         end
         
         function out = mergeStructs(varargin)
