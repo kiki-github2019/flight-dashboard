@@ -28,16 +28,13 @@ function app = FlightReviewStudio()
     end
 
     % --- Stale-class cache self-guard ---
-    % MATLAB caches loaded classdef definitions. If a core class file
-    % (PlotView, WorkspaceManager, FlightReviewStudioApp) was modified
-    % after the in-memory class metadata was captured, the loaded
-    % version is stale and will reproduce phantom errors (e.g. the
-    % "Unrecognized function or variable 'targetLayout'" report on
-    % PlotView.addTab line 44 that already had a fix on disk). Detect
-    % the mismatch by comparing source-file mtime to the metadata
-    % InputName timestamp and refresh automatically when needed.
+    % MATLAB keeps classdef code loaded across git pulls. If a core
+    % Studio/Dashboard class is already in memory before launch, refresh
+    % classes so old PlotView bytecode cannot reproduce phantom errors
+    % such as "Unrecognized function or variable 'targetLayout'".
     localRefreshStaleClassCache({ ...
         'flightdash.view.PlotView', ...
+        'flightdash.FlightDataDashboard', ...
         'flightdash.studio.WorkspaceManager', ...
         'flightdash.studio.FlightReviewStudioApp'});
     if verLessThan('matlab', '24.1')  % R2024a == 24.1; R2025a == 24.2
@@ -76,42 +73,32 @@ function app = FlightReviewStudio()
 end
 
 function localRefreshStaleClassCache(classNames)
-    % Best-effort cache freshness check. mtime of the .m file on disk
-    % vs the last time MATLAB compiled its metadata. If newer on disk,
-    % issue 'clear classes' + 'rehash toolboxcache' once. Silent on any
-    % failure — never blocks launch.
-    stale = false;
+    % Best-effort cache freshness check. If any target class file is
+    % already in memory, issue clear classes + rehash once. Silent on
+    % any failure; never blocks launch.
+    loaded = false;
     staleName = '';
+    loadedFiles = {};
+    try
+        loadedFiles = inmem('-completenames');
+    catch
+    end
     for k = 1:numel(classNames)
         cls = classNames{k};
         try
             w = which(cls);
             if isempty(w) || ~ischar(w), continue; end
-            d = dir(w);
-            if isempty(d), continue; end
-            mc = meta.class.fromName(cls);
-            if isempty(mc) || ~isprop(mc, 'InputName') || isempty(mc.InputName)
-                % Class metadata not yet loaded -> nothing stale.
-                continue;
-            end
-            % If MATLAB's loaded metadata was captured before the
-            % source file's last modification, the in-memory copy is
-            % stale. Use a 1-second epsilon to avoid clock skew false
-            % positives on networked filesystems.
-            try
-                metaInfo = dir(mc.InputName);
-                if isempty(metaInfo), continue; end
-                if datenum(d.date) > datenum(metaInfo.date) + 1/86400 %#ok<DATNM>
-                    stale = true; staleName = cls; break;
-                end
-            catch
+            if any(strcmpi(loadedFiles, w))
+                loaded = true;
+                staleName = cls;
+                break;
             end
         catch
         end
     end
-    if stale
+    if loaded
         try
-            fprintf('[FlightReviewStudio] Refreshing stale class cache (%s)...\n', staleName);
+            fprintf('[FlightReviewStudio] Refreshing loaded class cache (%s)...\n', staleName);
             evalin('base', 'clear classes');
             rehash toolboxcache;
         catch

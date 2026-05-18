@@ -461,7 +461,6 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 copy.AutoUpdateMode = src.AutoUpdateMode;
                 copy.PanelVisible   = src.PanelVisible;
                 copy.LayoutState    = src.LayoutState;
-                app.Project = app.Project.addSession(copy);
                 newSessionId = copy.SessionId;
             catch ME
                 try, app.logCaught(ME, 'Studio:duplicateSession:project'); catch, end
@@ -469,11 +468,22 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
             end
             try
                 if ~isempty(app.Workspace) && isvalid(app.Workspace)
-                    app.Workspace.addDashboardTab(newSessionId, copy.DisplayName);
+                    app.Workspace.addDashboardTab(newSessionId, copy.DisplayName, copy);
                 end
             catch ME
+                try
+                    if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                        app.Workspace.removeDashboardTab(newSessionId);
+                    end
+                catch
+                end
                 try, app.logCaught(ME, 'Studio:duplicateSession:tab'); catch, end
+                if ~isempty(app.StatusBar)
+                    app.StatusBar.setMessage(sprintf('Duplicate failed: %s', ME.message));
+                end
+                return;
             end
+            app.Project = app.Project.addSession(copy);
             app.refreshExplorer();
             if ~isempty(app.StatusBar)
                 app.StatusBar.setMessage(sprintf('Duplicated -> %s', copy.DisplayName));
