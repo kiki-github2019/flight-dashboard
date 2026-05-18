@@ -41,7 +41,6 @@ classdef PlotView < handle
 
             app.UI(fIdx).tabGroup.SelectedTab = newTab;
             app.UI(fIdx).selectedPlotIdx = 0;
-            obj.addEmptyState(targetLayout);
             obj.refreshCompanions();
         end
 
