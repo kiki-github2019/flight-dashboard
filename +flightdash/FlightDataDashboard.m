@@ -5944,19 +5944,48 @@ classdef FlightDataDashboard < matlab.apps.AppBase
         % - throttle 0.05s로 리사이즈 중 다발 호출 차단
         % - 모든 탭의 모든 row를 동일 높이로 통일 (4개 이상 시 자동 스크롤)
         function updatePlotRowHeights(app, fIdx)
-            if app.throttleHit('PlotRowResize', fIdx, 0.05), return; end
-            try
-                if ~isfield(app.UI(fIdx), 'tabGroup') || ~isvalid(app.UI(fIdx).tabGroup), return; end
-                pos = getpixelposition(app.UI(fIdx).tabGroup, true);
-                visH = pos(4) - 30;  % 탭 헤더 ~30px 차감
-                if visH < 90, visH = 90; end
-                rowH = max(120, floor(visH / 3));  % 최소 120px, 한 화면 3개
-                for t = 1:numel(app.UI(fIdx).plotLayouts)
-                    L = app.UI(fIdx).plotLayouts{t};
-                    if isempty(L) || ~isvalid(L) || isempty(L.RowHeight), continue; end
-                    L.RowHeight = repmat({rowH}, 1, numel(L.RowHeight));
+            if nargin < 2 || isempty(fIdx)
+                try
+                    fIdx = 1:min(2, numel(app.UI));
+                catch
+                    fIdx = 1:2;
                 end
-            catch ME, app.logCaught(ME, 'silent'); end
+            end
+            fIdx = unique(round(fIdx(:)'));
+            fIdx = fIdx(isfinite(fIdx) & fIdx >= 1);
+            if isempty(fIdx), return; end
+            if app.throttleHit('PlotRowResize', fIdx(1), 0.08), return; end
+            try
+                if isempty(app.UI), return; end
+                for f = fIdx
+                    if f > numel(app.UI), continue; end
+                    if ~isfield(app.UI(f), 'tabGroup') || isempty(app.UI(f).tabGroup) ...
+                            || ~isvalid(app.UI(f).tabGroup)
+                        continue;
+                    end
+                    pos = getpixelposition(app.UI(f).tabGroup, true);
+                    availH = max(180, pos(4) - 38);
+                    rowH = max(130, floor(availH / 3.15));
+                    if ~isfield(app.UI(f), 'plotLayouts') || isempty(app.UI(f).plotLayouts)
+                        continue;
+                    end
+                    for t = 1:numel(app.UI(f).plotLayouts)
+                        L = app.UI(f).plotLayouts{t};
+                        if isempty(L) || ~isvalid(L) || isempty(L.RowHeight)
+                            continue;
+                        end
+                        nRows = numel(L.RowHeight);
+                        if nRows < 1, continue; end
+                        nextHeight = repmat({rowH}, 1, nRows);
+                        if isequal(L.RowHeight, nextHeight)
+                            continue;
+                        end
+                        L.RowHeight = nextHeight;
+                    end
+                end
+            catch ME
+                app.logCaught(ME, 'Plot:RowHeight');
+            end
         end
 
         % [FIX] UIFigure 리사이즈 시 두 채널 plot row 동시 갱신
