@@ -117,67 +117,45 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
 
         function sessionId = addSession(app, displayName)
             % Phase 2/3b entry point: Menu > Project > Add Review Session.
-            % - Phase 2: appends a SessionModel to app.Project.
-            % - Phase 3b: embeds a FlightDataDashboard inside a new
-            %   workspace tab bound to that session.
+            % Pre-flight embed validation: build the embedded dashboard
+            % FIRST in a workspace tab; only commit the session to the
+            % ProjectModel + Project Explorer if construction succeeded.
+            % This makes the operation fully atomic — no rollback path
+            % needed because we never enter an inconsistent state.
+            sessionId = '';
             if nargin < 2 || isempty(displayName)
                 displayName = sprintf('Session %d', app.Project.sessionCount() + 1);
             end
             sess = flightdash.project.SessionModel(displayName);
-            app.Project = app.Project.addSession(sess);
-            sessionId = sess.SessionId;
-            app.refreshExplorer();
-            app.refreshTitle();
+            candidateId = sess.SessionId;
 
-            % [PHASE 3b] Embed dashboard in a workspace tab
+            % [PHASE 3b pre-flight] Try the embed before touching project.
             embedOk = false; embedME = [];
             try
-                if ~isempty(app.Workspace) && isvalid(app.Workspace)
-                    app.Workspace.addDashboardTab(sessionId, sess.DisplayName);
-                    embedOk = true;
-                else
-                    embedME = MException('FlightReviewStudio:NoWorkspace', ...
+                if isempty(app.Workspace) || ~isvalid(app.Workspace)
+                    error('FlightReviewStudio:NoWorkspace', ...
                         'Workspace manager is not available.');
                 end
+                app.Workspace.addDashboardTab(candidateId, sess.DisplayName);
+                embedOk = true;
             catch ME
                 embedME = ME;
-            end
-
-            if embedOk
-                try
-                    flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
-                    app.applyManagerThemes();
-                catch
-                end
-                msg = sprintf('Added session: %s (%s)', sess.DisplayName, sessionId);
-                if ~isempty(app.StatusBar), app.StatusBar.setMessage(msg); end
-            else
-                % Transactional rollback: when the workspace embed fails we
-                % must NOT leave the ProjectModel + Project Explorer holding
-                % a session with no backing dashboard. Otherwise Workspace.
-                % DashboardEntries and Project.Sessions go out of sync,
-                % cascading into RISK-5 / Phase 3 / Phase 9 failures.
-                try
-                    app.Project = app.Project.removeSession(sessionId);
-                catch rollbackME
-                    try, app.logCaught(rollbackME, 'Studio:addSession:rollback'); catch, end
-                end
-                try, app.refreshExplorer(); catch, end
-                try, app.refreshTitle(); catch, end
+                % addDashboardTab already cleaned up its own uitab on
+                % throw. Be doubly sure no stale entry remains.
                 try
                     if ~isempty(app.Workspace) && isvalid(app.Workspace)
-                        app.Workspace.removeDashboardTab(sessionId);
+                        app.Workspace.removeDashboardTab(candidateId);
                     end
                 catch
                 end
-                sessionId = '';
+            end
 
+            if ~embedOk
                 shortMsg = sprintf('Embed failed: %s', embedME.message);
                 if ~isempty(app.StatusBar), app.StatusBar.setMessage(shortMsg); end
                 try
                     detail = sprintf(['The session could not be embedded in a workspace tab.\n' ...
-                        'The session has been rolled back from the project so state\n' ...
-                        'remains consistent.\n\n' ...
+                        'No session was added to the project (state remains consistent).\n\n' ...
                         'Identifier: %s\n' ...
                         'Message:    %s\n\n' ...
                         'Top stack frame:\n  %s'], ...
@@ -190,7 +168,21 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                     warning('FlightReviewStudio:EmbedFailed', '%s', embedME.message);
                 end
                 try, app.logCaught(embedME, 'Studio:addSession:embed'); catch, end
+                return;
             end
+
+            % Embed succeeded — now commit to the project model.
+            app.Project = app.Project.addSession(sess);
+            sessionId = candidateId;
+            app.refreshExplorer();
+            app.refreshTitle();
+            try
+                flightdash.ui.StudioTheme.apply(app.UIFigure, app.CurrentThemeStruct);
+                app.applyManagerThemes();
+            catch
+            end
+            msg = sprintf('Added session: %s (%s)', sess.DisplayName, sessionId);
+            if ~isempty(app.StatusBar), app.StatusBar.setMessage(msg); end
         end
 
         function [cacheService, decodeService] = ensureSharedServices(app)
