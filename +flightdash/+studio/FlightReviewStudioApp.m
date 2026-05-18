@@ -152,14 +152,32 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                 msg = sprintf('Added session: %s (%s)', sess.DisplayName, sessionId);
                 if ~isempty(app.StatusBar), app.StatusBar.setMessage(msg); end
             else
-                % Surface the failure prominently so the user can see *why*
-                % the new tab did not appear. Status bar alone is too
-                % discreet for a multi-step pipeline failure.
+                % Transactional rollback: when the workspace embed fails we
+                % must NOT leave the ProjectModel + Project Explorer holding
+                % a session with no backing dashboard. Otherwise Workspace.
+                % DashboardEntries and Project.Sessions go out of sync,
+                % cascading into RISK-5 / Phase 3 / Phase 9 failures.
+                try
+                    app.Project = app.Project.removeSession(sessionId);
+                catch rollbackME
+                    try, app.logCaught(rollbackME, 'Studio:addSession:rollback'); catch, end
+                end
+                try, app.refreshExplorer(); catch, end
+                try, app.refreshTitle(); catch, end
+                try
+                    if ~isempty(app.Workspace) && isvalid(app.Workspace)
+                        app.Workspace.removeDashboardTab(sessionId);
+                    end
+                catch
+                end
+                sessionId = '';
+
                 shortMsg = sprintf('Embed failed: %s', embedME.message);
                 if ~isempty(app.StatusBar), app.StatusBar.setMessage(shortMsg); end
                 try
-                    detail = sprintf(['The session was added to the project, but the\n' ...
-                        'FlightDataDashboard could not be embedded in a workspace tab.\n\n' ...
+                    detail = sprintf(['The session could not be embedded in a workspace tab.\n' ...
+                        'The session has been rolled back from the project so state\n' ...
+                        'remains consistent.\n\n' ...
                         'Identifier: %s\n' ...
                         'Message:    %s\n\n' ...
                         'Top stack frame:\n  %s'], ...
@@ -169,9 +187,9 @@ classdef FlightReviewStudioApp < matlab.apps.AppBase
                         uialert(app.UIFigure, detail, 'Embed FlightDataDashboard failed');
                     end
                 catch
-                    % Fallback: warn to console.
                     warning('FlightReviewStudio:EmbedFailed', '%s', embedME.message);
                 end
+                try, app.logCaught(embedME, 'Studio:addSession:embed'); catch, end
             end
         end
 

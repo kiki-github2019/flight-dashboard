@@ -134,11 +134,22 @@ function testUndoServiceInjectionViaStudio(testCase)
     drawnow limitrate;
 
     dash = app.getActiveDashboard();
-    testCase.verifyFalse(isempty(dash), ...
+    dashOk = ~isempty(dash) && isscalar(dash);
+    testCase.verifyTrue(dashOk, ...
         'No active dashboard was available after adding a session.');
+    if ~dashOk
+        return;
+    end
 
-    hasUndoService = isprop(dash, 'UndoService') && ~isempty(dash.UndoService) && ...
-        isvalid(dash.UndoService);
+    hasUndoService = false;
+    try
+        if isscalar(dash) && isvalid(dash) && isprop(dash, 'UndoService')
+            svc = dash.UndoService;
+            hasUndoService = ~isempty(svc) && isscalar(svc) && isvalid(svc);
+        end
+    catch
+        hasUndoService = false;
+    end
     testCase.verifyTrue(hasUndoService, ...
         'Embedded dashboard did not receive an UndoService.');
     if ~hasUndoService
