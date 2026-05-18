@@ -61,9 +61,13 @@ classdef RightDockManager < handle
                 tokens = flightdash.ui.StudioTheme.light();
             end
             try
+                chromeFg = tokens.TextPrimary;
+                if isfield(tokens, 'ChromeText') && ~isempty(tokens.ChromeText)
+                    chromeFg = tokens.ChromeText;
+                end
                 if ~isempty(obj.Panel) && isvalid(obj.Panel)
                     obj.Panel.BackgroundColor = tokens.PanelBg;
-                    obj.Panel.ForegroundColor = tokens.TextPrimary;
+                    obj.Panel.ForegroundColor = chromeFg;
                 end
                 hs = findall(obj.Panel);
                 for k = 1:numel(hs)
@@ -73,7 +77,7 @@ classdef RightDockManager < handle
                             h.BackgroundColor = tokens.PanelBg;
                         elseif isa(h, 'matlab.ui.container.Tab') || isa(h, 'matlab.ui.container.TabGroup')
                             h.BackgroundColor = tokens.PanelBg;
-                            if isprop(h, 'ForegroundColor'), h.ForegroundColor = tokens.TextPrimary; end
+                            if isprop(h, 'ForegroundColor'), h.ForegroundColor = chromeFg; end
                         elseif isa(h, 'matlab.ui.control.Label')
                             h.FontColor = tokens.TextMuted;
                         elseif isa(h, 'matlab.ui.control.Button')
@@ -90,10 +94,14 @@ classdef RightDockManager < handle
     methods (Access = private)
         function build(obj, parentGrid)
             tokens = obj.theme();
+            chromeFg = tokens.TextPrimary;
+            if isfield(tokens, 'ChromeText') && ~isempty(tokens.ChromeText)
+                chromeFg = tokens.ChromeText;
+            end
             obj.Panel = uipanel(parentGrid, ...
                 'BorderType', 'line', ...
                 'BackgroundColor', tokens.PanelBg, ...
-                'ForegroundColor', tokens.TextPrimary);
+                'ForegroundColor', chromeFg);
             obj.Panel.Layout.Column = 3;
 
             grid = uigridlayout(obj.Panel, [1 1], ...
