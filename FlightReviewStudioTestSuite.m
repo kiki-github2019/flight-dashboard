@@ -15,14 +15,22 @@ function results = FlightReviewStudioTestSuite()
 %   so the user can see which test (out of how many) is currently
 %   running.
 %
-%   On any failure, writes a Claude-Code / ChatGPT-Cowork follow-up
-%   prompt to a UTF-8 .txt file, then renames it to .log so Notepad
-%   opens it without a file-type prompt.
+%   Saves command-window output through MATLAB diary() to
+%   Test_result_yyyymmdd_HHMMSS.log in this file's folder, then writes a
+%   filtered warning/FAIL summary to Test_result_yyyymmdd_HHMMSS_with error.log.
 %
 %   Usage:
 %     results = FlightReviewStudioTestSuite();
 %
 %   Returns: struct array (File, Function, Status, Detail, Error).
+
+    here = fileparts(mfilename('fullpath'));
+    stamp = datestr(now, 'yyyymmdd_HHMMSS'); %#ok<DATST,TNOW1>
+    logPath = fullfile(here, sprintf('Test_result_%s.log', stamp));
+    errorLogPath = fullfile(here, sprintf('Test_result_%s_with error.log', stamp));
+    diary(logPath);
+    diaryCleanup = onCleanup(@() localFinishDiaryLog(logPath, errorLogPath)); %#ok<NASGU>
+    fprintf('[FlightReviewStudioTestSuite] diary log started: %s\n', logPath);
 
     % --- pre-test cleanup ----------------------------------------------
     %#ok<*CLALL>
@@ -31,7 +39,6 @@ function results = FlightReviewStudioTestSuite()
     evalin('base', 'clear classes');
     rehash toolboxcache;
 
-    here = fileparts(mfilename('fullpath'));
     staticDir = fullfile(here, 'static_test');
     if ~isfolder(staticDir)
         warning('FlightReviewStudioTestSuite:NoStaticFolder', ...
@@ -49,7 +56,6 @@ function results = FlightReviewStudioTestSuite()
     fprintf('[FlightReviewStudioTestSuite] %d test function(s) discovered.\n\n', total);
 
     results = repmat(localEmptyResult(), total, 1);
-    failures = repmat(struct('file','','name','','identifier','','message','','stack',''), 0, 1);
 
     for k = 1:total
         e = entries(k);
@@ -69,10 +75,6 @@ function results = FlightReviewStudioTestSuite()
             else
                 results(k) = struct('File', e.File, 'Function', e.Display, ...
                     'Status', 'FAIL', 'Detail', '', 'Error', ME.message);
-                failures(end+1, 1) = struct( ...
-                    'file', e.File, 'name', e.Display, ...
-                    'identifier', ME.identifier, 'message', ME.message, ...
-                    'stack', localStackString(ME.stack)); %#ok<AGROW>
                 fprintf('FAIL  %s\n', ME.message);
             end
         end
@@ -84,11 +86,6 @@ function results = FlightReviewStudioTestSuite()
     nSkip = sum(strcmp({results.Status}, 'SKIP'));
     fprintf('\n[FlightReviewStudioTestSuite] summary: %d PASS / %d FAIL / %d SKIP (total %d)\n', ...
         nPass, nFail, nSkip, total);
-
-    if ~isempty(failures)
-        logPath = localWriteFailureLog(here, failures);
-        fprintf('[FlightReviewStudioTestSuite] failure log written: %s\n', logPath);
-    end
 end
 
 % ---------- enumeration ----------------------------------------------------
@@ -269,67 +266,68 @@ function s = localSummarize(out)
     end
 end
 
-function s = localStackString(stack)
-    s = '';
+function localFinishDiaryLog(logPath, errorLogPath)
     try
-        n = min(numel(stack), 6);
-        lines = cell(n, 1);
-        for k = 1:n
-            lines{k} = sprintf('  %s (%s:%d)', stack(k).name, ...
-                stack(k).file, stack(k).line);
-        end
-        s = strjoin(lines, char(10));
+        diary off;
     catch
     end
+    localWriteKeywordErrorLog(logPath, errorLogPath);
 end
 
-function logPath = localWriteFailureLog(rootDir, failures)
-    % Compose a Claude Code / ChatGPT Cowork follow-up prompt and
-    % write it as a UTF-8 .txt file, then rename to .log so Notepad
-    % opens it directly (no file-type chooser prompt).
-    stamp = datestr(now, 'yyyymmdd_HHMMSS'); %#ok<DATST,TNOW1>
-    txtPath = fullfile(rootDir, sprintf('static_test_failures_%s.txt', stamp));
-    logPath = fullfile(rootDir, sprintf('static_test_failures_%s.log', stamp));
-    fid = fopen(txtPath, 'w', 'n', 'UTF-8');
+function localWriteKeywordErrorLog(logPath, errorLogPath)
+    lines = {};
+    if isfile(logPath)
+        try
+            text = fileread(logPath);
+            lines = regexp(text, '\r\n|\n|\r', 'split');
+        catch ME
+            lines = {sprintf('Failed to read diary log: %s', ME.message)};
+        end
+    else
+        lines = {sprintf('Diary log file not found: %s', logPath)};
+    end
+
+    match = false(size(lines));
+    for k = 1:numel(lines)
+        line = lines{k};
+        match(k) = ~isempty(regexpi(line, 'warning', 'once')) || ...
+            ~isempty(regexp(line, 'FAIL', 'once'));
+    end
+
+    selected = false(size(lines));
+    matchIdx = find(match);
+    for i = 1:numel(matchIdx)
+        idx = matchIdx(i);
+        from = max(1, idx - 1);
+        to = min(numel(lines), idx + 6);
+        selected(from:to) = true;
+    end
+
+    fid = fopen(errorLogPath, 'w', 'n', 'UTF-8');
     if fid == -1
-        logPath = '';
-        warning('FlightReviewStudioTestSuite:LogOpenFailed', ...
-            'Cannot open %s for writing', txtPath);
+        warning('FlightReviewStudioTestSuite:ErrorLogOpenFailed', ...
+            'Cannot open %s for writing', errorLogPath);
         return;
     end
     cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
-    fprintf(fid, ['You are continuing a Claude Code / ChatGPT Cowork session ' ...
-        'on the MATLAB repo D:\\flightdashboard\\5. 4th\\root.\n\n']);
-    fprintf(fid, ['FlightReviewStudioTestSuite just ran and the ' ...
-        'following static_test entries failed. Please diagnose and ' ...
-        'propose minimal-risk fixes (no broad refactor). Preserve ' ...
-        'adapter-based controller behavior and MATLAB R2025a/R2026a + ' ...
-        'MATLAB Online compatibility. Then run runtests again to ' ...
-        'verify.\n\n']);
-    fprintf(fid, 'Failures (%d):\n', numel(failures));
-    for k = 1:numel(failures)
-        f = failures(k);
-        fprintf(fid, '\n[%d] file=%s function=%s\n', k, f.file, f.name);
-        if ~isempty(f.identifier)
-            fprintf(fid, '    identifier : %s\n', f.identifier);
+
+    fprintf(fid, 'Source log: %s\n', logPath);
+    fprintf(fid, 'Keywords: warning, FAIL\n\n');
+    if isempty(matchIdx)
+        fprintf(fid, 'No warning or FAIL entries found.\n');
+    else
+        fprintf(fid, 'Matched section count: %d\n\n', numel(matchIdx));
+        lastWasGap = true;
+        for k = 1:numel(lines)
+            if selected(k)
+                if lastWasGap
+                    fprintf(fid, '---\n');
+                    lastWasGap = false;
+                end
+                fprintf(fid, '%s\n', lines{k});
+            else
+                lastWasGap = true;
+            end
         end
-        fprintf(fid, '    message    : %s\n', f.message);
-        if ~isempty(f.stack)
-            fprintf(fid, '    stack:\n%s\n', f.stack);
-        end
-    end
-    fprintf(fid, '\nFiles to consult:\n');
-    fprintf(fid, '  - FlightReviewStudioTestSuite.m (runner)\n');
-    fprintf(fid, '  - static_test\\ (test files)\n');
-    fprintf(fid, '  - docs\\architecture.md (architecture snapshot)\n');
-    fprintf(fid, '\nWhen done, commit with a timestamped subject:\n');
-    fprintf(fid, '  fix(test): repair static_test failures @YYYY-MM-DD HH:MM:SS\n');
-    clear cleaner;
-    % .txt -> .log so Notepad opens it directly.
-    try
-        if isfile(logPath), delete(logPath); end
-        movefile(txtPath, logPath);
-    catch
-        logPath = txtPath;
     end
 end
